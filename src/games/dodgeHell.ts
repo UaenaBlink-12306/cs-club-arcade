@@ -1,17 +1,22 @@
 import { BaseGame } from '../core/BaseGame'
-import { circleHit, clamp, normalize, rand } from '../core/math'
+import { circleHit, clamp, distance, normalize, rand } from '../core/math'
 import type { GameMeta, HudItem, InputFrame } from '../core/types'
 import { COLORS, axis, clearArena } from './common'
 
 interface Bullet { x: number; y: number; vx: number; vy: number; r: number; color: string; homing?: number }
 interface Laser { x: number; warning: number; active: number }
+interface RingWarning { x: number; y: number; timer: number; duration: number; angle: number }
+
+const MIN_RING_PLAYER_DISTANCE = 310
 
 export class DodgeHellGame extends BaseGame {
   private player = { x: 600, y: 300, vx: 0, vy: 0, r: 13 }
   private bullets: Bullet[] = []
   private lasers: Laser[] = []
+  private ringWarnings: RingWarning[] = []
   private spawnTimer = 0
   private laserTimer = 7
+  private ringTimer = 4.5
   private dashCooldown = 0
   private invulnerable = 0
   private lastDirection = { x: 1, y: 0 }
@@ -19,7 +24,7 @@ export class DodgeHellGame extends BaseGame {
   constructor(meta: GameMeta) { super(meta); this.reset() }
 
   reset() {
-    this.result = null; this.elapsed = 0; this.bullets = []; this.lasers = []; this.spawnTimer = 0; this.laserTimer = 7
+    this.result = null; this.elapsed = 0; this.bullets = []; this.lasers = []; this.ringWarnings = []; this.spawnTimer = 0; this.laserTimer = 7; this.ringTimer = 4.5
     this.dashCooldown = 0; this.invulnerable = 0; this.lastDirection = { x: 1, y: 0 }
     Object.assign(this.player, { x: 600, y: 300, vx: 0, vy: 0 }); this.particles.clear()
   }
@@ -49,7 +54,13 @@ export class DodgeHellGame extends BaseGame {
       this.spawnAimedBullet()
       if (this.elapsed > 10 && Math.random() < 0.42) this.spawnAimedBullet()
       if (this.elapsed > 22 && Math.random() < 0.28) this.spawnHomingBullet()
-      if (this.elapsed > 14 && Math.floor(this.elapsed * 2) % 7 === 0) this.spawnRing()
+    }
+    if (this.elapsed > 14) {
+      this.ringTimer -= dt
+      if (this.ringTimer <= 0 && this.ringWarnings.length === 0) {
+        this.queueRingWarning()
+        this.ringTimer = rand(4.6, 6.3)
+      }
     }
     if (this.elapsed > 20) {
       this.laserTimer -= dt
@@ -62,6 +73,12 @@ export class DodgeHellGame extends BaseGame {
       if (laser.warning <= 0 && laser.active > 0 && Math.abs(this.player.x - laser.x) < 34 && this.invulnerable <= 0) this.die()
     }
     this.lasers = this.lasers.filter((laser) => laser.warning > 0 || laser.active > 0)
+
+    for (const warning of this.ringWarnings) {
+      warning.timer -= dt
+      if (warning.timer <= 0) this.spawnRing(warning)
+    }
+    this.ringWarnings = this.ringWarnings.filter((warning) => warning.timer > 0)
 
     for (const bullet of this.bullets) {
       if (bullet.homing) {
@@ -90,12 +107,27 @@ export class DodgeHellGame extends BaseGame {
     this.bullets.push({ ...spawn, vx: dir.x * 120, vy: dir.y * 120, r: 10, color: COLORS.lime, homing: 72 })
   }
 
-  private spawnRing() {
-    const center = { x: rand(220, 980), y: rand(160, 440) }
+  private queueRingWarning() {
+    const candidates = [
+      { x: 180, y: 135 }, { x: 600, y: 135 }, { x: 1020, y: 135 },
+      { x: 180, y: 300 }, { x: 1020, y: 300 },
+      { x: 180, y: 465 }, { x: 600, y: 465 }, { x: 1020, y: 465 },
+    ]
+    for (let i = 0; i < 18; i += 1) candidates.push({ x: rand(180, 1020), y: rand(135, 465) })
+    const safe = candidates.filter((candidate) => distance(candidate, this.player) >= MIN_RING_PLAYER_DISTANCE)
+    const pool = safe.length > 0 ? safe : [...candidates].sort((a, b) => distance(b, this.player) - distance(a, this.player)).slice(0, 1)
+    const center = pool[Math.floor(Math.random() * pool.length)]
+    const duration = 1.35
+    this.ringWarnings.push({ ...center, timer: duration, duration, angle: rand(0, Math.PI * 2) })
+  }
+
+  private spawnRing(warning: RingWarning) {
     for (let i = 0; i < 12; i += 1) {
-      const angle = i / 12 * Math.PI * 2 + this.elapsed
-      this.bullets.push({ x: center.x, y: center.y, vx: Math.cos(angle) * 135, vy: Math.sin(angle) * 135, r: 6, color: COLORS.violet })
+      const angle = i / 12 * Math.PI * 2 + warning.angle
+      this.bullets.push({ x: warning.x + Math.cos(angle) * 22, y: warning.y + Math.sin(angle) * 22, vx: Math.cos(angle) * 145, vy: Math.sin(angle) * 145, r: 6, color: COLORS.violet })
     }
+    this.particles.burst(warning.x, warning.y, COLORS.violet, 30, 230)
+    this.impact(5)
   }
 
   private die() {
@@ -113,6 +145,7 @@ export class DodgeHellGame extends BaseGame {
       ctx.fillRect(laser.x - 32, 18, 64, 564)
       ctx.strokeStyle = COLORS.lime; ctx.setLineDash(laser.warning > 0 ? [12, 9] : []); ctx.lineWidth = 3; ctx.strokeRect(laser.x - 32, 18, 64, 564); ctx.restore()
     }
+    for (const warning of this.ringWarnings) this.drawRingWarning(ctx, warning)
     for (const bullet of this.bullets) {
       const angle = Math.atan2(bullet.vy, bullet.vx)
       ctx.save(); ctx.translate(bullet.x, bullet.y); ctx.rotate(angle); ctx.strokeStyle = bullet.color; ctx.fillStyle = bullet.color
@@ -125,11 +158,31 @@ export class DodgeHellGame extends BaseGame {
     this.particles.render(ctx); ctx.restore()
   }
 
+  private drawRingWarning(ctx: CanvasRenderingContext2D, warning: RingWarning) {
+    const progress = 1 - warning.timer / warning.duration
+    const pulse = 0.5 + Math.sin(this.elapsed * 18) * 0.5
+    const radius = 34 + progress * 36
+    ctx.save(); ctx.translate(warning.x, warning.y)
+    ctx.strokeStyle = COLORS.violet; ctx.fillStyle = `rgba(164,92,255,${0.08 + pulse * 0.09})`; ctx.lineWidth = 4
+    ctx.setLineDash([10, 8]); ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+    ctx.strokeStyle = COLORS.coral; ctx.globalAlpha = 0.72; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.moveTo(-radius - 12, 0); ctx.lineTo(radius + 12, 0); ctx.moveTo(0, -radius - 12); ctx.lineTo(0, radius + 12); ctx.stroke()
+    for (let i = 0; i < 12; i += 1) {
+      const angle = i / 12 * Math.PI * 2 + warning.angle
+      ctx.save(); ctx.rotate(angle); ctx.translate(radius, 0); ctx.fillStyle = COLORS.violet; ctx.globalAlpha = 0.45 + pulse * 0.35
+      ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-7, -5); ctx.lineTo(-3, 0); ctx.lineTo(-7, 5); ctx.closePath(); ctx.fill(); ctx.restore()
+    }
+    ctx.globalAlpha = 1; ctx.fillStyle = COLORS.text; ctx.font = '800 15px Arial Narrow, sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText(`RADIAL BURST · ${Math.max(0, warning.timer).toFixed(1)}s`, 0, radius + 30)
+    ctx.restore()
+  }
+
   getHud(): HudItem[] {
+    const ringWarning = this.ringWarnings[0]
     return [
       { label: 'SURVIVAL', value: `${this.elapsed.toFixed(2)}s`, accent: COLORS.text },
       { label: 'DASH', value: this.dashCooldown <= 0 ? 'READY' : `${this.dashCooldown.toFixed(1)}s`, accent: this.dashCooldown <= 0 ? COLORS.lime : COLORS.muted },
-      { label: 'WAVE', value: String(Math.floor(this.elapsed / 10) + 1).padStart(2, '0'), accent: COLORS.cyan },
+      { label: ringWarning ? 'THREAT' : 'WAVE', value: ringWarning ? `RADIAL ${ringWarning.timer.toFixed(1)}s` : String(Math.floor(this.elapsed / 10) + 1).padStart(2, '0'), accent: ringWarning ? COLORS.violet : COLORS.cyan },
     ]
   }
 }

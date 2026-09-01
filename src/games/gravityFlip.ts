@@ -12,19 +12,26 @@ export class GravityFlipGame extends BaseGame {
   private spawnTimer = 1.2
   private distance = 0
   private speed = 330
+  private flipFlash = 0
 
   constructor(meta: GameMeta) { super(meta); this.reset() }
 
   reset() {
-    this.result = null; this.elapsed = 0; this.distance = 0; this.speed = 330; this.spawnTimer = 1.3; this.obstacles = []; this.particles.clear()
+    this.result = null; this.elapsed = 0; this.distance = 0; this.speed = 330; this.spawnTimer = 1.3; this.obstacles = []; this.flipFlash = 0; this.particles.clear()
     Object.assign(this.runner, { x: 230, y: 510, vy: 0, gravity: 1 })
   }
 
   update(dt: number, input: InputFrame) {
     if (this.result) return
-    this.tickEffects(dt); this.speed = Math.min(620, 330 + this.elapsed * 8); this.distance += this.speed * dt / 10
-    if (input.wasPressed('Space') || input.pointer.pressed) { this.runner.gravity *= -1; this.runner.vy = this.runner.gravity * -250; this.particles.burst(this.runner.x, this.runner.y, COLORS.cyan, 8, 110) }
-    this.runner.vy += this.runner.gravity * 1450 * dt; this.runner.y += this.runner.vy * dt
+    this.tickEffects(dt); this.flipFlash = Math.max(0, this.flipFlash - dt); this.speed = Math.min(620, 330 + this.elapsed * 8); this.distance += this.speed * dt / 10
+    if (input.wasPressed('Space') || input.pointer.pressed) {
+      this.runner.gravity *= -1
+      this.runner.vy = this.runner.gravity * 760
+      this.flipFlash = 0.18
+      this.particles.burst(this.runner.x, this.runner.y, COLORS.cyan, 14, 180)
+      this.impact(3)
+    }
+    this.runner.vy += this.runner.gravity * 2100 * dt; this.runner.y += this.runner.vy * dt
     if (this.runner.gravity > 0 && this.runner.y > 510) { this.runner.y = 510; this.runner.vy = 0 }
     if (this.runner.gravity < 0 && this.runner.y < 90) { this.runner.y = 90; this.runner.vy = 0 }
 
@@ -62,7 +69,8 @@ export class GravityFlipGame extends BaseGame {
     ctx.strokeStyle = COLORS.cyan; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 65); ctx.lineTo(1200, 65); ctx.moveTo(0, 535); ctx.lineTo(1200, 535); ctx.stroke()
     for (let x = -((this.distance * 5) % 70); x < 1200; x += 70) { ctx.fillStyle = 'rgba(24,216,242,.25)'; ctx.fillRect(x, 35, 28, 3); ctx.fillRect(x, 562, 28, 3) }
     for (const obstacle of this.obstacles) this.drawObstacle(ctx, obstacle)
-    ctx.save(); ctx.translate(this.runner.x, this.runner.y); ctx.rotate(this.runner.gravity > 0 ? 0 : Math.PI)
+    const flipPulse = this.flipFlash / 0.18
+    ctx.save(); ctx.translate(this.runner.x, this.runner.y); ctx.rotate(this.runner.gravity > 0 ? 0 : Math.PI); ctx.scale(1 + flipPulse * 0.22, 1 - flipPulse * 0.13)
     ctx.shadowBlur = 18; ctx.shadowColor = COLORS.cyan; ctx.fillStyle = COLORS.cyan; ctx.fillRect(-17, -17, 34, 34)
     ctx.fillStyle = COLORS.ink; ctx.fillRect(0, -8, 13, 16); ctx.restore()
     this.particles.render(ctx); ctx.restore()

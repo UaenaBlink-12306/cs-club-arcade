@@ -192,28 +192,7 @@ button:focus-visible, input:focus-visible {
 
 .key-hint { padding: 4px 7px; border: 1px solid rgba(244, 241, 232, .65); border-radius: 3px; color: var(--text); }
 
-.modal-backdrop {
-  position: fixed;
-  z-index: 100;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(1, 5, 14, .78);
-  backdrop-filter: blur(10px);
-}
-
-.settings-modal {
-  position: relative;
-  width: min(100%, 470px);
-  padding: 34px;
-  border: 1px solid var(--cyan);
-  border-radius: 7px;
-  background: #07172c;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, .55), 0 0 40px rgba(24, 216, 242, .08);
-}
-
-.settings-modal h2, .game-overlay h2 {
+.game-overlay h2 {
   margin: 0;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(42px, 5vw, 62px);
@@ -222,16 +201,6 @@ button:focus-visible, input:focus-visible {
   line-height: .95;
   text-transform: uppercase;
 }
-
-.settings-modal > p { margin: 12px 0 26px; color: var(--muted); line-height: 1.5; }
-.modal-close { position: absolute; top: 16px; right: 16px; width: 38px; height: 38px; display: grid; place-items: center; padding: 0; }
-.modal-close svg { width: 19px; }
-.field-label { display: block; margin-bottom: 8px; color: var(--cyan); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.settings-modal input { width: 100%; height: 52px; padding: 0 14px; border: 1px solid var(--line); border-radius: 4px; background: #030916; color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: .08em; }
-.settings-row { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding: 14px 0; border-block: 1px solid rgba(53, 80, 107, .7); }
-.small-button { min-width: 76px; padding: 8px 12px; color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; text-transform: uppercase; }
-.danger-button { width: 100%; margin-top: 18px; padding: 12px; border-color: rgba(255, 91, 85, .65); color: var(--coral); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.save-button { width: 100%; margin-top: 12px; }
 
 .game-screen {
   min-height: 100svh;
@@ -301,6 +270,8 @@ button:focus-visible, input:focus-visible {
 .text-button { margin-top: 13px; padding: 8px 12px; border-color: transparent; background: transparent; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; text-transform: uppercase; }
 .result-label { margin-bottom: 14px; color: var(--game-accent); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
 .over-overlay h2 { font-size: clamp(42px, 5.4vw, 74px); }
+.new-best-banner { display: inline-flex; align-items: center; gap: 9px; margin: 4px 0 18px; padding: 9px 14px; border: 1px solid var(--lime); border-radius: 4px; background: rgba(185, 242, 11, .1); color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; box-shadow: 0 0 28px rgba(185, 242, 11, .12); }
+.new-best-banner svg { width: 20px; }
 
 .game-footer {
   width: min(100%, 1200px);

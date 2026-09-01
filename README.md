@@ -15,7 +15,7 @@ A full-screen browser arcade with ten quick, replayable mini-games, designed for
 - Boss Rush
 - Tower Stack
 
-Each game has a short ready screen, keyboard or pointer controls, pause and sound controls, instant replay, and a route back to the launcher. The player name, sound preference, and local scoreboards persist in versioned browser storage.
+Each game has a short ready screen, keyboard or pointer controls, pause and sound controls, replay, and a route back to the launcher. The sound preference and one device-best result per single-player game persist in versioned browser storage; two-player results stay within the current session.
 
 ## Run locally
 

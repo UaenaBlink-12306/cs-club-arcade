@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import { ArrowLeft, Pause, Play, RotateCcw, Trophy, Volume2, VolumeX } from 'lucide-react'
 import { arcadeAudio } from '../audio/ArcadeAudio'
 import { InputController } from '../core/Input'
 import { GAME_HEIGHT, GAME_WIDTH, type GameMeta, type GameResult, type HudItem } from '../core/types'
@@ -17,6 +17,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [countdown, setCountdown] = useState('3')
   const [hud, setHud] = useState<HudItem[]>(() => runtime.getHud())
   const [result, setResult] = useState<GameResult | null>(null)
+  const [newBest, setNewBest] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
 
   const setPhase = (value: Phase) => { phaseRef.current = value; setPhaseState(value) }
@@ -42,8 +43,9 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
       if (now - lastHud > 90) { lastHud = now; setHud(runtime.getHud()) }
       if (phaseRef.current === 'playing' && runtime.result && !recordedRef.current) {
         recordedRef.current = true
-        recordResult(meta, runtime.result)
-        onRecordsChanged()
+        const recordUpdate = recordResult(meta, runtime.result)
+        setNewBest(recordUpdate.isNewBest)
+        if (recordUpdate.isNewBest) onRecordsChanged()
         arcadeAudio.play(runtime.result.headline.includes('CRASHED') ? 'lose' : 'win')
         setResult(runtime.result)
         setPhase('over')
@@ -76,7 +78,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   }, [phase])
 
   const start = () => { arcadeAudio.play('ui'); setCountdown('3'); setPhase('countdown') }
-  const restart = () => { runtime.reset(); recordedRef.current = false; setResult(null); setHud(runtime.getHud()); setCountdown('3'); setPhase('countdown') }
+  const restart = () => { runtime.reset(); recordedRef.current = false; setResult(null); setNewBest(false); setHud(runtime.getHud()); setCountdown('3'); setPhase('countdown') }
   const toggleSound = () => { arcadeAudio.toggle(); setAudioVersion((value) => value + 1) }
   const best = getBest(meta.id)
 
@@ -105,7 +107,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
               <p>{meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               <button className="action-button action-primary overlay-primary" autoFocus onClick={start}>Start round</button>
-              {best && <small>Local best · {best.name} · {meta.formatRecord(best.score)}</small>}
+              {meta.players === 1 && best && <small>Device best · {meta.formatRecord(best.score)}</small>}
             </div>
           )}
           {phase === 'countdown' && <div className="game-overlay countdown-overlay" aria-live="assertive"><strong>{countdown}</strong></div>}
@@ -114,10 +116,11 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
           )}
           {phase === 'over' && result && (
             <div className="game-overlay over-overlay" aria-live="polite">
-              <span className="result-label">Round complete</span>
+              <span className="result-label">{newBest ? 'Record broken' : 'Round complete'}</span>
               <h2>{result.headline}</h2>
               <p>{result.detail}</p>
-              <div className="result-actions"><button className="action-button action-primary overlay-primary" autoFocus onClick={restart}><RotateCcw />Instant replay</button><button className="action-button" onClick={onExit}>Arcade menu</button></div>
+              {newBest && <div className="new-best-banner"><Trophy aria-hidden="true" />New device best · {meta.formatRecord(result.score)}</div>}
+              <div className="result-actions"><button className="action-button action-primary overlay-primary" autoFocus onClick={restart}><RotateCcw />Replay</button><button className="action-button" onClick={onExit}>Arcade menu</button></div>
             </div>
           )}
         </div>

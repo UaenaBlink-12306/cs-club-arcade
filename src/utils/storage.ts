@@ -1,66 +1,94 @@
 import type { GameId, GameMeta, GameResult } from '../core/types'
 
-export interface LeaderboardEntry {
-  name: string
+export interface BestRecord {
   score: number
   at: number
 }
 
-const BOARD_KEY = 'cs-club-arcade:leaderboards:v1'
-const NAME_KEY = 'cs-club-arcade:player-name:v1'
+export interface RecordUpdate {
+  isNewBest: boolean
+  previous: BestRecord | null
+  best: BestRecord | null
+}
 
-function readBoards(): Partial<Record<GameId, LeaderboardEntry[]>> {
+const BEST_KEY = 'cs-club-arcade:best-records:v2'
+const LEGACY_BOARD_KEY = 'cs-club-arcade:leaderboards:v1'
+const LEGACY_NAME_KEY = 'cs-club-arcade:player-name:v1'
+const SINGLE_PLAYER_GAMES = new Set<GameId>(['dodge-hell', 'mini-golf', 'gravity-flip', 'boss-rush', 'tower-stack'])
+let cachedRecords: Partial<Record<GameId, BestRecord>> | null = null
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === BEST_KEY || event.key === LEGACY_BOARD_KEY) cachedRecords = null
+  })
+}
+
+function isValidScore(id: GameId, score: number) {
+  return Number.isFinite(score) && !(id === 'boss-rush' && score >= 9999)
+}
+
+function normalizeRecords(value: unknown): Partial<Record<GameId, BestRecord>> {
+  if (!value || typeof value !== 'object') return {}
+  const source = value as Partial<Record<GameId, { score?: unknown; at?: unknown }>>
+  const records: Partial<Record<GameId, BestRecord>> = {}
+  for (const id of SINGLE_PLAYER_GAMES) {
+    const record = source[id]
+    if (record && typeof record.score === 'number' && isValidScore(id, record.score)) {
+      records[id] = { score: record.score, at: typeof record.at === 'number' && Number.isFinite(record.at) ? record.at : Date.now() }
+    }
+  }
+  return records
+}
+
+function migrateLegacyRecords(): Partial<Record<GameId, BestRecord>> {
   try {
-    return JSON.parse(localStorage.getItem(BOARD_KEY) ?? '{}')
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_BOARD_KEY) ?? '{}') as Partial<Record<GameId, Array<{ score: number; at?: number }>>>
+    const records: Partial<Record<GameId, BestRecord>> = {}
+    for (const id of SINGLE_PLAYER_GAMES) {
+      const first = legacy[id]?.[0]
+      if (first && isValidScore(id, first.score)) records[id] = { score: first.score, at: first.at ?? Date.now() }
+    }
+    localStorage.setItem(BEST_KEY, JSON.stringify(records))
+    localStorage.removeItem(LEGACY_BOARD_KEY)
+    localStorage.removeItem(LEGACY_NAME_KEY)
+    return records
   } catch {
     return {}
   }
 }
 
-function writeBoards(boards: Partial<Record<GameId, LeaderboardEntry[]>>) {
-  try { localStorage.setItem(BOARD_KEY, JSON.stringify(boards)) } catch { /* Records remain optional when storage is unavailable. */ }
+function readBestRecords(): Partial<Record<GameId, BestRecord>> {
+  if (cachedRecords) return cachedRecords
+  try {
+    const stored = localStorage.getItem(BEST_KEY)
+    cachedRecords = stored ? normalizeRecords(JSON.parse(stored)) : migrateLegacyRecords()
+    if (stored) localStorage.setItem(BEST_KEY, JSON.stringify(cachedRecords))
+    return cachedRecords ?? {}
+  } catch {
+    return {}
+  }
+}
+
+function writeBestRecords(records: Partial<Record<GameId, BestRecord>>) {
+  cachedRecords = records
+  try { localStorage.setItem(BEST_KEY, JSON.stringify(records)) } catch { /* Best records remain optional when storage is unavailable. */ }
   window.dispatchEvent(new CustomEvent('arcade-records'))
-}
-
-export function getPlayerName() {
-  try { return localStorage.getItem(NAME_KEY) || 'PLAYER 1' } catch { return 'PLAYER 1' }
-}
-
-export function setPlayerName(name: string) {
-  const clean = name.trim().slice(0, 12).toUpperCase() || 'PLAYER 1'
-  try { localStorage.setItem(NAME_KEY, clean) } catch { /* Keep the sanitized in-memory value. */ }
-  return clean
-}
-
-export function getLeaderboard(id: GameId) {
-  return readBoards()[id] ?? []
 }
 
 export function getBest(id: GameId) {
-  return getLeaderboard(id)[0]
+  return readBestRecords()[id] ?? null
 }
 
-export function recordResult(meta: GameMeta, result: GameResult) {
-  const boards = readBoards()
-  const name = (result.winnerName || getPlayerName()).slice(0, 12).toUpperCase()
-  const board = [...(boards[meta.id] ?? [])]
+export function recordResult(meta: GameMeta, result: GameResult): RecordUpdate {
+  if (meta.players !== 1) return { isNewBest: false, previous: null, best: null }
+  const records = readBestRecords()
+  const previous = records[meta.id] ?? null
+  if (result.recordEligible === false || !isValidScore(meta.id, result.score)) return { isNewBest: false, previous, best: previous }
+  const isNewBest = previous === null || (meta.recordStrategy === 'low' ? result.score < previous.score : result.score > previous.score)
+  if (!isNewBest) return { isNewBest: false, previous, best: previous }
 
-  if (meta.recordStrategy === 'count') {
-    const existing = board.find((entry) => entry.name === name)
-    if (existing) existing.score += 1
-    else board.push({ name, score: 1, at: Date.now() })
-    board.sort((a, b) => b.score - a.score || a.at - b.at)
-  } else {
-    board.push({ name, score: result.score, at: Date.now() })
-    board.sort((a, b) => meta.recordStrategy === 'low' ? a.score - b.score : b.score - a.score)
-  }
-
-  boards[meta.id] = board.slice(0, 5)
-  writeBoards(boards)
-  return boards[meta.id]
-}
-
-export function resetLeaderboards() {
-  try { localStorage.removeItem(BOARD_KEY) } catch { /* Storage may be unavailable. */ }
-  window.dispatchEvent(new CustomEvent('arcade-records'))
+  const best = { score: result.score, at: Date.now() }
+  records[meta.id] = best
+  writeBestRecords(records)
+  return { isNewBest: true, previous, best }
 }

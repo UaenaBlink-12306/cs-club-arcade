@@ -66,7 +66,7 @@ export class BossRushGame extends BaseGame {
 
   private hitPlayer() {
     this.player.hp -= 1; this.player.invulnerable = 1; this.particles.burst(this.player.x, this.player.y, COLORS.cyan, 28, 330); this.impact(10)
-    if (this.player.hp <= 0) this.finish({ headline: 'SYSTEM CRASHED', detail: `BOSS ${Math.max(0, Math.ceil(this.boss.hp / this.boss.maxHp * 100))}% REMAINING`, score: 9999 })
+    if (this.player.hp <= 0) this.finish({ headline: 'SYSTEM CRASHED', detail: `BOSS ${Math.max(0, Math.ceil(this.boss.hp / this.boss.maxHp * 100))}% REMAINING`, score: 9999, recordEligible: false })
   }
 
   render(ctx: CanvasRenderingContext2D) {

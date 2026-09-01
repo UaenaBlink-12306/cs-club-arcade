@@ -3,3 +3,4 @@ dist
 .vercel
 *.local
 *.log
+output/playwright/

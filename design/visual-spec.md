@@ -7,7 +7,7 @@
 
 ## Visible-copy lock
 
-Above the fold on the launcher: `CS CLUB ARCADE`, `RANDOM GAME`, `SETTINGS`, `SOUND ON`/`SOUND OFF`, the ten approved game names, player-count labels, short descriptions, and local-best labels. No eyebrow, badge, marketing copy, or extra navigation.
+Above the fold on the launcher: `CS CLUB ARCADE`, `RANDOM GAME`, `SOUND ON`/`SOUND OFF`, the ten approved game names, player-count labels, short descriptions, single-player device-best labels, and `SESSION ONLY` labels for local multiplayer. No eyebrow, badge, leaderboard, settings panel, marketing copy, or extra navigation.
 
 ## Design tokens
 
@@ -29,7 +29,7 @@ Above the fold on the launcher: `CS CLUB ARCADE`, `RANDOM GAME`, `SETTINGS`, `SO
 ## Asset and icon inventory
 
 - Generated production background plate: `public/assets/arcade-background.png`.
-- Code-native SVGs: back, sound, settings, shuffle, pause, keyboard hints, and ten geometric game thumbnails.
+- Code-native SVGs: back, sound, shuffle, pause, keyboard hints, and ten geometric game thumbnails.
 - Canvas-native gameplay silhouettes: circles, tanks, cars, projectiles, tiles, blocks, and collision bounds.
 
 ## Intentional scope and art deviations

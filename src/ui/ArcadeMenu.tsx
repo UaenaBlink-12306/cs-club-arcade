@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Shuffle, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react'
+import { Shuffle, Volume2, VolumeX } from 'lucide-react'
 import type { GameId } from '../core/types'
 import { arcadeAudio } from '../audio/ArcadeAudio'
 import { games } from '../games'
@@ -8,13 +8,12 @@ import { GameThumb } from './GameThumb'
 
 interface Props {
   onSelect: (id: GameId) => void
-  onSettings: () => void
   recordsVersion: number
   audioVersion: number
   onAudioChanged: () => void
 }
 
-export function ArcadeMenu({ onSelect, onSettings, recordsVersion, audioVersion, onAudioChanged }: Props) {
+export function ArcadeMenu({ onSelect, recordsVersion, audioVersion, onAudioChanged }: Props) {
   const [selected, setSelected] = useState(2)
   const cardRefs = useRef<Array<HTMLButtonElement | null>>([])
 
@@ -49,7 +48,6 @@ export function ArcadeMenu({ onSelect, onSettings, recordsVersion, audioVersion,
         <h1 className="brand-title"><span>CS CLUB</span><em>ARCADE</em></h1>
         <div className="menu-actions">
           <button className="action-button action-primary" onClick={randomGame}><Shuffle aria-hidden="true" />Random game</button>
-          <button className="action-button" onClick={onSettings}><SlidersHorizontal aria-hidden="true" />Settings</button>
           <button className={`action-button ${arcadeAudio.muted ? '' : 'sound-on'}`} onClick={toggleAudio}>{arcadeAudio.muted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}{arcadeAudio.muted ? 'Sound off' : 'Sound on'}</button>
         </div>
       </header>
@@ -71,7 +69,7 @@ export function ArcadeMenu({ onSelect, onSettings, recordsVersion, audioVersion,
               <span className="game-card-body">
                 <strong>{game.title}</strong>
                 <span className="game-description">{game.description}</span>
-                <span className="game-card-meta"><b>{game.players === 1 ? '1 PLAYER' : '2 PLAYERS'}</b><span>{best ? `${best.name} · ${game.formatRecord(best.score)}` : `${game.recordLabel}: —`}</span></span>
+                <span className="game-card-meta"><b>{game.players === 1 ? '1 PLAYER' : '2 PLAYERS'}</b><span>{game.players === 1 ? (best ? `${game.recordLabel}: ${game.formatRecord(best.score)}` : `${game.recordLabel}: —`) : 'SESSION ONLY'}</span></span>
               </span>
             </button>
           )
