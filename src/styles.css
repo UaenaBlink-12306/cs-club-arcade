@@ -38,7 +38,7 @@ button:focus-visible, input:focus-visible {
 .app-shell {
   min-height: 100svh;
   background-color: var(--ink);
-  background-image: linear-gradient(rgba(3, 9, 22, .13), rgba(3, 9, 22, .13)), url('/assets/arcade-background.png');
+  background-image: linear-gradient(rgba(3, 9, 22, .13), rgba(3, 9, 22, .13)), url('/assets/arcade-background.svg');
   background-size: cover;
   background-position: center;
 }

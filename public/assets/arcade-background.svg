@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Dark arcade circuit background">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#020713"/>
+      <stop offset="0.52" stop-color="#061326"/>
+      <stop offset="1" stop-color="#020814"/>
+    </linearGradient>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientTransform="translate(220 170) rotate(32) scale(620 390)">
+      <stop stop-color="#08c9e5" stop-opacity=".11"/>
+      <stop offset="1" stop-color="#08c9e5" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientTransform="translate(1420 760) rotate(-145) scale(520 330)">
+      <stop stop-color="#9757ff" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#9757ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.35" fill="#16bed8" fill-opacity=".16"/>
+    </pattern>
+    <pattern id="microGrid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#2a5775" stroke-opacity=".11"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#base)"/>
+  <rect width="1600" height="900" fill="url(#microGrid)"/>
+  <rect width="1600" height="900" fill="url(#cyanGlow)"/>
+  <rect width="1600" height="900" fill="url(#violetGlow)"/>
+
+  <path d="M0 380 210 315 520 338 790 292 1120 334 1600 250V610L1320 654 980 617 640 672 300 620 0 662Z" fill="#0a2740" fill-opacity=".22"/>
+  <path d="M0 522 310 480 640 548 990 490 1280 532 1600 470" fill="none" stroke="#17a9ce" stroke-opacity=".08" stroke-width="2"/>
+
+  <g fill="url(#dots)">
+    <path d="M0 0H500L390 150 170 218 0 188Z"/>
+    <path d="M1600 0H1160L1270 132 1450 230 1600 184Z"/>
+    <path d="M0 900V680L170 726 320 900Z"/>
+    <path d="M1600 900V664L1435 738 1290 900Z"/>
+  </g>
+
+  <g fill="none" stroke="#0e91bc" stroke-opacity=".28" stroke-width="2">
+    <path d="M28 92h128l22 22h92m-242 28h74l18 18h188"/>
+    <path d="M38 782h134l30-30h104m-268 76h72l26-26h194"/>
+    <path d="M1572 112h-118l-24 24h-106m248 36h-62l-30 30h-178"/>
+    <path d="M1572 760h-146l-26-26h-96m268 80h-82l-22-22h-202"/>
+    <path d="M70 248v58l28 28v78M1532 252v70l-28 28v66M88 658v-46l28-28v-70M1512 656v-52l-28-28v-68"/>
+  </g>
+
+  <g fill="#18cce8" fill-opacity=".45">
+    <circle cx="156" cy="92" r="4"/><circle cx="270" cy="114" r="4"/>
+    <circle cx="172" cy="782" r="4"/><circle cx="330" cy="802" r="4"/>
+    <circle cx="1454" cy="112" r="4"/><circle cx="1324" cy="136" r="4"/>
+    <circle cx="1426" cy="760" r="4"/><circle cx="1266" cy="792" r="4"/>
+  </g>
+
+  <g opacity=".07" stroke="#f4f1e8">
+    <path d="M110 60H560M1040 60h450M92 844h440M1068 844h440"/>
+    <path d="M520 95h560M480 810h640" stroke-dasharray="4 18"/>
+  </g>
+</svg>
