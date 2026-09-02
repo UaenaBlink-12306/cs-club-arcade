@@ -7,6 +7,10 @@ interface Slinger extends Body { color: string; label: string }
 interface Bumper { x: number; y: number; r: number; color: string; kick: number }
 interface VerticalBumper extends Bumper { centerY: number; amplitude: number; speed: number; phase: number }
 
+const LAUNCH_POWER = 5.65
+const MAX_LAUNCH_SPEED = 1280
+const SLINGSHOT_DAMPING = 0.42
+
 export class SlingshotGame extends BaseGame {
   private players: [Slinger, Slinger] = [] as unknown as [Slinger, Slinger]
   private scores: [number, number] = [0, 0]
@@ -50,13 +54,13 @@ export class SlingshotGame extends BaseGame {
     if (totalSpeed < 24 && input.pointer.pressed && distance(input.pointer, active) < active.r + 18) { this.dragging = true; this.aim = { x: input.pointer.x, y: input.pointer.y } }
     if (this.dragging && input.pointer.down) this.aim = { x: input.pointer.x, y: input.pointer.y }
     if (this.dragging && input.pointer.released) {
-      const pull = { x: active.x - input.pointer.x, y: active.y - input.pointer.y }; const strength = clamp(Math.hypot(pull.x, pull.y) * 4.35, 0, 940); const dir = normalize(pull)
+      const pull = { x: active.x - input.pointer.x, y: active.y - input.pointer.y }; const strength = clamp(Math.hypot(pull.x, pull.y) * LAUNCH_POWER, 0, MAX_LAUNCH_SPEED); const dir = normalize(pull)
       if (strength > 45) { active.vx = dir.x * strength; active.vy = dir.y * strength; this.shotTime = 0.55; this.shotInProgress = true; this.particles.burst(active.x, active.y, active.color, 16, 180) }
       this.dragging = false
     }
     for (const player of this.players) {
       player.x += player.vx * dt; player.y += player.vy * dt
-      const damping = Math.pow(0.19, dt); player.vx *= damping; player.vy *= damping
+      const damping = Math.pow(SLINGSHOT_DAMPING, dt); player.vx *= damping; player.vy *= damping
     }
     const impulse = resolveCircleCollision(this.players[0], this.players[1], 1.08)
     if (impulse > 120) { this.particles.burst((this.players[0].x + this.players[1].x) / 2, (this.players[0].y + this.players[1].y) / 2, COLORS.text, 24, Math.min(440, impulse)); this.impact(Math.min(12, impulse / 28)) }

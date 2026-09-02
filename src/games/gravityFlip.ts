@@ -23,7 +23,11 @@ export class GravityFlipGame extends BaseGame {
 
   update(dt: number, input: InputFrame) {
     if (this.result) return
-    this.tickEffects(dt); this.flipFlash = Math.max(0, this.flipFlash - dt); this.speed = Math.min(620, 330 + this.elapsed * 8); this.distance += this.speed * dt / 10
+    this.tickEffects(dt); this.flipFlash = Math.max(0, this.flipFlash - dt)
+    const speedOverThreshold = Math.max(0, this.speed - 1200)
+    const acceleration = 8 / (1 + speedOverThreshold / 420)
+    this.speed += acceleration * dt
+    this.distance += this.speed * dt / 10
     if (input.wasPressed('Space') || input.pointer.pressed) {
       this.runner.gravity *= -1
       this.runner.vy = this.runner.gravity * 760
