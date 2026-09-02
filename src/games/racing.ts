@@ -143,9 +143,11 @@ export class RacingGame extends BaseGame {
       ctx.rotate(-(Math.atan2(pad.y - 300, pad.x - 600) + Math.PI / 2)); ctx.font = '800 11px Arial Narrow'; ctx.fillStyle = COLORS.violet; ctx.fillText('BOOST PICKUP', 0, 51); ctx.restore()
     }
     this.cars.forEach((car, index) => {
-      ctx.save(); ctx.translate(car.x, car.y); ctx.rotate(car.angle); ctx.shadowBlur = car.item || car.boost > 0 ? 28 : 15; ctx.shadowColor = car.item || car.boost > 0 ? COLORS.lime : car.color; ctx.fillStyle = car.color; ctx.fillRect(-23, -15, 46, 30); ctx.fillStyle = COLORS.ink; ctx.fillRect(-7, -11, 17, 22); ctx.fillStyle = COLORS.text; ctx.font = '800 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`P${index + 1}`, 2, 4); ctx.fillStyle = '#101820'; ctx.fillRect(-17, -20, 10, 5); ctx.fillRect(9, -20, 10, 5); ctx.fillRect(-17, 15, 10, 5); ctx.fillRect(9, 15, 10, 5)
-      if (car.item) { ctx.fillStyle = COLORS.lime; ctx.beginPath(); ctx.arc(0, -25, 10, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = COLORS.ink; ctx.font = '800 13px sans-serif'; ctx.fillText('!', 0, -20) }
-      ctx.restore()
+      ctx.save(); ctx.translate(car.x, car.y); ctx.rotate(car.angle); ctx.shadowBlur = car.item || car.boost > 0 ? 28 : 15; ctx.shadowColor = car.item || car.boost > 0 ? COLORS.lime : car.color; ctx.fillStyle = car.color; ctx.fillRect(-23, -15, 46, 30); ctx.fillStyle = COLORS.ink; ctx.fillRect(-7, -11, 17, 22)
+      ctx.fillStyle = COLORS.text; ctx.beginPath(); ctx.moveTo(23, 0); ctx.lineTo(13, -10); ctx.lineTo(13, 10); ctx.closePath(); ctx.fill()
+      ctx.fillStyle = '#101820'; ctx.fillRect(-17, -20, 10, 5); ctx.fillRect(9, -20, 10, 5); ctx.fillRect(-17, 15, 10, 5); ctx.fillRect(9, 15, 10, 5); ctx.fillStyle = COLORS.coral; ctx.fillRect(-23, -9, 4, 18); ctx.restore()
+      ctx.save(); ctx.translate(car.x, car.y); ctx.fillStyle = COLORS.text; ctx.font = '800 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`P${index + 1}`, 0, 4); ctx.restore()
+      if (car.item) { ctx.save(); ctx.translate(car.x, car.y - 25); ctx.fillStyle = COLORS.lime; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = COLORS.ink; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('!', 0, 5); ctx.restore() }
       if (car.feedbackTimer > 0) this.drawPickupFeedback(ctx, car, index)
     })
     this.particles.render(ctx); ctx.restore()

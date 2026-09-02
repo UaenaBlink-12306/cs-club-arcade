@@ -5,6 +5,7 @@ import { COLORS, clearArena, drawPlayer, resolveCircleCollision, type Body } fro
 
 interface Slinger extends Body { color: string; label: string }
 interface Bumper { x: number; y: number; r: number; color: string; kick: number }
+interface VerticalBumper extends Bumper { centerY: number; amplitude: number; speed: number; phase: number }
 
 export class SlingshotGame extends BaseGame {
   private players: [Slinger, Slinger] = [] as unknown as [Slinger, Slinger]
@@ -18,16 +19,12 @@ export class SlingshotGame extends BaseGame {
   private bumperAngle = 0
   private shotInProgress = false
   private readonly arena = { left: 150, right: 1050, top: 60, bottom: 540 }
-  private readonly staticBumpers: Bumper[] = [
-    { x: 600, y: 300, r: 30, color: COLORS.violet, kick: 1.1 },
-    { x: 600, y: 167, r: 16, color: COLORS.amber, kick: 1.15 },
-    { x: 600, y: 433, r: 16, color: COLORS.amber, kick: 1.15 },
-    { x: 467, y: 300, r: 16, color: COLORS.amber, kick: 1.15 },
-    { x: 733, y: 300, r: 16, color: COLORS.amber, kick: 1.15 },
-    { x: 380, y: 160, r: 22, color: COLORS.coral, kick: 1.18 },
-    { x: 820, y: 160, r: 22, color: COLORS.coral, kick: 1.18 },
-    { x: 380, y: 440, r: 22, color: COLORS.coral, kick: 1.18 },
-    { x: 820, y: 440, r: 22, color: COLORS.coral, kick: 1.18 },
+  private readonly verticalBumpers: VerticalBumper[] = [
+    { x: 410, y: 300, centerY: 300, amplitude: 120, speed: 1.02, phase: Math.PI / 2, r: 20, color: COLORS.coral, kick: 1.15 },
+    { x: 505, y: 300, centerY: 300, amplitude: 112, speed: 0.86, phase: Math.PI * 1.5, r: 16, color: COLORS.amber, kick: 1.18 },
+    { x: 600, y: 300, centerY: 300, amplitude: 138, speed: 0.72, phase: Math.PI / 2, r: 28, color: COLORS.violet, kick: 1.1 },
+    { x: 695, y: 300, centerY: 300, amplitude: 112, speed: 0.9, phase: Math.PI * 1.5, r: 16, color: COLORS.amber, kick: 1.18 },
+    { x: 790, y: 300, centerY: 300, amplitude: 120, speed: 1.08, phase: Math.PI / 2, r: 20, color: COLORS.coral, kick: 1.15 },
   ]
 
   constructor(meta: GameMeta) { super(meta); this.reset() }
@@ -78,12 +75,13 @@ export class SlingshotGame extends BaseGame {
   }
 
   private getBumpers(): Bumper[] {
-    return [
-      ...this.staticBumpers,
-      { x: 600 + Math.cos(this.bumperAngle) * 90, y: 300 + Math.sin(this.bumperAngle) * 90, r: 24, color: COLORS.violet, kick: 1.1 },
-      { x: 600 + Math.cos(-this.bumperAngle * 1.18 + 2.1) * 175, y: 300 + Math.sin(-this.bumperAngle * 1.18 + 2.1) * 175, r: 23, color: COLORS.coral, kick: 1.16 },
-      { x: 600 + Math.cos(this.bumperAngle * 0.86 + 4.25) * 175, y: 300 + Math.sin(this.bumperAngle * 0.86 + 4.25) * 175, r: 21, color: COLORS.amber, kick: 1.2 },
-    ]
+    return this.verticalBumpers.map((bumper) => ({
+      x: bumper.x,
+      y: bumper.centerY + Math.sin(this.bumperAngle * bumper.speed + bumper.phase) * bumper.amplitude,
+      r: bumper.r,
+      color: bumper.color,
+      kick: bumper.kick,
+    }))
   }
 
   private collideBumper(player: Slinger, bumper: Bumper) {
@@ -128,7 +126,7 @@ export class SlingshotGame extends BaseGame {
   getHud(): HudItem[] {
     return [
       { label: 'P1 ROUNDS', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: 'TURN · BARRIERS', value: `PLAYER ${this.current + 1} · 12 ACTIVE` },
+      { label: 'TURN · BARRIERS', value: `PLAYER ${this.current + 1} · ${this.verticalBumpers.length} MOVING` },
       { label: 'P2 ROUNDS', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }

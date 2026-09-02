@@ -7,12 +7,21 @@ interface Tank { x: number; y: number; angle: number; color: string; score: numb
 interface Shell { x: number; y: number; vx: number; vy: number; owner: number; bounces: number; life: number }
 
 const walls: Rect[] = [
+  { x: 150, y: 118, w: 126, h: 34 },
+  { x: 150, y: 448, w: 126, h: 34 },
   { x: 312, y: 130, w: 42, h: 230 },
+  { x: 408, y: 188, w: 42, h: 150 },
+  { x: 408, y: 378, w: 42, h: 94 },
   { x: 846, y: 240, w: 42, h: 230 },
+  { x: 750, y: 262, w: 42, h: 150 },
+  { x: 750, y: 128, w: 42, h: 92 },
+  { x: 924, y: 118, w: 126, h: 34 },
+  { x: 924, y: 448, w: 126, h: 34 },
   { x: 486, y: 118, w: 228, h: 34 },
   { x: 486, y: 448, w: 228, h: 34 },
   { x: 566, y: 246, w: 68, h: 108 },
 ]
+const MAX_SHELL_BOUNCES = 14
 
 export class TankDuelGame extends BaseGame {
   private tanks: [Tank, Tank] = [] as unknown as [Tank, Tank]
@@ -71,7 +80,7 @@ export class TankDuelGame extends BaseGame {
       vy: Math.sin(tank.angle) * 430,
       owner,
       bounces: 0,
-      life: 5,
+      life: 7,
     })
   }
 
@@ -91,7 +100,7 @@ export class TankDuelGame extends BaseGame {
       }
       if (bounced) { shell.bounces += 1; this.particles.burst(shell.x, shell.y, COLORS.amber, 6, 90) }
       shell.x += shell.vx * dt; shell.y += shell.vy * dt
-      if (shell.bounces > 3) shell.life = 0
+      if (shell.bounces >= MAX_SHELL_BOUNCES) shell.life = 0
       for (let index = 0; index < this.tanks.length; index += 1) {
         if (shell.life < 0.13 && index === shell.owner) continue
         if (circleHit(shell, 7, this.tanks[index], 25)) { shell.life = 0; this.kill(index, shell.owner); break }
