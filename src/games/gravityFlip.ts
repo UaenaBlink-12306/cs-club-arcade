@@ -3,7 +3,7 @@ import { rand } from '../core/math'
 import type { GameMeta, HudItem, InputFrame } from '../core/types'
 import { COLORS, clearArena } from './common'
 
-type ObstacleType = 'floor' | 'ceiling' | 'gate' | 'laser'
+type ObstacleType = 'floor' | 'ceiling' | 'laser'
 interface Obstacle { x: number; w: number; h: number; type: ObstacleType }
 
 export class GravityFlipGame extends BaseGame {
@@ -37,9 +37,9 @@ export class GravityFlipGame extends BaseGame {
 
     this.spawnTimer -= dt
     if (this.spawnTimer <= 0) {
-      const types: ObstacleType[] = this.elapsed < 10 ? ['floor', 'ceiling'] : this.elapsed < 22 ? ['floor', 'ceiling', 'gate'] : ['floor', 'ceiling', 'gate', 'laser']
+      const types: ObstacleType[] = this.elapsed < 10 ? ['floor', 'ceiling'] : ['floor', 'ceiling', 'laser']
       const type = types[Math.floor(Math.random() * types.length)]
-      this.obstacles.push({ x: 1250, w: type === 'gate' ? 52 : type === 'laser' ? 34 : rand(70, 120), h: type === 'gate' ? rand(170, 270) : 72, type })
+      this.obstacles.push({ x: 1250, w: type === 'laser' ? 34 : rand(70, 120), h: 72, type })
       this.spawnTimer = Math.max(0.68, 1.35 - this.elapsed * 0.012)
     }
     for (const obstacle of this.obstacles) obstacle.x -= this.speed * dt
@@ -52,9 +52,7 @@ export class GravityFlipGame extends BaseGame {
     if (right < obstacle.x || left > obstacle.x + obstacle.w) return false
     if (obstacle.type === 'floor') return bottom > 455
     if (obstacle.type === 'ceiling') return top < 145
-    if (obstacle.type === 'laser') return true
-    const gapTop = obstacle.h; const gapBottom = obstacle.h + 170
-    return top < gapTop || bottom > gapBottom
+    return true
   }
 
   private die() {
@@ -83,8 +81,6 @@ export class GravityFlipGame extends BaseGame {
       const spikes = Math.max(2, Math.round(obstacle.w / 34)); ctx.beginPath(); ctx.moveTo(obstacle.x, y)
       for (let i = 0; i < spikes; i += 1) { ctx.lineTo(obstacle.x + (i + 0.5) * obstacle.w / spikes, y + direction * obstacle.h); ctx.lineTo(obstacle.x + (i + 1) * obstacle.w / spikes, y) }
       ctx.fill()
-    } else if (obstacle.type === 'gate') {
-      ctx.fillRect(obstacle.x, 65, obstacle.w, obstacle.h - 65); ctx.fillRect(obstacle.x, obstacle.h + 170, obstacle.w, 535 - obstacle.h - 170)
     } else { ctx.fillRect(obstacle.x, 65, obstacle.w, 470) }
     ctx.restore()
   }

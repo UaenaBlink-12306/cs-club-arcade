@@ -23,6 +23,8 @@ const holes: Hole[] = [
 
 const COURSE_FRICTION = 0.48
 const ICE_FRICTION = 0.18
+const STOP_ASSIST_SPEED = 110
+const STOP_ASSIST_FRICTION = 5.4
 const EDGE_BOUNCE = 0.96
 const BARRIER_BOUNCE = 1.02
 
@@ -85,7 +87,9 @@ export class MiniGolfGame extends BaseGame {
     const oldX = this.ball.x; const oldY = this.ball.y
     this.ball.x += this.ball.vx * dt; this.ball.y += this.ball.vy * dt
     const friction = hole.gimmick === 'ice' ? ICE_FRICTION : COURSE_FRICTION
-    this.ball.vx *= Math.exp(-friction * dt); this.ball.vy *= Math.exp(-friction * dt)
+    const speedNow = Math.hypot(this.ball.vx, this.ball.vy)
+    const effectiveFriction = speedNow > 0 && speedNow < STOP_ASSIST_SPEED ? STOP_ASSIST_FRICTION : friction
+    this.ball.vx *= Math.exp(-effectiveFriction * dt); this.ball.vy *= Math.exp(-effectiveFriction * dt)
     if (Math.hypot(this.ball.vx, this.ball.vy) < 5) { this.ball.vx = 0; this.ball.vy = 0 }
 
     if (this.ball.x < 75 + this.ball.r || this.ball.x > 1125 - this.ball.r) { this.ball.x = oldX; this.ball.vx *= -EDGE_BOUNCE }

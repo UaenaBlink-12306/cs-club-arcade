@@ -17,7 +17,18 @@ export class SlingshotGame extends BaseGame {
   private roundDelay = 0
   private bumperAngle = 0
   private shotInProgress = false
-  private readonly arenaRadius = 286
+  private readonly arena = { left: 150, right: 1050, top: 60, bottom: 540 }
+  private readonly staticBumpers: Bumper[] = [
+    { x: 600, y: 300, r: 30, color: COLORS.violet, kick: 1.1 },
+    { x: 600, y: 167, r: 16, color: COLORS.amber, kick: 1.15 },
+    { x: 600, y: 433, r: 16, color: COLORS.amber, kick: 1.15 },
+    { x: 467, y: 300, r: 16, color: COLORS.amber, kick: 1.15 },
+    { x: 733, y: 300, r: 16, color: COLORS.amber, kick: 1.15 },
+    { x: 380, y: 160, r: 22, color: COLORS.coral, kick: 1.18 },
+    { x: 820, y: 160, r: 22, color: COLORS.coral, kick: 1.18 },
+    { x: 380, y: 440, r: 22, color: COLORS.coral, kick: 1.18 },
+    { x: 820, y: 440, r: 22, color: COLORS.coral, kick: 1.18 },
+  ]
 
   constructor(meta: GameMeta) { super(meta); this.reset() }
 
@@ -27,8 +38,8 @@ export class SlingshotGame extends BaseGame {
 
   private resetRound() {
     this.players = [
-      { x: 360, y: 300, vx: 0, vy: 0, r: 32, mass: 1, color: COLORS.cyan, label: 'P1' },
-      { x: 840, y: 300, vx: 0, vy: 0, r: 32, mass: 1, color: COLORS.coral, label: 'P2' },
+      { x: 255, y: 300, vx: 0, vy: 0, r: 32, mass: 1, color: COLORS.cyan, label: 'P1' },
+      { x: 945, y: 300, vx: 0, vy: 0, r: 32, mass: 1, color: COLORS.coral, label: 'P2' },
     ]
     this.current = (this.round - 1) % 2; this.dragging = false; this.shotTime = 0; this.shotInProgress = false; this.roundDelay = 0
   }
@@ -59,18 +70,19 @@ export class SlingshotGame extends BaseGame {
     this.shotTime -= dt
     const settledSpeed = this.players.reduce((sum, player) => sum + Math.hypot(player.vx, player.vy), 0)
     if (this.shotInProgress && this.shotTime <= 0 && settledSpeed < 24 && !this.dragging) { this.current = 1 - this.current; this.shotInProgress = false }
-    const out = this.players.map((player) => {
-      const centerDistance = distance(player, { x: 600, y: 300 })
-      return centerDistance > this.arenaRadius + player.r * 0.38
-    })
+    const out = this.players.map((player) =>
+      player.x < this.arena.left - 12 || player.x > this.arena.right + 12 ||
+      player.y < this.arena.top - 12 || player.y > this.arena.bottom + 12
+    )
     if (out[0] || out[1]) this.endRound(out[0] === out[1] ? -1 : out[0] ? 1 : 0)
   }
 
   private getBumpers(): Bumper[] {
     return [
-      { x: 600 + Math.cos(this.bumperAngle) * 112, y: 300 + Math.sin(this.bumperAngle) * 112, r: 27, color: COLORS.violet, kick: 1.1 },
-      { x: 600 + Math.cos(-this.bumperAngle * 1.18 + 2.1) * 188, y: 300 + Math.sin(-this.bumperAngle * 1.18 + 2.1) * 188, r: 23, color: COLORS.coral, kick: 1.16 },
-      { x: 600 + Math.cos(this.bumperAngle * 0.86 + 4.25) * 183, y: 300 + Math.sin(this.bumperAngle * 0.86 + 4.25) * 183, r: 21, color: COLORS.amber, kick: 1.2 },
+      ...this.staticBumpers,
+      { x: 600 + Math.cos(this.bumperAngle) * 90, y: 300 + Math.sin(this.bumperAngle) * 90, r: 24, color: COLORS.violet, kick: 1.1 },
+      { x: 600 + Math.cos(-this.bumperAngle * 1.18 + 2.1) * 175, y: 300 + Math.sin(-this.bumperAngle * 1.18 + 2.1) * 175, r: 23, color: COLORS.coral, kick: 1.16 },
+      { x: 600 + Math.cos(this.bumperAngle * 0.86 + 4.25) * 175, y: 300 + Math.sin(this.bumperAngle * 0.86 + 4.25) * 175, r: 21, color: COLORS.amber, kick: 1.2 },
     ]
   }
 
@@ -94,9 +106,10 @@ export class SlingshotGame extends BaseGame {
 
   render(ctx: CanvasRenderingContext2D) {
     ctx.save(); this.applyShake(ctx); clearArena(ctx)
-    const gradient = ctx.createRadialGradient(600, 300, 55, 600, 300, this.arenaRadius); gradient.addColorStop(0, '#17304e'); gradient.addColorStop(1, '#09172b')
-    ctx.fillStyle = gradient; ctx.strokeStyle = COLORS.text; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(600, 300, this.arenaRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-    ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.28; ctx.setLineDash([14, 12]); ctx.beginPath(); ctx.arc(600, 300, 226, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1
+    const { left, right, top, bottom } = this.arena
+    const gradient = ctx.createRadialGradient(600, 300, 55, 600, 300, 560); gradient.addColorStop(0, '#17304e'); gradient.addColorStop(1, '#09172b')
+    ctx.fillStyle = gradient; ctx.strokeStyle = COLORS.text; ctx.lineWidth = 4; ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top); ctx.fill(); ctx.stroke()
+    ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.28; ctx.setLineDash([14, 12]); ctx.strokeRect(left + 42, top + 42, right - left - 84, bottom - top - 84); ctx.setLineDash([]); ctx.globalAlpha = 1
     for (const bumper of this.getBumpers()) {
       ctx.save(); ctx.fillStyle = bumper.color; ctx.shadowBlur = 22; ctx.shadowColor = bumper.color; ctx.beginPath(); ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2); ctx.fill()
       ctx.fillStyle = COLORS.ink; ctx.beginPath(); ctx.arc(bumper.x, bumper.y, bumper.r * 0.42, 0, Math.PI * 2); ctx.fill(); ctx.restore()
@@ -115,7 +128,7 @@ export class SlingshotGame extends BaseGame {
   getHud(): HudItem[] {
     return [
       { label: 'P1 ROUNDS', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: 'TURN · BUMPERS', value: `PLAYER ${this.current + 1} · 3 ACTIVE` },
+      { label: 'TURN · BARRIERS', value: `PLAYER ${this.current + 1} · 12 ACTIVE` },
       { label: 'P2 ROUNDS', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }
