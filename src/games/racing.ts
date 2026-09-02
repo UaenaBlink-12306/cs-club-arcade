@@ -10,7 +10,7 @@ interface Kart {
   speed: number
   color: string
   laps: number
-  checkpoint: boolean
+  checkpoint: number
   item: boolean
   boost: number
   pickupCooldown: number
@@ -18,7 +18,24 @@ interface Kart {
   feedbackTimer: number
 }
 
-const itemPads = [{ x: 1040, y: 300 }, { x: 160, y: 300 }]
+const TRACK = [
+  { x: 610, y: 505 },
+  { x: 385, y: 500 },
+  { x: 195, y: 420 },
+  { x: 145, y: 265 },
+  { x: 255, y: 112 },
+  { x: 445, y: 105 },
+  { x: 545, y: 218 },
+  { x: 675, y: 210 },
+  { x: 770, y: 92 },
+  { x: 974, y: 112 },
+  { x: 1062, y: 260 },
+  { x: 1002, y: 425 },
+  { x: 820, y: 498 },
+]
+const ROAD_HALF_WIDTH = 76
+const CHECKPOINTS = [TRACK[3], TRACK[6], TRACK[9], TRACK[0]]
+const itemPads = [TRACK[4], TRACK[10]]
 
 export class RacingGame extends BaseGame {
   private cars: [Kart, Kart] = [] as unknown as [Kart, Kart]
@@ -29,8 +46,8 @@ export class RacingGame extends BaseGame {
   reset() {
     this.result = null; this.elapsed = 0; this.winner = -1; this.particles.clear()
     this.cars = [
-      { x: 560, y: 500, angle: 0, speed: 0, color: COLORS.cyan, laps: 0, checkpoint: false, item: false, boost: 0, pickupCooldown: 0, feedback: '', feedbackTimer: 0 },
-      { x: 560, y: 458, angle: 0, speed: 0, color: COLORS.lime, laps: 0, checkpoint: false, item: false, boost: 0, pickupCooldown: 0, feedback: '', feedbackTimer: 0 },
+      { x: 650, y: 482, angle: Math.PI, speed: 0, color: COLORS.cyan, laps: 0, checkpoint: 0, item: false, boost: 0, pickupCooldown: 0, feedback: '', feedbackTimer: 0 },
+      { x: 650, y: 528, angle: Math.PI, speed: 0, color: COLORS.lime, laps: 0, checkpoint: 0, item: false, boost: 0, pickupCooldown: 0, feedback: '', feedbackTimer: 0 },
     ]
   }
 
@@ -41,9 +58,12 @@ export class RacingGame extends BaseGame {
     this.drive(this.cars[1], input, dt, 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'ENTER')
     this.resolveKartCollision()
     this.cars.forEach((car, index) => {
-      if (car.y < 145) car.checkpoint = true
-      if (car.checkpoint && car.y > 450 && car.x > 530 && car.x < 710 && Math.sin(car.angle) > -0.6) {
-        car.checkpoint = false; car.laps += 1; this.particles.burst(car.x, car.y, car.color, 22, 220)
+      const checkpoint = CHECKPOINTS[car.checkpoint]
+      if (distance(car, checkpoint) < 88) {
+        car.checkpoint += 1
+      }
+      if (car.checkpoint >= CHECKPOINTS.length) {
+        car.checkpoint = 0; car.laps += 1; this.particles.burst(car.x, car.y, car.color, 22, 220)
         if (car.laps >= 3) this.finishRace(index)
       }
       for (const pad of itemPads) if (!car.item && car.pickupCooldown <= 0 && distance(car, pad) < 44) {
@@ -83,10 +103,14 @@ export class RacingGame extends BaseGame {
   }
 
   private isRoad(x: number, y: number) {
-    const dx = x - 600; const dy = y - 300
-    const outer = dx * dx / (550 * 550) + dy * dy / (267 * 267) <= 1
-    const inner = dx * dx / (332 * 332) + dy * dy / (112 * 112) < 1
-    return outer && !inner
+    return TRACK.some((point, index) => {
+      const next = TRACK[(index + 1) % TRACK.length]
+      const dx = next.x - point.x; const dy = next.y - point.y
+      const lengthSquared = dx * dx + dy * dy
+      const t = clamp(((x - point.x) * dx + (y - point.y) * dy) / lengthSquared, 0, 1)
+      const closestX = point.x + dx * t; const closestY = point.y + dy * t
+      return Math.hypot(x - closestX, y - closestY) <= ROAD_HALF_WIDTH
+    })
   }
 
   private resolveKartCollision() {
@@ -105,11 +129,11 @@ export class RacingGame extends BaseGame {
 
   render(ctx: CanvasRenderingContext2D) {
     ctx.save(); this.applyShake(ctx); clearArena(ctx)
-    ctx.fillStyle = '#203a49'; ctx.beginPath(); ctx.ellipse(600, 300, 550, 267, 0, 0, Math.PI * 2); ctx.fill()
-    ctx.strokeStyle = COLORS.text; ctx.lineWidth = 5; ctx.stroke()
-    ctx.fillStyle = '#12301f'; ctx.beginPath(); ctx.ellipse(600, 300, 332, 112, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = COLORS.lime; ctx.globalAlpha = 0.45; ctx.stroke(); ctx.globalAlpha = 1
-    ctx.strokeStyle = 'rgba(244,241,232,.34)'; ctx.lineWidth = 3; ctx.setLineDash([20, 18]); ctx.beginPath(); ctx.ellipse(600, 300, 438, 189, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([])
-    for (let y = 422; y < 560; y += 16) for (let x = 560; x < 650; x += 16) { ctx.fillStyle = ((x + y) / 16) % 2 === 0 ? COLORS.text : COLORS.ink; ctx.fillRect(x, y, 16, 16) }
+    ctx.fillStyle = '#12301f'; ctx.fillRect(42, 30, 1116, 540)
+    this.drawTrack(ctx, COLORS.text, ROAD_HALF_WIDTH * 2 + 12)
+    this.drawTrack(ctx, '#203a49', ROAD_HALF_WIDTH * 2)
+    ctx.strokeStyle = 'rgba(244,241,232,.34)'; ctx.lineWidth = 3; ctx.setLineDash([20, 18]); this.traceTrack(ctx); ctx.stroke(); ctx.setLineDash([])
+    this.drawFinishLine(ctx)
     for (const pad of itemPads) {
       const pulse = 1 + Math.sin(this.elapsed * 5 + pad.x) * 0.08
       ctx.save(); ctx.translate(pad.x, pad.y); ctx.rotate(Math.atan2(pad.y - 300, pad.x - 600) + Math.PI / 2); ctx.scale(pulse, pulse)
@@ -125,6 +149,26 @@ export class RacingGame extends BaseGame {
       if (car.feedbackTimer > 0) this.drawPickupFeedback(ctx, car, index)
     })
     this.particles.render(ctx); ctx.restore()
+  }
+
+  private traceTrack(ctx: CanvasRenderingContext2D) {
+    ctx.beginPath(); ctx.moveTo(TRACK[0].x, TRACK[0].y)
+    for (let index = 1; index < TRACK.length; index += 1) ctx.lineTo(TRACK[index].x, TRACK[index].y)
+    ctx.closePath()
+  }
+
+  private drawTrack(ctx: CanvasRenderingContext2D, color: string, width: number) {
+    ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; this.traceTrack(ctx); ctx.stroke(); ctx.restore()
+  }
+
+  private drawFinishLine(ctx: CanvasRenderingContext2D) {
+    const finish = TRACK[0]; const next = TRACK[1]; const angle = Math.atan2(next.y - finish.y, next.x - finish.x)
+    ctx.save(); ctx.translate(finish.x, finish.y); ctx.rotate(angle + Math.PI / 2)
+    const tile = 13
+    for (let row = -5; row < 5; row += 1) for (let col = -1; col < 1; col += 1) {
+      ctx.fillStyle = (row + col) % 2 === 0 ? COLORS.text : COLORS.ink; ctx.fillRect(row * tile, col * tile, tile, tile)
+    }
+    ctx.restore()
   }
 
   private drawPickupFeedback(ctx: CanvasRenderingContext2D, car: Kart, index: number) {

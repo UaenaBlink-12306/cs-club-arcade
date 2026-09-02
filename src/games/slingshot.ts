@@ -18,7 +18,6 @@ export class SlingshotGame extends BaseGame {
   private bumperAngle = 0
   private shotInProgress = false
   private readonly arenaRadius = 286
-  private readonly voidRadius = 54
 
   constructor(meta: GameMeta) { super(meta); this.reset() }
 
@@ -62,7 +61,7 @@ export class SlingshotGame extends BaseGame {
     if (this.shotInProgress && this.shotTime <= 0 && settledSpeed < 24 && !this.dragging) { this.current = 1 - this.current; this.shotInProgress = false }
     const out = this.players.map((player) => {
       const centerDistance = distance(player, { x: 600, y: 300 })
-      return centerDistance > this.arenaRadius + player.r * 0.38 || centerDistance < this.voidRadius + player.r * 0.16
+      return centerDistance > this.arenaRadius + player.r * 0.38
     })
     if (out[0] || out[1]) this.endRound(out[0] === out[1] ? -1 : out[0] ? 1 : 0)
   }
@@ -98,8 +97,6 @@ export class SlingshotGame extends BaseGame {
     const gradient = ctx.createRadialGradient(600, 300, 55, 600, 300, this.arenaRadius); gradient.addColorStop(0, '#17304e'); gradient.addColorStop(1, '#09172b')
     ctx.fillStyle = gradient; ctx.strokeStyle = COLORS.text; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(600, 300, this.arenaRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
     ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.28; ctx.setLineDash([14, 12]); ctx.beginPath(); ctx.arc(600, 300, 226, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1
-    ctx.save(); ctx.translate(600, 300); ctx.fillStyle = COLORS.ink; ctx.shadowBlur = 30; ctx.shadowColor = COLORS.violet; ctx.beginPath(); ctx.arc(0, 0, this.voidRadius, 0, Math.PI * 2); ctx.fill()
-    ctx.strokeStyle = COLORS.violet; ctx.lineWidth = 4; ctx.setLineDash([9, 7]); ctx.rotate(-this.bumperAngle); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = COLORS.violet; ctx.font = '800 12px Arial Narrow'; ctx.textAlign = 'center'; ctx.fillText('VOID', 0, 4); ctx.restore()
     for (const bumper of this.getBumpers()) {
       ctx.save(); ctx.fillStyle = bumper.color; ctx.shadowBlur = 22; ctx.shadowColor = bumper.color; ctx.beginPath(); ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2); ctx.fill()
       ctx.fillStyle = COLORS.ink; ctx.beginPath(); ctx.arc(bumper.x, bumper.y, bumper.r * 0.42, 0, Math.PI * 2); ctx.fill(); ctx.restore()
@@ -111,14 +108,14 @@ export class SlingshotGame extends BaseGame {
     }
     this.players.forEach((player) => drawPlayer(ctx, player, player.color, player.label))
     this.particles.render(ctx)
-    ctx.fillStyle = this.players[this.current].color; ctx.font = '800 24px Arial Narrow'; ctx.textAlign = 'center'; ctx.fillText(`PLAYER ${this.current + 1}: DRAG & RELEASE · AVOID THE VOID`, 600, 36)
+    ctx.fillStyle = this.players[this.current].color; ctx.font = '800 24px Arial Narrow'; ctx.textAlign = 'center'; ctx.fillText(`PLAYER ${this.current + 1}: DRAG & RELEASE · KNOCK THEM OUT`, 600, 36)
     ctx.restore()
   }
 
   getHud(): HudItem[] {
     return [
       { label: 'P1 ROUNDS', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: 'TURN · HAZARDS', value: `PLAYER ${this.current + 1} · 3 BUMPERS` },
+      { label: 'TURN · BUMPERS', value: `PLAYER ${this.current + 1} · 3 ACTIVE` },
       { label: 'P2 ROUNDS', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }

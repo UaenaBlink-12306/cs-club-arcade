@@ -21,6 +21,11 @@ const holes: Hole[] = [
   { start: { x: 180, y: 300 }, cup: { x: 1020, y: 300 }, walls: [{ x: 440, y: 85, w: 34, h: 260 }, { x: 730, y: 255, w: 34, h: 260 }], par: 4, gimmick: 'gravity' },
 ]
 
+const COURSE_FRICTION = 0.48
+const ICE_FRICTION = 0.18
+const EDGE_BOUNCE = 0.96
+const BARRIER_BOUNCE = 1.02
+
 export class MiniGolfGame extends BaseGame {
   private holeIndex = 0
   private strokes = 0
@@ -47,11 +52,7 @@ export class MiniGolfGame extends BaseGame {
     this.tickEffects(dt); this.portalLock = Math.max(0, this.portalLock - dt)
     if (this.holeDelay > 0) {
       this.holeDelay -= dt
-      if (this.holeDelay <= 0) {
-        this.holeIndex += 1
-        if (this.holeIndex >= holes.length) this.finish({ headline: `${this.strokes} TOTAL STROKES`, detail: this.strokes <= 21 ? 'CLUBHOUSE LEGEND' : 'COURSE COMPLETE', score: this.strokes })
-        else { this.holeStrokes = 0; this.resetBall() }
-      }
+      if (this.holeDelay <= 0) this.advanceHole()
       return
     }
 
@@ -83,21 +84,21 @@ export class MiniGolfGame extends BaseGame {
 
     const oldX = this.ball.x; const oldY = this.ball.y
     this.ball.x += this.ball.vx * dt; this.ball.y += this.ball.vy * dt
-    const friction = hole.gimmick === 'ice' ? 0.45 : 1.35
+    const friction = hole.gimmick === 'ice' ? ICE_FRICTION : COURSE_FRICTION
     this.ball.vx *= Math.exp(-friction * dt); this.ball.vy *= Math.exp(-friction * dt)
-    if (Math.hypot(this.ball.vx, this.ball.vy) < 3) { this.ball.vx = 0; this.ball.vy = 0 }
+    if (Math.hypot(this.ball.vx, this.ball.vy) < 5) { this.ball.vx = 0; this.ball.vy = 0 }
 
-    if (this.ball.x < 75 + this.ball.r || this.ball.x > 1125 - this.ball.r) { this.ball.x = oldX; this.ball.vx *= -0.82 }
-    if (this.ball.y < 55 + this.ball.r || this.ball.y > 545 - this.ball.r) { this.ball.y = oldY; this.ball.vy *= -0.82 }
+    if (this.ball.x < 75 + this.ball.r || this.ball.x > 1125 - this.ball.r) { this.ball.x = oldX; this.ball.vx *= -EDGE_BOUNCE }
+    if (this.ball.y < 55 + this.ball.r || this.ball.y > 545 - this.ball.r) { this.ball.y = oldY; this.ball.vy *= -EDGE_BOUNCE }
     const activeWalls = [...hole.walls]
     if (hole.gimmick === 'moving') activeWalls.push({ x: 760, y: 245 + Math.sin(this.elapsed * 2.2) * 155, w: 38, h: 150 })
     for (const wall of activeWalls) {
       if (!circleRectHit(this.ball, this.ball.r, wall)) continue
       const hitX = circleRectHit({ x: this.ball.x, y: oldY }, this.ball.r, wall)
       const hitY = circleRectHit({ x: oldX, y: this.ball.y }, this.ball.r, wall)
-      if (hitX) { this.ball.x = oldX; this.ball.vx *= -0.82 }
-      if (hitY) { this.ball.y = oldY; this.ball.vy *= -0.82 }
-      if (!hitX && !hitY) { this.ball.x = oldX; this.ball.y = oldY; this.ball.vx *= -0.72; this.ball.vy *= -0.72 }
+      if (hitX) { this.ball.x = oldX; this.ball.vx *= -BARRIER_BOUNCE }
+      if (hitY) { this.ball.y = oldY; this.ball.vy *= -BARRIER_BOUNCE }
+      if (!hitX && !hitY) { this.ball.x = oldX; this.ball.y = oldY; this.ball.vx *= -0.94; this.ball.vy *= -0.94 }
       this.particles.burst(this.ball.x, this.ball.y, COLORS.text, 5, 70)
     }
 
@@ -105,6 +106,19 @@ export class MiniGolfGame extends BaseGame {
       this.ball.vx = 0; this.ball.vy = 0; this.ball.x = hole.cup.x; this.ball.y = hole.cup.y
       this.holeDelay = 1.05; this.particles.burst(this.ball.x, this.ball.y, COLORS.lime, 34, 260); this.impact(5)
     }
+  }
+
+  private advanceHole() {
+    this.holeDelay = 0
+    const nextHole = this.holeIndex + 1
+    if (nextHole >= holes.length) {
+      this.finish({ headline: `${this.strokes} TOTAL STROKES`, detail: this.strokes <= 21 ? 'CLUBHOUSE LEGEND' : 'COURSE COMPLETE', score: this.strokes })
+      return
+    }
+    this.holeIndex = nextHole
+    this.holeStrokes = 0
+    this.portalLock = 0
+    this.resetBall()
   }
 
   render(ctx: CanvasRenderingContext2D) {
