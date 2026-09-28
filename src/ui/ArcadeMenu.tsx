@@ -69,7 +69,7 @@ export function ArcadeMenu({ onSelect, recordsVersion, audioVersion, onAudioChan
               <span className="game-card-body">
                 <strong>{game.title}</strong>
                 <span className="game-description">{game.description}</span>
-                <span className="game-card-meta"><b>{game.players === 1 ? '1 PLAYER' : '2 PLAYERS'}</b><span>{game.players === 1 ? (best ? `${game.recordLabel}: ${game.formatRecord(best.score)}` : `${game.recordLabel}: —`) : 'SESSION ONLY'}</span></span>
+              <span className="game-card-meta"><b>{game.id === 'air-hockey' ? '1–2 PLAYERS' : game.players === 1 ? '1 PLAYER' : '2 PLAYERS'}</b><span>{game.players === 1 ? (best ? `${game.recordLabel}: ${game.formatRecord(best.score)}` : `${game.recordLabel}: —`) : 'SESSION ONLY'}</span></span>
               </span>
             </button>
           )

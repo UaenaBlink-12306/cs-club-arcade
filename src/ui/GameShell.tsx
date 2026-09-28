@@ -4,6 +4,7 @@ import { arcadeAudio } from '../audio/ArcadeAudio'
 import { InputController } from '../core/Input'
 import { GAME_HEIGHT, GAME_WIDTH, type GameMeta, type GameResult, type HudItem } from '../core/types'
 import { createGame } from '../games'
+import { AirHockeyGame, type HockeyOpponent } from '../games/airHockey'
 import { getBest, recordResult } from '../utils/storage'
 
 type Phase = 'ready' | 'countdown' | 'playing' | 'paused' | 'over'
@@ -19,6 +20,8 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [result, setResult] = useState<GameResult | null>(null)
   const [newBest, setNewBest] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
+  const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
+  const isHockey = meta.id === 'air-hockey'
 
   const setPhase = (value: Phase) => { phaseRef.current = value; setPhaseState(value) }
 
@@ -46,7 +49,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
         const recordUpdate = recordResult(meta, runtime.result)
         setNewBest(recordUpdate.isNewBest)
         if (recordUpdate.isNewBest) onRecordsChanged()
-        arcadeAudio.play(runtime.result.headline.includes('CRASHED') ? 'lose' : 'win')
+        arcadeAudio.play(runtime.result.headline.includes('CRASHED') || runtime.result.winnerName === 'AI' ? 'lose' : 'win')
         setResult(runtime.result)
         setPhase('over')
       }
@@ -77,7 +80,15 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
     return () => timers.forEach(window.clearTimeout)
   }, [phase])
 
-  const start = () => { arcadeAudio.play('ui'); setCountdown('3'); setPhase('countdown') }
+  const start = (opponent?: HockeyOpponent) => {
+    if (runtime instanceof AirHockeyGame) {
+      const selected = opponent ?? 'ai'
+      runtime.setOpponent(selected)
+      setHockeyOpponent(selected)
+      setHud(runtime.getHud())
+    }
+    arcadeAudio.play('ui'); setCountdown('3'); setPhase('countdown')
+  }
   const restart = () => { runtime.reset(); recordedRef.current = false; setResult(null); setNewBest(false); setHud(runtime.getHud()); setCountdown('3'); setPhase('countdown') }
   const toggleSound = () => { arcadeAudio.toggle(); setAudioVersion((value) => value + 1) }
   const best = getBest(meta.id)
@@ -105,8 +116,13 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
               <p>{meta.description}</p>
-              <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
-              <button className="action-button action-primary overlay-primary" autoFocus onClick={start}>Start round</button>
+              <div className="controls-list">{(isHockey ? ['YOU · WASD', 'FRIEND · ARROW KEYS'] : meta.controls).map((control) => <kbd key={control}>{control}</kbd>)}</div>
+              {isHockey ? (
+                <div className="hockey-mode-actions">
+                  <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start('ai')}>Play vs AI</button>
+                  <button className="action-button overlay-primary" onClick={() => start('human')}>Two players</button>
+                </div>
+              ) : <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start()}>Start round</button>}
               {meta.players === 1 && best && <small>Device best · {meta.formatRecord(best.score)}</small>}
             </div>
           )}
@@ -126,7 +142,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
         </div>
       </section>
 
-      <footer className="game-footer"><span>{meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
+      <footer className="game-footer"><span>{isHockey ? (hockeyOpponent === 'ai' ? 'YOU · WASD  ·  OPPONENT · AI' : 'P1 · WASD  ·  P2 · ARROW KEYS') : meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
     </main>
   )
 }

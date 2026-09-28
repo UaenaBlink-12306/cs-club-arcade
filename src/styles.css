@@ -262,6 +262,7 @@ button:focus-visible, input:focus-visible {
 .game-overlay p { margin: 12px 0 22px; color: #c8d1dc; font-size: clamp(14px, 1.3vw, 18px); }
 .controls-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 24px; }
 .controls-list kbd { padding: 9px 13px; border: 1px solid rgba(244, 241, 232, .55); border-radius: 3px; background: rgba(7, 23, 44, .9); color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.hockey-mode-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 .overlay-primary { min-width: 180px; }
 .ready-overlay small { margin-top: 14px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .07em; text-transform: uppercase; }
 .countdown-overlay { background: rgba(3, 9, 22, .48); }
