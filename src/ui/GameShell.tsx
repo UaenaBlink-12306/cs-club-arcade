@@ -112,7 +112,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
         <div className="canvas-frame">
           <canvas ref={canvasRef} width={GAME_WIDTH} height={GAME_HEIGHT} aria-label={`${meta.title} play field`} />
           {phase === 'ready' && (
-            <div className="game-overlay ready-overlay">
+            <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
               <p>{meta.description}</p>

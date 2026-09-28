@@ -327,6 +327,16 @@ button:focus-visible, input:focus-visible {
   .game-footer { font-size: 10px; }
 }
 
+@media (max-width: 480px) {
+  .hockey-ready-overlay { padding: 8px; }
+  .hockey-ready-overlay .overlay-rule, .hockey-ready-overlay h2 { display: none; }
+  .hockey-ready-overlay p { margin: 0 0 7px; font-size: 12px; line-height: 1.2; }
+  .hockey-ready-overlay .controls-list { gap: 5px; margin-bottom: 7px; }
+  .hockey-ready-overlay .controls-list kbd { padding: 4px 6px; font-size: 11px; }
+  .hockey-ready-overlay .hockey-mode-actions { flex-direction: column; width: min(100%, 200px); gap: 5px; }
+  .hockey-ready-overlay .action-button { min-height: 30px; padding: 4px; font-size: 13px; }
+}
+
 @media (max-height: 780px) and (min-width: 1120px) {
   .arcade-menu { padding-top: 12px; gap: 10px; }
   .menu-header { min-height: 170px; }
