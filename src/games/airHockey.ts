@@ -74,8 +74,8 @@ export class AirHockeyGame extends BaseGame {
     moveBody(this.strikers[0], axis(input.down, 'KeyA', 'KeyD'), axis(input.down, 'KeyW', 'KeyS'), dt, 1050, 500, 0.82)
     if (this.opponent === 'ai') this.moveAi(dt)
     else moveBody(this.strikers[1], axis(input.down, 'ArrowLeft', 'ArrowRight'), axis(input.down, 'ArrowUp', 'ArrowDown'), dt, 1050, 500, 0.82)
-    this.keepStrikerInHalf(this.strikers[0], LEFT, 578)
-    this.keepStrikerInHalf(this.strikers[1], 622, RIGHT)
+    resolveCircleCollision(this.strikers[0], this.strikers[1], 0.5)
+    this.strikers.forEach((striker) => this.keepStrikerInArena(striker))
 
     this.puck.x += this.puck.vx * dt
     this.puck.y += this.puck.vy * dt
@@ -114,12 +114,13 @@ export class AirHockeyGame extends BaseGame {
     if (this.aiDecisionDelay <= 0) {
       this.aiDecisionDelay = 0.11
       const puck = this.puck
-      if (puck.x > 720 && puck.vx > -90) {
+      const p1Distance = Math.hypot(puck.x - this.strikers[0].x, puck.y - this.strikers[0].y)
+      if (puck.x > 500 && puck.vx > -90 && (puck.x > 720 || p1Distance > 190)) {
         // Get behind the puck and strike toward the side of the goal away from P1.
         const shotY = this.strikers[0].y < 300 ? 350 : 250
         const distance = Math.hypot(puck.x - LEFT, shotY - puck.y)
         this.aiTarget = {
-          x: clamp(puck.x + 51 * (puck.x - LEFT) / distance, 622 + striker.r, RIGHT - striker.r),
+          x: clamp(puck.x + 51 * (puck.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
           y: clamp(puck.y - 51 * (shotY - puck.y) / distance, TOP + striker.r, BOTTOM - striker.r),
         }
       } else if (puck.vx > 45) {
@@ -144,9 +145,9 @@ export class AirHockeyGame extends BaseGame {
     striker.y += striker.vy * dt
   }
 
-  private keepStrikerInHalf(striker: Striker, left: number, right: number) {
-    if (striker.x - striker.r < left) { striker.x = left + striker.r; striker.vx = Math.abs(striker.vx) * 0.45 }
-    if (striker.x + striker.r > right) { striker.x = right - striker.r; striker.vx = -Math.abs(striker.vx) * 0.45 }
+  private keepStrikerInArena(striker: Striker) {
+    if (striker.x - striker.r < LEFT) { striker.x = LEFT + striker.r; striker.vx = Math.abs(striker.vx) * 0.45 }
+    if (striker.x + striker.r > RIGHT) { striker.x = RIGHT - striker.r; striker.vx = -Math.abs(striker.vx) * 0.45 }
     if (striker.y - striker.r < TOP) { striker.y = TOP + striker.r; striker.vy = Math.abs(striker.vy) * 0.45 }
     if (striker.y + striker.r > BOTTOM) { striker.y = BOTTOM - striker.r; striker.vy = -Math.abs(striker.vy) * 0.45 }
   }
@@ -171,7 +172,7 @@ export class AirHockeyGame extends BaseGame {
     ctx.fillStyle = '#102b48'; ctx.fillRect(LEFT, TOP, RIGHT - LEFT, BOTTOM - TOP)
     ctx.strokeStyle = COLORS.text; ctx.lineWidth = 5
     ctx.beginPath(); ctx.moveTo(LEFT, GOAL_TOP); ctx.lineTo(LEFT, TOP); ctx.lineTo(RIGHT, TOP); ctx.lineTo(RIGHT, GOAL_TOP); ctx.moveTo(RIGHT, GOAL_BOTTOM); ctx.lineTo(RIGHT, BOTTOM); ctx.lineTo(LEFT, BOTTOM); ctx.lineTo(LEFT, GOAL_BOTTOM); ctx.stroke()
-    ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.48; ctx.lineWidth = 3; ctx.setLineDash([13, 11]); ctx.beginPath(); ctx.moveTo(600, TOP); ctx.lineTo(600, BOTTOM); ctx.stroke(); ctx.setLineDash([])
+    ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.48; ctx.lineWidth = 3
     ctx.beginPath(); ctx.arc(600, 300, 86, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1
     this.drawGoal(ctx, LEFT, -1, COLORS.cyan); this.drawGoal(ctx, RIGHT, 1, COLORS.coral)
     this.strikers.forEach((striker, index) => drawPlayer(ctx, striker, striker.color, index === 1 && this.opponent === 'ai' ? 'AI' : striker.label))
