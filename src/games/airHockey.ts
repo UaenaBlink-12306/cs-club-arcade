@@ -227,8 +227,7 @@ export class AirHockeyGame extends BaseGame {
     const p1Distance = Math.hypot(puck.x - this.strikers[0].x, puck.y - this.strikers[0].y)
     if (this.holder === 1) {
       const shotY = this.strikers[0].y < 300 ? 350 : 250
-      const defenderDistance = Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y)
-      this.aiWantsControl = this.aiCarryTime < 2.8 && striker.x > 405 && defenderDistance > 125
+      this.aiWantsControl = this.aiCarryTime < 2.8 && striker.x > 405
       this.aiTarget = { x: LEFT + 150, y: shotY }
       this.facing[1] = normalize({ x: LEFT - striker.x, y: shotY - striker.y })
     } else {
