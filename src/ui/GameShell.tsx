@@ -115,7 +115,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isHockey ? 'Hold your control key near the ball to dribble. Release to shoot. Tap it near a dribbler to tackle.' : meta.description}</p>
+              <p>{isHockey ? 'Hold your control key to dribble, release to shoot, and tap near a dribbler to tackle. Goalies guard both nets; stay out of the marked creases.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isHockey ? (
                 <div className="hockey-mode-actions">

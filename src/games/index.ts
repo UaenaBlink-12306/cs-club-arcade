@@ -13,7 +13,7 @@ import { TowerStackGame } from './towerStack'
 const seconds = (value: number) => `${value.toFixed(2)}s`
 
 export const games: GameMeta[] = [
-  { id: 'air-hockey', title: 'NEON AIR HOCKEY', shortTitle: 'HOCKEY', description: 'Dribble and shoot past the AI or a friend. First to five wins.', players: 2, controls: ['P1 · WASD + SPACE', 'P2 · ARROWS + ENTER'], accent: '#18d8f2', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
+  { id: 'air-hockey', title: 'NEON AIR HOCKEY', shortTitle: 'HOCKEY', description: 'Dribble, tackle, and beat the goalies. First to five wins.', players: 2, controls: ['P1 · WASD + SPACE', 'P2 · ARROWS + ENTER'], accent: '#18d8f2', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
   { id: 'tank-duel', title: 'TANK DUEL', shortTitle: 'TANK', description: 'Bank the shot. Blast first.', players: 2, controls: ['P1 · WASD + SPACE', 'P2 · ARROWS + ENTER'], accent: '#b9f20b', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
   { id: 'dodge-hell', title: 'DODGE HELL', shortTitle: 'DODGE', description: 'Dodge everything. Survive longer.', players: 1, controls: ['MOVE · WASD / ARROWS', 'DASH · SPACE'], accent: '#ff5b55', recordLabel: 'BEST', recordStrategy: 'high', formatRecord: seconds },
   { id: 'platform-panic', title: 'PLATFORM PANIC', shortTitle: 'PANIC', description: 'Red tiles fall after the countdown. Stay on blue.', players: 2, controls: ['P1 · WASD', 'P2 · ARROW KEYS'], accent: '#a45cff', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },

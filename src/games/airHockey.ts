@@ -5,6 +5,7 @@ import { COLORS, axis, clearArena, drawPlayer, moveBody, resolveCircleCollision,
 
 interface Striker extends Body { color: string; label: string }
 interface Puck extends Body { color: string }
+interface Goalie extends Body { color: string; anchorX: number; targetY: number; reaction: number; recovery: number }
 
 const LEFT = 92
 const RIGHT = 1108
@@ -12,6 +13,9 @@ const TOP = 66
 const BOTTOM = 534
 const GOAL_TOP = 218
 const GOAL_BOTTOM = 382
+const CREASE_TOP = GOAL_TOP - 50
+const CREASE_BOTTOM = GOAL_BOTTOM + 50
+const CREASE_DEPTH = 105
 const WIN_SCORE = 5
 const AI_GUARD_X = 950
 const CONTROL_REACH = 70
@@ -37,6 +41,7 @@ function reboundY(y: number) {
 
 export class AirHockeyGame extends BaseGame {
   private strikers: [Striker, Striker] = [] as unknown as [Striker, Striker]
+  private goalies: [Goalie, Goalie] = [] as unknown as [Goalie, Goalie]
   private puck: Puck = { x: 600, y: 300, vx: 0, vy: 0, r: 18, mass: 0.35, color: COLORS.text }
   private scores: [number, number] = [0, 0]
   private serveDelay = 0
@@ -68,6 +73,10 @@ export class AirHockeyGame extends BaseGame {
     this.strikers = [
       { x: 335, y: 300, vx: 0, vy: 0, r: 34, mass: 3, color: COLORS.cyan, label: 'P1' },
       { x: 865, y: 300, vx: 0, vy: 0, r: 34, mass: 3, color: COLORS.coral, label: 'P2' },
+    ]
+    this.goalies = [
+      { x: LEFT + 35, anchorX: LEFT + 35, y: 300, vx: 0, vy: 0, r: 22, mass: 80, color: COLORS.cyan, targetY: 300, reaction: 0.18, recovery: 0 },
+      { x: RIGHT - 35, anchorX: RIGHT - 35, y: 300, vx: 0, vy: 0, r: 22, mass: 80, color: COLORS.coral, targetY: 300, reaction: 0.18, recovery: 0 },
     ]
     Object.assign(this.puck, { x: 600, y: 300, vx: 0, vy: 0 })
     this.serveDelay = delay
@@ -108,6 +117,7 @@ export class AirHockeyGame extends BaseGame {
     }
     resolveCircleCollision(this.strikers[0], this.strikers[1], 0.5)
     this.strikers.forEach((striker) => this.keepStrikerInArena(striker))
+    this.moveGoalies(dt)
 
     this.controlCooldown = Math.max(0, this.controlCooldown - dt)
     this.tackleSlowTime = Math.max(0, this.tackleSlowTime - dt)
@@ -167,6 +177,18 @@ export class AirHockeyGame extends BaseGame {
 
     if (this.puck.y - this.puck.r < TOP) { this.puck.y = TOP + this.puck.r; this.puck.vy = Math.abs(this.puck.vy) * 0.98; this.wallHit() }
     if (this.puck.y + this.puck.r > BOTTOM) { this.puck.y = BOTTOM - this.puck.r; this.puck.vy = -Math.abs(this.puck.vy) * 0.98; this.wallHit() }
+    this.goalies.forEach((goalie, index) => {
+      const incoming = index === 0 ? this.puck.vx < 0 : this.puck.vx > 0
+      const impulse = resolveCircleCollision(goalie, this.puck, 0.92)
+      goalie.x = goalie.anchorX
+      goalie.vx = 0
+      goalie.y = clamp(goalie.y, GOAL_TOP + 40, GOAL_BOTTOM - 40)
+      if (impulse <= 0 || !incoming) return
+      this.puck.vx = (index === 0 ? 1 : -1) * Math.max(170, Math.abs(this.puck.vx) * 0.72)
+      goalie.recovery = 0.75
+      this.particles.burst(this.puck.x, this.puck.y, goalie.color, 14, 190)
+      this.impact(5)
+    })
     const inGoal = this.puck.y > GOAL_TOP && this.puck.y < GOAL_BOTTOM
     if (this.puck.x - this.puck.r < LEFT) {
       if (inGoal) { this.scoreGoal(1); return }
@@ -310,11 +332,36 @@ export class AirHockeyGame extends BaseGame {
     striker.y += striker.vy * dt
   }
 
+  private moveGoalies(dt: number) {
+    this.goalies.forEach((goalie, index) => {
+      goalie.recovery = Math.max(0, goalie.recovery - dt)
+      goalie.reaction -= dt
+      if (goalie.reaction <= 0) {
+        goalie.reaction = 0.18
+        const incoming = index === 0 ? this.puck.vx < -40 : this.puck.vx > 40
+        if (incoming) {
+          const travelTime = clamp((goalie.anchorX - this.puck.x) / this.puck.vx, 0, 1.5)
+          goalie.targetY = clamp(reboundY(this.puck.y + this.puck.vy * travelTime), GOAL_TOP + 40, GOAL_BOTTOM - 40)
+        } else goalie.targetY = 300
+      }
+      const previousY = goalie.y
+      const maxSpeed = goalie.recovery > 0 ? 45 : 175
+      goalie.y += clamp(goalie.targetY - goalie.y, -maxSpeed * dt, maxSpeed * dt)
+      goalie.vy = dt > 0 ? (goalie.y - previousY) / dt : 0
+      goalie.vx = 0
+      goalie.x = goalie.anchorX
+    })
+  }
+
   private keepStrikerInArena(striker: Striker) {
     if (striker.x - striker.r < LEFT) { striker.x = LEFT + striker.r; striker.vx = Math.abs(striker.vx) * 0.45 }
     if (striker.x + striker.r > RIGHT) { striker.x = RIGHT - striker.r; striker.vx = -Math.abs(striker.vx) * 0.45 }
     if (striker.y - striker.r < TOP) { striker.y = TOP + striker.r; striker.vy = Math.abs(striker.vy) * 0.45 }
     if (striker.y + striker.r > BOTTOM) { striker.y = BOTTOM - striker.r; striker.vy = -Math.abs(striker.vy) * 0.45 }
+    if (striker.y + striker.r > CREASE_TOP && striker.y - striker.r < CREASE_BOTTOM) {
+      if (striker.x - striker.r < LEFT + CREASE_DEPTH) { striker.x = LEFT + CREASE_DEPTH + striker.r; striker.vx = Math.max(0, striker.vx) }
+      if (striker.x + striker.r > RIGHT - CREASE_DEPTH) { striker.x = RIGHT - CREASE_DEPTH - striker.r; striker.vx = Math.min(0, striker.vx) }
+    }
   }
 
   private wallHit() {
@@ -340,6 +387,15 @@ export class AirHockeyGame extends BaseGame {
     ctx.strokeStyle = COLORS.cyan; ctx.globalAlpha = 0.48; ctx.lineWidth = 3
     ctx.beginPath(); ctx.arc(600, 300, 86, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1
     this.drawGoal(ctx, LEFT, -1, COLORS.cyan); this.drawGoal(ctx, RIGHT, 1, COLORS.coral)
+    ctx.save(); ctx.lineWidth = 2; ctx.setLineDash([8, 8]); ctx.globalAlpha = 0.46
+    ctx.strokeStyle = COLORS.cyan; ctx.strokeRect(LEFT, CREASE_TOP, CREASE_DEPTH, CREASE_BOTTOM - CREASE_TOP)
+    ctx.strokeStyle = COLORS.coral; ctx.strokeRect(RIGHT - CREASE_DEPTH, CREASE_TOP, CREASE_DEPTH, CREASE_BOTTOM - CREASE_TOP)
+    ctx.restore()
+    this.goalies.forEach((goalie) => {
+      ctx.save(); ctx.globalAlpha = goalie.recovery > 0 ? 0.62 : 1
+      drawPlayer(ctx, goalie, goalie.color, 'GK')
+      ctx.restore()
+    })
     this.strikers.forEach((striker, index) => drawPlayer(ctx, striker, striker.color, index === 1 && this.opponent === 'ai' ? 'AI' : striker.label))
     ctx.save(); ctx.shadowBlur = 22; ctx.shadowColor = this.puck.color; ctx.fillStyle = this.puck.color; ctx.beginPath(); ctx.arc(this.puck.x, this.puck.y, this.puck.r, 0, Math.PI * 2); ctx.fill()
     ctx.shadowBlur = 0; ctx.fillStyle = COLORS.ink; ctx.beginPath()
