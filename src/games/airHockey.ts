@@ -19,6 +19,9 @@ const BALL_OFFSET = 57
 const KICK_SPEED = 650
 const TACKLE_REACH = 108
 const AI_TACKLE_REACH = 94
+const AI_MOVE_SPEED = 320
+const AI_CARRY_SPEED = 260
+const AI_ACCELERATION = 900
 
 export type HockeyOpponent = 'ai' | 'human'
 
@@ -262,11 +265,17 @@ export class AirHockeyGame extends BaseGame {
     const dx = this.aiTarget.x - striker.x
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
-    const speed = Math.min(this.holder === 1 ? 315 : 400, distance * 5)
+    const maxSpeed = this.holder === 1 ? AI_CARRY_SPEED : AI_MOVE_SPEED
+    const speed = Math.min(maxSpeed, distance * 5)
     const desiredVx = distance > 0 ? dx / distance * speed : 0
     const desiredVy = distance > 0 ? dy / distance * speed : 0
-    striker.vx += clamp(desiredVx - striker.vx, -1450 * dt, 1450 * dt)
-    striker.vy += clamp(desiredVy - striker.vy, -1450 * dt, 1450 * dt)
+    striker.vx += clamp(desiredVx - striker.vx, -AI_ACCELERATION * dt, AI_ACCELERATION * dt)
+    striker.vy += clamp(desiredVy - striker.vy, -AI_ACCELERATION * dt, AI_ACCELERATION * dt)
+    const actualSpeed = Math.hypot(striker.vx, striker.vy)
+    if (actualSpeed > maxSpeed) {
+      striker.vx = striker.vx / actualSpeed * maxSpeed
+      striker.vy = striker.vy / actualSpeed * maxSpeed
+    }
     striker.x += striker.vx * dt
     striker.y += striker.vy * dt
   }
