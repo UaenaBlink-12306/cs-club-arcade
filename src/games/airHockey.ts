@@ -155,13 +155,7 @@ export class AirHockeyGame extends BaseGame {
       const dy = this.puck.y - defender.y
       const distance = Math.hypot(dx, dy)
       if (distance < defender.r + this.puck.r) {
-        const direction = normalize({ x: dx || 1, y: dy })
-        this.puck.vx = direction.x * TACKLE_BALL_SPEED
-        this.puck.vy = direction.y * TACKLE_BALL_SPEED
-        this.holder = -1
-        this.controlCooldown = 0.28
-        this.tackleSlowTime = TACKLE_SLOW_TIME
-        this.particles.burst(this.puck.x, this.puck.y, defender.color, 12, 160)
+        this.tackleBall((1 - this.holder) as 0 | 1)
       }
       return
     }
@@ -226,11 +220,27 @@ export class AirHockeyGame extends BaseGame {
 
   private tackleBall(defenderIndex: 0 | 1) {
     const defender = this.strikers[defenderIndex]
-    const goalDirection = defenderIndex === 0 ? 1 : -1
-    this.puck.x = defender.x + goalDirection * BALL_OFFSET
-    this.puck.y = defender.y
-    this.puck.vx = goalDirection * TACKLE_BALL_SPEED
-    this.puck.vy = 0
+    const owner = this.strikers[1 - defenderIndex]
+    const awayY = defender.y - owner.y
+    const deltaX = defender.x - owner.x
+    const awayX = deltaX === 0 && awayY === 0 ? (defenderIndex === 0 ? -1 : 1) : deltaX
+    const baseAngle = Math.atan2(awayY, awayX)
+    const releaseDistance = defender.r + this.puck.r + 6
+    let direction = normalize({ x: awayX, y: awayY })
+    for (const turn of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI]) {
+      const candidate = { x: Math.cos(baseAngle + turn), y: Math.sin(baseAngle + turn) }
+      const x = defender.x + candidate.x * releaseDistance
+      const y = defender.y + candidate.y * releaseDistance
+      if (x >= LEFT + this.puck.r && x <= RIGHT - this.puck.r && y >= TOP + this.puck.r && y <= BOTTOM - this.puck.r && Math.hypot(x - owner.x, y - owner.y) > owner.r + this.puck.r) {
+        direction = candidate
+        break
+      }
+    }
+    this.puck.x = clamp(defender.x + direction.x * releaseDistance, LEFT + this.puck.r, RIGHT - this.puck.r)
+    this.puck.y = clamp(defender.y + direction.y * releaseDistance, TOP + this.puck.r, BOTTOM - this.puck.r)
+    direction = normalize({ x: this.puck.x - defender.x, y: this.puck.y - defender.y })
+    this.puck.vx = direction.x * TACKLE_BALL_SPEED
+    this.puck.vy = direction.y * TACKLE_BALL_SPEED
     this.holder = -1
     this.controlCooldown = 0.32
     this.tackleSlowTime = TACKLE_SLOW_TIME
