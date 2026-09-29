@@ -18,6 +18,7 @@ const CONTROL_REACH = 70
 const BALL_OFFSET = 57
 const KICK_SPEED = 650
 const TACKLE_REACH = 108
+const AI_TACKLE_REACH = 94
 
 export type HockeyOpponent = 'ai' | 'human'
 
@@ -104,6 +105,17 @@ export class AirHockeyGame extends BaseGame {
     this.controlCooldown = Math.max(0, this.controlCooldown - dt)
     this.tackleCooldown = this.tackleCooldown.map((time) => Math.max(0, time - dt)) as [number, number]
     const wantsControl: [boolean, boolean] = [input.isDown('Space'), this.opponent === 'ai' ? this.aiWantsControl : input.isDown('Enter')]
+    if (this.holder !== -1) {
+      const defenderIndex = (1 - this.holder) as 0 | 1
+      const defender = this.strikers[defenderIndex]
+      const owner = this.strikers[this.holder]
+      const tacklePressed = defenderIndex === 0 ? input.wasPressed('Space') : this.opponent === 'ai' ? this.aiWantsControl : input.wasPressed('Enter')
+      const reach = defenderIndex === 1 && this.opponent === 'ai' ? AI_TACKLE_REACH : TACKLE_REACH
+      if (tacklePressed && this.tackleCooldown[defenderIndex] === 0 && Math.hypot(owner.x - defender.x, owner.y - defender.y) < reach) {
+        this.tackleBall(defenderIndex)
+        return
+      }
+    }
     let releasedBy = -1
     if (this.holder !== -1 && !wantsControl[this.holder]) {
       releasedBy = this.holder
@@ -119,13 +131,7 @@ export class AirHockeyGame extends BaseGame {
     }
     if (this.holder !== -1) {
       const owner = this.strikers[this.holder]
-      const defenderIndex = (1 - this.holder) as 0 | 1
-      const defender = this.strikers[defenderIndex]
-      const tacklePressed = defenderIndex === 0 ? input.wasPressed('Space') : this.opponent === 'ai' ? this.aiWantsControl : input.wasPressed('Enter')
-      if (tacklePressed && this.tackleCooldown[defenderIndex] === 0 && Math.hypot(owner.x - defender.x, owner.y - defender.y) < TACKLE_REACH) {
-        this.tackleBall(defenderIndex)
-        return
-      }
+      const defender = this.strikers[1 - this.holder]
       const direction = this.facing[this.holder]
       this.puck.x = owner.x + direction.x * BALL_OFFSET
       this.puck.y = clamp(owner.y + direction.y * BALL_OFFSET, TOP + this.puck.r, BOTTOM - this.puck.r)
@@ -227,7 +233,7 @@ export class AirHockeyGame extends BaseGame {
       this.facing[1] = normalize({ x: LEFT - striker.x, y: shotY - striker.y })
     } else {
       this.aiWantsControl = this.holder === 0
-        ? Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < TACKLE_REACH
+        ? Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < AI_TACKLE_REACH
         : puck.x > 500 && p1Distance > 140 && Math.hypot(puck.vx, puck.vy) < 460
     }
     this.aiDecisionDelay -= dt
