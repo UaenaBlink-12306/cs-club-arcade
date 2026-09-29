@@ -115,8 +115,8 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{meta.description}</p>
-              <div className="controls-list">{(isHockey ? ['YOU · WASD', 'FRIEND · ARROW KEYS'] : meta.controls).map((control) => <kbd key={control}>{control}</kbd>)}</div>
+              <p>{isHockey ? 'Hold your control key near the ball to dribble. Release to shoot. First to five wins.' : meta.description}</p>
+              <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isHockey ? (
                 <div className="hockey-mode-actions">
                   <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start('ai')}>Play vs AI</button>
@@ -142,7 +142,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
         </div>
       </section>
 
-      <footer className="game-footer"><span>{isHockey ? (hockeyOpponent === 'ai' ? 'YOU · WASD  ·  OPPONENT · AI' : 'P1 · WASD  ·  P2 · ARROW KEYS') : meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
+      <footer className="game-footer"><span>{isHockey ? (hockeyOpponent === 'ai' ? 'WASD MOVE · HOLD SPACE TO DRIBBLE · RELEASE TO SHOOT' : 'P1 · WASD + SPACE  ·  P2 · ARROWS + ENTER') : meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
     </main>
   )
 }
