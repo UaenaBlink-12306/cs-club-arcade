@@ -366,10 +366,6 @@ export class AirHockeyGame extends BaseGame {
     if (striker.x + striker.r > RIGHT) { striker.x = RIGHT - striker.r; striker.vx = -Math.abs(striker.vx) * 0.45 }
     if (striker.y - striker.r < TOP) { striker.y = TOP + striker.r; striker.vy = Math.abs(striker.vy) * 0.45 }
     if (striker.y + striker.r > BOTTOM) { striker.y = BOTTOM - striker.r; striker.vy = -Math.abs(striker.vy) * 0.45 }
-    if (this.variant === 'football' && striker.y + striker.r > this.creaseTop && striker.y - striker.r < this.creaseBottom) {
-      if (striker.x - striker.r < LEFT + CREASE_DEPTH) { striker.x = LEFT + CREASE_DEPTH + striker.r; striker.vx = Math.max(0, striker.vx) }
-      if (striker.x + striker.r > RIGHT - CREASE_DEPTH) { striker.x = RIGHT - CREASE_DEPTH - striker.r; striker.vx = Math.min(0, striker.vx) }
-    }
   }
 
   private wallHit() {
