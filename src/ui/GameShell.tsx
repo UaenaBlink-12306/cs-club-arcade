@@ -21,7 +21,11 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [newBest, setNewBest] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
   const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
-  const isHockey = meta.id === 'air-hockey'
+  const isHockey = runtime instanceof AirHockeyGame
+  const isFootballHockey = isHockey && runtime.variant === 'football'
+  const hockeyControls = isFootballHockey
+    ? (hockeyOpponent === 'ai' ? 'WASD MOVE · HOLD SPACE TO DRIBBLE · RELEASE TO SHOOT · TAP SPACE TO TACKLE' : 'P1 · WASD + SPACE  ·  P2 · ARROWS + ENTER  ·  TAP CONTROL TO TACKLE')
+    : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
 
   const setPhase = (value: Phase) => { phaseRef.current = value; setPhaseState(value) }
 
@@ -115,7 +119,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isHockey ? 'Hold your control key to dribble, release to shoot, and tap near a dribbler to tackle. Goalies guard both nets; stay out of the marked creases.' : meta.description}</p>
+              <p>{isFootballHockey ? 'Hold your control key to dribble, release to shoot, and tap near a dribbler to tackle. Goalies pause after saves; stay out of the marked creases.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isHockey ? (
                 <div className="hockey-mode-actions">
@@ -142,7 +146,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
         </div>
       </section>
 
-      <footer className="game-footer"><span>{isHockey ? (hockeyOpponent === 'ai' ? 'WASD MOVE · HOLD SPACE TO DRIBBLE · RELEASE TO SHOOT · TAP SPACE TO TACKLE' : 'P1 · WASD + SPACE  ·  P2 · ARROWS + ENTER  ·  TAP CONTROL TO TACKLE') : meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
+      <footer className="game-footer"><span>{isHockey ? hockeyControls : meta.controls.join('  ·  ')}</span><span>Esc · Pause</span></footer>
     </main>
   )
 }
