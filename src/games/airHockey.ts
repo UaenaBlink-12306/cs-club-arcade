@@ -19,7 +19,9 @@ const GOALIE_RECOVERY = 1.1
 const WIN_SCORE = 5
 const CLASSIC_MATCH_MINUTES = 90
 const REAL_SECONDS_PER_GAME_MINUTE = 2
+const EXTRA_TIME_MINUTES = 30
 const CLASSIC_MATCH_SECONDS = CLASSIC_MATCH_MINUTES * REAL_SECONDS_PER_GAME_MINUTE
+const EXTRA_TIME_SECONDS = EXTRA_TIME_MINUTES * REAL_SECONDS_PER_GAME_MINUTE
 const AI_GUARD_X = 950
 const CONTROL_REACH = 70
 const BALL_OFFSET = 57
@@ -48,6 +50,10 @@ export class AirHockeyGame extends BaseGame {
   private goalies: Goalie[] = []
   private puck: Puck = { x: 600, y: 300, vx: 0, vy: 0, r: 18, mass: 0.35, color: COLORS.text }
   private scores: [number, number] = [0, 0]
+  private matchPhase: 'regulation' | 'extra' | 'tiebreaker' = 'regulation'
+  private phaseElapsed = 0
+  private lostTime = 0
+  private addedMinutes = 0
   private serveDelay = 0
   private serveDirection = 1
   private scorer = -1
@@ -75,6 +81,7 @@ export class AirHockeyGame extends BaseGame {
   }
 
   reset() {
+    this.matchPhase = 'regulation'; this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0
     this.result = null; this.elapsed = 0; this.scores = [0, 0]; this.scorer = -1; this.serveDirection = Math.random() < 0.5 ? -1 : 1; this.particles.clear(); this.resetFaceoff(1.25)
   }
 
@@ -103,13 +110,7 @@ export class AirHockeyGame extends BaseGame {
   update(dt: number, input: InputFrame) {
     if (this.result) return
     this.tickEffects(dt)
-    if (this.variant === 'classic' && this.elapsed >= CLASSIC_MATCH_SECONDS) {
-      this.elapsed = CLASSIC_MATCH_SECONDS
-      const winner = this.scores[0] === this.scores[1] ? -1 : this.scores[0] > this.scores[1] ? 0 : 1
-      const winnerName = winner === -1 ? undefined : winner === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${winner + 1}`
-      this.finish({ headline: winnerName ? `${winnerName} WINS` : 'DRAW', detail: `FULL TIME · ${this.scores[0]}–${this.scores[1]}`, score: winnerName ? 1 : 0, winnerName, recordEligible: winner !== -1 })
-      return
-    }
+    if (this.variant === 'classic' && this.updateMatchClock(dt)) return
     if (this.serveDelay > 0) {
       this.serveDelay -= dt
       if (this.serveDelay <= 0) {
@@ -234,6 +235,40 @@ export class AirHockeyGame extends BaseGame {
         this.puck.vy = this.puck.vy / speed * TACKLE_BALL_SPEED
       }
     }
+  }
+
+  private get periodSeconds() {
+    return this.matchPhase === 'extra' ? EXTRA_TIME_SECONDS : CLASSIC_MATCH_SECONDS
+  }
+
+  private updateMatchClock(dt: number) {
+    if (this.matchPhase === 'tiebreaker') return false
+    const remaining = Math.max(0, this.periodSeconds - this.phaseElapsed)
+    // Recover face-off time lost during the timed period; freeze the allowance at stoppage time.
+    this.lostTime += Math.min(dt, remaining, Math.max(0, this.serveDelay))
+    this.phaseElapsed += dt
+    if (this.phaseElapsed < this.periodSeconds) return false
+    if (this.addedMinutes === 0) {
+      this.addedMinutes = Math.max(1, Math.ceil(this.lostTime / REAL_SECONDS_PER_GAME_MINUTE))
+    }
+    const end = this.periodSeconds + this.addedMinutes * REAL_SECONDS_PER_GAME_MINUTE
+    if (this.phaseElapsed < end) return false
+    this.phaseElapsed = end
+    if (this.scores[0] !== this.scores[1]) {
+      this.finishClassic(this.scores[0] > this.scores[1] ? 0 : 1)
+    } else {
+      this.matchPhase = this.matchPhase === 'regulation' ? 'extra' : 'tiebreaker'
+      this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0; this.scorer = -1
+      this.resetFaceoff(1.25)
+    }
+    return true
+  }
+
+  private finishClassic(player: number) {
+    const winnerName = player === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${player + 1}`
+    const stage = this.matchPhase === 'tiebreaker' ? 'TIEBREAKER · NEXT GOAL WINS'
+      : this.matchPhase === 'extra' ? 'AFTER EXTRA TIME' : 'FULL TIME'
+    this.finish({ headline: `${winnerName} WINS`, detail: `${stage} · ${this.scores[0]}–${this.scores[1]}`, score: 1, winnerName })
   }
 
   private updateFacing(player: 0 | 1, x: number, y: number) {
@@ -381,6 +416,10 @@ export class AirHockeyGame extends BaseGame {
   private scoreGoal(player: number) {
     this.scores[player] += 1; this.scorer = player; this.serveDirection = player === 0 ? 1 : -1
     this.particles.burst(this.puck.x, this.puck.y, this.strikers[player].color, 42, 390); this.impact(11)
+    if (this.variant === 'classic' && this.matchPhase === 'tiebreaker') {
+      this.finishClassic(player)
+      return
+    }
     if (this.variant === 'football' && this.scores[player] >= WIN_SCORE) {
       const winnerName = player === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${player + 1}`
       this.finish({ headline: `${winnerName} WINS`, detail: `FIRST TO FIVE · ${this.scores[0]}–${this.scores[1]}`, score: 1, winnerName })
@@ -428,7 +467,7 @@ export class AirHockeyGame extends BaseGame {
     this.particles.render(ctx)
     if (this.serveDelay > 0) {
       ctx.fillStyle = this.scorer >= 0 ? this.strikers[this.scorer].color : COLORS.text; ctx.font = '800 35px Arial Narrow'; ctx.textAlign = 'center'
-      ctx.fillText(this.scorer >= 0 ? `${this.scorer === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.scorer + 1}`} SCORES!` : `FACE OFF · ${Math.max(1, Math.ceil(this.serveDelay))}`, 600, 48)
+      ctx.fillText(this.scorer >= 0 ? `${this.scorer === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.scorer + 1}`} SCORES!` : `${this.variant === 'classic' && this.matchPhase === 'tiebreaker' ? 'TIEBREAKER · NEXT GOAL WINS' : this.variant === 'classic' && this.matchPhase === 'extra' ? 'EXTRA TIME · 30 MIN' : 'FACE OFF'} · ${Math.max(1, Math.ceil(this.serveDelay))}`, 600, 48)
     }
     ctx.restore()
   }
@@ -439,11 +478,16 @@ export class AirHockeyGame extends BaseGame {
   }
 
   getHud(): HudItem[] {
-    const gameSeconds = Math.floor(Math.min(this.elapsed, CLASSIC_MATCH_SECONDS) / REAL_SECONDS_PER_GAME_MINUTE * 60)
+    const inStoppage = this.addedMinutes > 0
+    const gameSeconds = Math.floor((inStoppage ? Math.max(0, this.phaseElapsed - this.periodSeconds) : this.phaseElapsed) / REAL_SECONDS_PER_GAME_MINUTE * 60)
+    const periodMinutes = this.matchPhase === 'extra' ? EXTRA_TIME_MINUTES : CLASSIC_MATCH_MINUTES
+    const timeLabel = this.matchPhase === 'tiebreaker' ? 'TIEBREAKER'
+      : inStoppage ? `${this.matchPhase === 'extra' ? 'ET · ' : ''}STOPPAGE · +${this.addedMinutes} MIN`
+        : this.matchPhase === 'extra' ? 'EXTRA TIME · 30 MIN' : 'MATCH TIME · 90 MIN'
     const clock = `${Math.floor(gameSeconds / 60)}:${String(gameSeconds % 60).padStart(2, '0')}`
     return [
       { label: 'PLAYER 1', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: this.variant === 'classic' ? 'MATCH TIME · 90 MIN' : 'FIRST TO 5', value: this.variant === 'classic' ? clock : this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} BALL SPEED` },
+      { label: this.variant === 'classic' ? timeLabel : 'FIRST TO 5', value: this.variant === 'classic' ? this.matchPhase === 'tiebreaker' ? 'NEXT GOAL WINS' : inStoppage ? `${periodMinutes} + ${clock}` : clock : this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} BALL SPEED` },
       { label: this.opponent === 'ai' ? 'AI' : 'PLAYER 2', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }
