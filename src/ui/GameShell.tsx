@@ -5,6 +5,7 @@ import { InputController } from '../core/Input'
 import { GAME_HEIGHT, GAME_WIDTH, type GameMeta, type GameResult, type HudItem } from '../core/types'
 import { createGame } from '../games'
 import { AirHockeyGame, type HockeyOpponent } from '../games/airHockey'
+import { FootballGame } from '../games/football'
 import { getBest, recordResult } from '../utils/storage'
 
 type Phase = 'ready' | 'countdown' | 'playing' | 'paused' | 'over'
@@ -21,10 +22,10 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [newBest, setNewBest] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
   const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
-  const isHockey = runtime instanceof AirHockeyGame
-  const isFootballHockey = isHockey && runtime.variant === 'football'
+  const isHockey = (runtime instanceof AirHockeyGame || runtime instanceof FootballGame)
+  const isFootballHockey = runtime instanceof FootballGame
   const hockeyControls = isFootballHockey
-    ? (hockeyOpponent === 'ai' ? 'WASD MOVE · HOLD SPACE TO DRIBBLE · RELEASE TO SHOOT · TAP SPACE TO TACKLE' : 'P1 · WASD + SPACE  ·  P2 · ARROWS + ENTER  ·  TAP CONTROL TO TACKLE')
+    ? (hockeyOpponent === 'ai' ? 'WASD MOVE · Q/E AIM · HOLD/RELEASE SPACE SHOOT · F PASS · R SWITCH · SHIFT SPRINT · SPACE TACKLE' : 'P1: WASD · Q/E AIM · SPACE SHOT/TACKLE · F PASS · R SWITCH | P2: ARROWS · ,/. AIM · ENTER · ; PASS · / SWITCH')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
 
   const setPhase = (value: Phase) => { phaseRef.current = value; setPhaseState(value) }
@@ -85,7 +86,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   }, [phase])
 
   const start = (opponent?: HockeyOpponent) => {
-    if (runtime instanceof AirHockeyGame) {
+    if ((runtime instanceof AirHockeyGame || runtime instanceof FootballGame)) {
       const selected = opponent ?? 'ai'
       runtime.setOpponent(selected)
       setHockeyOpponent(selected)
@@ -119,7 +120,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isFootballHockey ? 'Hold your control key to dribble, release to shoot, and tap near a dribbler to tackle. Enter either penalty box to attack or defend. Goalies pause after saves.' : meta.description}</p>
+              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You control one of them and can switch teammates. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates and switch players to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isHockey ? (
                 <div className="hockey-mode-actions">
