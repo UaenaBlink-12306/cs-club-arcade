@@ -17,6 +17,9 @@ const GOALIE_REACTION = 0.32
 const GOALIE_SPEED = 95
 const GOALIE_RECOVERY = 1.1
 const WIN_SCORE = 5
+const CLASSIC_MATCH_MINUTES = 90
+const REAL_SECONDS_PER_GAME_MINUTE = 2
+const CLASSIC_MATCH_SECONDS = CLASSIC_MATCH_MINUTES * REAL_SECONDS_PER_GAME_MINUTE
 const AI_GUARD_X = 950
 const CONTROL_REACH = 70
 const BALL_OFFSET = 57
@@ -100,6 +103,13 @@ export class AirHockeyGame extends BaseGame {
   update(dt: number, input: InputFrame) {
     if (this.result) return
     this.tickEffects(dt)
+    if (this.variant === 'classic' && this.elapsed >= CLASSIC_MATCH_SECONDS) {
+      this.elapsed = CLASSIC_MATCH_SECONDS
+      const winner = this.scores[0] === this.scores[1] ? -1 : this.scores[0] > this.scores[1] ? 0 : 1
+      const winnerName = winner === -1 ? undefined : winner === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${winner + 1}`
+      this.finish({ headline: winnerName ? `${winnerName} WINS` : 'DRAW', detail: `FULL TIME · ${this.scores[0]}–${this.scores[1]}`, score: winnerName ? 1 : 0, winnerName, recordEligible: winner !== -1 })
+      return
+    }
     if (this.serveDelay > 0) {
       this.serveDelay -= dt
       if (this.serveDelay <= 0) {
@@ -371,7 +381,7 @@ export class AirHockeyGame extends BaseGame {
   private scoreGoal(player: number) {
     this.scores[player] += 1; this.scorer = player; this.serveDirection = player === 0 ? 1 : -1
     this.particles.burst(this.puck.x, this.puck.y, this.strikers[player].color, 42, 390); this.impact(11)
-    if (this.scores[player] >= WIN_SCORE) {
+    if (this.variant === 'football' && this.scores[player] >= WIN_SCORE) {
       const winnerName = player === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${player + 1}`
       this.finish({ headline: `${winnerName} WINS`, detail: `FIRST TO FIVE · ${this.scores[0]}–${this.scores[1]}`, score: 1, winnerName })
       return
@@ -429,9 +439,11 @@ export class AirHockeyGame extends BaseGame {
   }
 
   getHud(): HudItem[] {
+    const gameSeconds = Math.floor(Math.min(this.elapsed, CLASSIC_MATCH_SECONDS) / REAL_SECONDS_PER_GAME_MINUTE * 60)
+    const clock = `${Math.floor(gameSeconds / 60)}:${String(gameSeconds % 60).padStart(2, '0')}`
     return [
       { label: 'PLAYER 1', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: 'FIRST TO 5', value: this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} ${this.variant === 'football' ? 'BALL' : 'PUCK'} SPEED` },
+      { label: this.variant === 'classic' ? 'MATCH TIME · 90 MIN' : 'FIRST TO 5', value: this.variant === 'classic' ? clock : this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} BALL SPEED` },
       { label: this.opponent === 'ai' ? 'AI' : 'PLAYER 2', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }
