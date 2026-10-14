@@ -217,10 +217,6 @@ export class AirHockeyGame extends BaseGame {
       if (speed > 820) { this.puck.vx = this.puck.vx / speed * 820; this.puck.vy = this.puck.vy / speed * 820 }
       this.particles.burst(this.puck.x, this.puck.y, striker.color, 12, Math.min(280, impulse)); this.impact(Math.min(7, impulse / 55))
     })
-    if (Math.hypot(this.puck.vx, this.puck.vy) < 105) {
-      const direction = this.puck.vx === 0 ? this.serveDirection : Math.sign(this.puck.vx)
-      this.puck.vx += direction * 28 * dt
-    }
     if (this.tackleSlowTime > 0) {
       const speed = Math.hypot(this.puck.vx, this.puck.vy)
       if (speed > TACKLE_BALL_SPEED) {
