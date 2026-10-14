@@ -25,7 +25,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const isHockey = (runtime instanceof AirHockeyGame || runtime instanceof FootballGame)
   const isFootballHockey = runtime instanceof FootballGame
   const hockeyControls = isFootballHockey
-    ? (hockeyOpponent === 'ai' ? 'WASD MOVE · Q/E AIM · HOLD/RELEASE SPACE SHOOT · F PASS · R SWITCH · SHIFT SPRINT · SPACE TACKLE' : 'P1: WASD · Q/E AIM · SPACE SHOT/TACKLE · F PASS · R SWITCH | P2: ARROWS · ,/. AIM · ENTER · ; PASS · / SWITCH')
+    ? (hockeyOpponent === 'ai' ? 'WASD MOVE · Q/E AIM · HOLD/RELEASE SPACE SHOOT · F PASS · R CALL FOR PASS · SHIFT SPRINT · SPACE TACKLE' : 'P1: WASD · Q/E AIM · SPACE SHOT/TACKLE · F PASS · R CALL FOR PASS | P2: ARROWS · ,/. AIM · ENTER · ; PASS · / CALL')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
 
   const setPhase = (value: Phase) => { phaseRef.current = value; setPhaseState(value) }
@@ -120,7 +120,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You control one of them and can switch teammates. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates and switch players to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : meta.description}</p>
+              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You always control the blue #8. Your five AI teammates support your runs, receive passes and pass back. Press R to call for a pass. The red team has a main AI #8 and five AI teammates. In two-player mode each human stays with their own #8. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates, make supporting runs and tackle to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isHockey ? (
                 <div className="hockey-mode-actions">
