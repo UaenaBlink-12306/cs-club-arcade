@@ -90,10 +90,10 @@ export class AirHockeyGame extends BaseGame {
       { x: 335, y: 300, vx: 0, vy: 0, r: 34, mass: 3, color: COLORS.cyan, label: 'P1' },
       { x: 865, y: 300, vx: 0, vy: 0, r: 34, mass: 3, color: COLORS.coral, label: 'P2' },
     ]
-    this.goalies = this.variant === 'football' ? [
+    this.goalies = [
       { x: LEFT + 35, anchorX: LEFT + 35, y: 300, vx: 0, vy: 0, r: GOALIE_RADIUS, mass: 80, color: COLORS.cyan, targetY: 300, reaction: GOALIE_REACTION, recovery: 0 },
       { x: RIGHT - 35, anchorX: RIGHT - 35, y: 300, vx: 0, vy: 0, r: GOALIE_RADIUS, mass: 80, color: COLORS.coral, targetY: 300, reaction: GOALIE_REACTION, recovery: 0 },
-    ] : []
+    ]
     Object.assign(this.puck, { x: 600, y: 300, vx: 0, vy: 0 })
     this.serveDelay = delay
     this.aiTarget = { x: AI_GUARD_X, y: 300 }
