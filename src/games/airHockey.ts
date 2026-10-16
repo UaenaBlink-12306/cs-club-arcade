@@ -50,7 +50,13 @@ export class AirHockeyGame extends BaseGame {
   private goalies: Goalie[] = []
   private puck: Puck = { x: 600, y: 300, vx: 0, vy: 0, r: 18, mass: 0.35, color: COLORS.text }
   private scores: [number, number] = [0, 0]
-  private matchPhase: 'regulation' | 'extra' | 'tiebreaker' = 'regulation'
+  private matchPhase: 'regulation' | 'extra' | 'shootout' = 'regulation'
+  private penaltyAttempts: [boolean[], boolean[]] = [[], []]
+  private penaltyShooter: 0 | 1 = 0
+  private penaltyState: 'aiming' | 'flying' | 'result' = 'aiming'
+  private penaltyTimer = 0
+  private penaltyAimY = 300
+  private penaltyMessage = ''
   private phaseElapsed = 0
   private lostTime = 0
   private addedMinutes = 0
@@ -81,6 +87,7 @@ export class AirHockeyGame extends BaseGame {
   }
 
   reset() {
+    this.penaltyAttempts = [[], []]; this.penaltyShooter = 0; this.penaltyState = 'aiming'; this.penaltyTimer = 0; this.penaltyAimY = 300; this.penaltyMessage = ''
     this.matchPhase = 'regulation'; this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0
     this.result = null; this.elapsed = 0; this.scores = [0, 0]; this.scorer = -1; this.serveDirection = Math.random() < 0.5 ? -1 : 1; this.particles.clear(); this.resetFaceoff(1.25)
   }
@@ -110,6 +117,7 @@ export class AirHockeyGame extends BaseGame {
   update(dt: number, input: InputFrame) {
     if (this.result) return
     this.tickEffects(dt)
+    if (this.matchPhase === 'shootout') { this.updateShootout(dt, input); return }
     if (this.variant === 'classic' && this.updateMatchClock(dt)) return
     if (this.serveDelay > 0) {
       this.serveDelay -= dt
@@ -242,7 +250,6 @@ export class AirHockeyGame extends BaseGame {
   }
 
   private updateMatchClock(dt: number) {
-    if (this.matchPhase === 'tiebreaker') return false
     const remaining = Math.max(0, this.periodSeconds - this.phaseElapsed)
     // Recover face-off time lost during the timed period; freeze the allowance at stoppage time.
     this.lostTime += Math.min(dt, remaining, Math.max(0, this.serveDelay))
@@ -257,18 +264,144 @@ export class AirHockeyGame extends BaseGame {
     if (this.scores[0] !== this.scores[1]) {
       this.finishClassic(this.scores[0] > this.scores[1] ? 0 : 1)
     } else {
-      this.matchPhase = this.matchPhase === 'regulation' ? 'extra' : 'tiebreaker'
+      this.matchPhase = this.matchPhase === 'regulation' ? 'extra' : 'shootout'
       this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0; this.scorer = -1
-      this.resetFaceoff(1.25)
+      if (this.matchPhase === 'shootout') this.preparePenalty()
+      else this.resetFaceoff(1.25)
     }
     return true
   }
 
   private finishClassic(player: number) {
     const winnerName = player === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${player + 1}`
-    const stage = this.matchPhase === 'tiebreaker' ? 'TIEBREAKER · NEXT GOAL WINS'
+    const stage = this.matchPhase === 'shootout' ? 'AFTER PENALTIES'
       : this.matchPhase === 'extra' ? 'AFTER EXTRA TIME' : 'FULL TIME'
-    this.finish({ headline: `${winnerName} WINS`, detail: `${stage} · ${this.scores[0]}–${this.scores[1]}`, score: 1, winnerName })
+    const penalties = this.matchPhase === 'shootout' ? ` · PENALTIES ${this.penaltyGoals(0)}–${this.penaltyGoals(1)}` : ''
+    this.finish({ headline: `${winnerName} WINS`, detail: `${stage} · ${this.scores[0]}–${this.scores[1]}${penalties}`, score: 1, winnerName })
+  }
+
+  private penaltyGoals(player: 0 | 1) {
+    return this.penaltyAttempts[player].filter(Boolean).length
+  }
+
+  private preparePenalty() {
+    this.resetFaceoff(0)
+    this.penaltyState = 'aiming'
+    this.penaltyTimer = 0
+    this.penaltyMessage = ''
+    this.penaltyAimY = 300
+    const direction = this.penaltyShooter === 0 ? 1 : -1
+    this.puck.x = 600 + direction * 200
+    const striker = this.strikers[this.penaltyShooter]
+    striker.x = this.puck.x - direction * 60
+    // The other striker and the shooter's own goalkeeper sit out this attempt.
+    if (this.penaltyShooter === 1 && this.opponent === 'ai') {
+      this.penaltyAimY = this.goalTop + this.puck.r + Math.random() * (this.goalBottom - this.goalTop - this.puck.r * 2)
+    }
+  }
+
+  private shootPenalty() {
+    this.penaltyState = 'flying'
+    this.penaltyTimer = 0
+    const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
+    const direction = normalize({ x: targetX - this.puck.x, y: this.penaltyAimY - this.puck.y })
+    this.puck.vx = direction.x * KICK_SPEED
+    this.puck.vy = direction.y * KICK_SPEED
+    this.particles.burst(this.puck.x, this.puck.y, this.strikers[this.penaltyShooter].color, 12, 160)
+    this.impact(3)
+  }
+
+  private resolvePenalty(scored: boolean, message: string) {
+    if (this.penaltyState === 'result') return
+    this.penaltyAttempts[this.penaltyShooter].push(scored)
+    this.penaltyState = 'result'
+    this.penaltyTimer = 0
+    this.penaltyMessage = message
+    this.puck.vx = 0; this.puck.vy = 0
+    this.particles.burst(this.puck.x, this.puck.y, scored ? this.strikers[this.penaltyShooter].color : COLORS.text, scored ? 42 : 16, scored ? 390 : 180)
+    this.impact(scored ? 10 : 4)
+  }
+
+  private updateShootout(dt: number, input: InputFrame) {
+    this.penaltyTimer += dt
+    if (this.penaltyState === 'result') {
+      if (this.penaltyTimer < 1.6) return
+      const [a, b] = this.penaltyAttempts.map((attempts) => attempts.length)
+      const p1 = this.penaltyGoals(0), p2 = this.penaltyGoals(1)
+      const decided = a >= 5 && b >= 5
+        ? a === b && p1 !== p2
+        : p1 > p2 + Math.max(0, 5 - b) || p2 > p1 + Math.max(0, 5 - a)
+      if (decided) { this.finishClassic(p1 > p2 ? 0 : 1); return }
+      this.penaltyShooter = this.penaltyShooter === 0 ? 1 : 0
+      this.preparePenalty()
+      return
+    }
+    if (this.penaltyState === 'aiming') {
+      this.moveGoalies(dt)
+      if (this.penaltyShooter === 1 && this.opponent === 'ai') {
+        if (this.penaltyTimer >= 1.2) this.shootPenalty()
+        return
+      }
+      const movement = this.penaltyShooter === 0 ? axis(input.down, 'KeyW', 'KeyS') : axis(input.down, 'ArrowUp', 'ArrowDown')
+      this.penaltyAimY = clamp(this.penaltyAimY + movement * 120 * dt, this.goalTop - 60, this.goalBottom + 60)
+      if (input.wasPressed(this.penaltyShooter === 0 ? 'Space' : 'Enter')) this.shootPenalty()
+      else if (this.penaltyTimer >= 10) this.resolvePenalty(false, 'TIME UP')
+      return
+    }
+    // Small physics steps prevent a fast shot from tunnelling through the robot goalkeeper.
+    const steps = Math.max(1, Math.ceil(dt / (1 / 120)))
+    const step = dt / steps
+    const goalkeeper = this.goalies[1 - this.penaltyShooter]
+    const direction = this.penaltyShooter === 0 ? 1 : -1
+    for (let i = 0; i < steps; i++) {
+      this.moveGoalies(step)
+      this.puck.x += this.puck.vx * step
+      this.puck.y += this.puck.vy * step
+      if (Math.hypot(this.puck.x - goalkeeper.x, this.puck.y - goalkeeper.y) <= this.puck.r + goalkeeper.r) {
+        this.resolvePenalty(false, 'SAVED!'); return
+      }
+      if (direction > 0 ? this.puck.x + this.puck.r >= RIGHT : this.puck.x - this.puck.r <= LEFT) {
+        const scored = this.puck.y - this.puck.r > this.goalTop && this.puck.y + this.puck.r < this.goalBottom
+        this.resolvePenalty(scored, scored ? 'GOAL!' : 'WIDE!'); return
+      }
+      if (this.puck.y - this.puck.r <= TOP || this.puck.y + this.puck.r >= BOTTOM) {
+        this.resolvePenalty(false, 'WIDE!'); return
+      }
+    }
+    if (this.penaltyTimer >= 3) this.resolvePenalty(false, 'MISSED!')
+  }
+
+  private drawShootout(ctx: CanvasRenderingContext2D) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.fillStyle = COLORS.text
+    ctx.font = '800 28px Arial Narrow'
+    const shooter = this.penaltyShooter === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.penaltyShooter + 1}`
+    ctx.fillText(this.penaltyState === 'result' ? `${shooter} · ${this.penaltyMessage}` : `${shooter} vs ROBOT GOALKEEPER`, 600, 45)
+    ctx.font = '700 20px Arial Narrow'
+    const aiTurn = this.penaltyShooter === 1 && this.opponent === 'ai'
+    const controls = this.penaltyShooter === 0 ? 'W / S AIM · SPACE SHOOT' : '↑ / ↓ AIM · ENTER SHOOT'
+    ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : `${controls} · ${Math.max(0, Math.ceil(10 - this.penaltyTimer))}s` : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)
+    if (this.penaltyState === 'aiming' && !aiTurn) {
+      const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
+      ctx.strokeStyle = this.strikers[this.penaltyShooter].color; ctx.lineWidth = 3; ctx.setLineDash([8, 10]); ctx.globalAlpha = 0.75
+      ctx.beginPath(); ctx.moveTo(this.puck.x, this.puck.y); ctx.lineTo(targetX, this.penaltyAimY); ctx.stroke(); ctx.setLineDash([])
+      ctx.beginPath(); ctx.arc(targetX, this.penaltyAimY, 9, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1
+    }
+    this.penaltyAttempts.forEach((attempts, player) => {
+      // Keep the current sudden-death pair visible without overflowing the rink.
+      const currentAttempt = Math.max(this.penaltyAttempts[0].length, this.penaltyAttempts[1].length) - (this.penaltyState === 'result' ? 1 : 0)
+      const start = Math.max(0, Math.floor(currentAttempt / 5) * 5)
+      const x = player === 0 ? 300 : 780
+      ctx.fillStyle = this.strikers[player].color; ctx.font = '700 18px Arial Narrow'
+      ctx.fillText(`${player === 1 && this.opponent === 'ai' ? 'AI' : `P${player + 1}`} · ${this.scores[player]} AT 120 MIN`, x + 60, 115)
+      for (let i = 0; i < 5; i++) {
+        const result = attempts[start + i]
+        ctx.beginPath(); ctx.arc(x + i * 30, 142, 9, 0, Math.PI * 2)
+        ctx.strokeStyle = this.strikers[player].color; ctx.lineWidth = 2
+        if (result !== undefined) { ctx.fillStyle = result ? this.strikers[player].color : '#667080'; ctx.fill() }
+        ctx.stroke()
+      }
+    })
+    ctx.restore()
   }
 
   private updateFacing(player: 0 | 1, x: number, y: number) {
@@ -416,10 +549,6 @@ export class AirHockeyGame extends BaseGame {
   private scoreGoal(player: number) {
     this.scores[player] += 1; this.scorer = player; this.serveDirection = player === 0 ? 1 : -1
     this.particles.burst(this.puck.x, this.puck.y, this.strikers[player].color, 42, 390); this.impact(11)
-    if (this.variant === 'classic' && this.matchPhase === 'tiebreaker') {
-      this.finishClassic(player)
-      return
-    }
     if (this.variant === 'football' && this.scores[player] >= WIN_SCORE) {
       const winnerName = player === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${player + 1}`
       this.finish({ headline: `${winnerName} WINS`, detail: `FIRST TO FIVE · ${this.scores[0]}–${this.scores[1]}`, score: 1, winnerName })
@@ -442,12 +571,16 @@ export class AirHockeyGame extends BaseGame {
       ctx.strokeStyle = COLORS.coral; ctx.strokeRect(RIGHT - CREASE_DEPTH, this.creaseTop, CREASE_DEPTH, this.creaseBottom - this.creaseTop)
       ctx.restore()
     }
-    this.goalies.forEach((goalie) => {
+    this.goalies.forEach((goalie, index) => {
+      if (this.matchPhase === 'shootout' && index === this.penaltyShooter) return
       ctx.save(); ctx.globalAlpha = goalie.recovery > 0.45 ? 0.3 : goalie.recovery > 0 ? 0.62 : 1
       drawPlayer(ctx, goalie, goalie.color, 'GK')
       ctx.restore()
     })
-    this.strikers.forEach((striker, index) => drawPlayer(ctx, striker, striker.color, index === 1 && this.opponent === 'ai' ? 'AI' : striker.label))
+    this.strikers.forEach((striker, index) => {
+      if (this.matchPhase !== 'shootout' || index === this.penaltyShooter) drawPlayer(ctx, striker, striker.color, index === 1 && this.opponent === 'ai' ? 'AI' : striker.label)
+    })
+    if (this.matchPhase === 'shootout') this.drawShootout(ctx)
     ctx.save(); ctx.shadowBlur = 22; ctx.shadowColor = this.puck.color; ctx.fillStyle = this.puck.color; ctx.beginPath(); ctx.arc(this.puck.x, this.puck.y, this.puck.r, 0, Math.PI * 2); ctx.fill()
     if (this.variant === 'football') {
       ctx.shadowBlur = 0; ctx.fillStyle = COLORS.ink; ctx.beginPath()
@@ -467,7 +600,7 @@ export class AirHockeyGame extends BaseGame {
     this.particles.render(ctx)
     if (this.serveDelay > 0) {
       ctx.fillStyle = this.scorer >= 0 ? this.strikers[this.scorer].color : COLORS.text; ctx.font = '800 35px Arial Narrow'; ctx.textAlign = 'center'
-      ctx.fillText(this.scorer >= 0 ? `${this.scorer === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.scorer + 1}`} SCORES!` : `${this.variant === 'classic' && this.matchPhase === 'tiebreaker' ? 'TIEBREAKER · NEXT GOAL WINS' : this.variant === 'classic' && this.matchPhase === 'extra' ? 'EXTRA TIME · 30 MIN' : 'FACE OFF'} · ${Math.max(1, Math.ceil(this.serveDelay))}`, 600, 48)
+      ctx.fillText(this.scorer >= 0 ? `${this.scorer === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.scorer + 1}`} SCORES!` : `${this.variant === 'classic' && this.matchPhase === 'extra' ? 'EXTRA TIME · 30 MIN' : 'FACE OFF'} · ${Math.max(1, Math.ceil(this.serveDelay))}`, 600, 48)
     }
     ctx.restore()
   }
@@ -478,16 +611,23 @@ export class AirHockeyGame extends BaseGame {
   }
 
   getHud(): HudItem[] {
+    if (this.matchPhase === 'shootout') {
+      const round = this.penaltyAttempts[this.penaltyShooter].length + (this.penaltyState === 'result' ? 0 : 1)
+      return [
+        { label: 'PLAYER 1 · PENALTIES', value: String(this.penaltyGoals(0)), accent: COLORS.cyan },
+        { label: round > 5 ? 'SUDDEN DEATH' : 'PENALTY SHOOTOUT', value: this.penaltyState === 'result' ? this.penaltyMessage : `${this.penaltyShooter === 1 && this.opponent === 'ai' ? 'AI' : `P${this.penaltyShooter + 1}`} · SHOT ${round}${round <= 5 ? '/5' : ''}` },
+        { label: `${this.opponent === 'ai' ? 'AI' : 'PLAYER 2'} · PENALTIES`, value: String(this.penaltyGoals(1)), accent: COLORS.coral },
+      ]
+    }
     const inStoppage = this.addedMinutes > 0
     const gameSeconds = Math.floor((inStoppage ? Math.max(0, this.phaseElapsed - this.periodSeconds) : this.phaseElapsed) / REAL_SECONDS_PER_GAME_MINUTE * 60)
     const periodMinutes = this.matchPhase === 'extra' ? EXTRA_TIME_MINUTES : CLASSIC_MATCH_MINUTES
-    const timeLabel = this.matchPhase === 'tiebreaker' ? 'TIEBREAKER'
-      : inStoppage ? `${this.matchPhase === 'extra' ? 'ET · ' : ''}STOPPAGE · +${this.addedMinutes} MIN`
+    const timeLabel = inStoppage ? `${this.matchPhase === 'extra' ? 'ET · ' : ''}STOPPAGE · +${this.addedMinutes} MIN`
         : this.matchPhase === 'extra' ? 'EXTRA TIME · 30 MIN' : 'MATCH TIME · 90 MIN'
     const clock = `${Math.floor(gameSeconds / 60)}:${String(gameSeconds % 60).padStart(2, '0')}`
     return [
       { label: 'PLAYER 1', value: String(this.scores[0]), accent: COLORS.cyan },
-      { label: this.variant === 'classic' ? timeLabel : 'FIRST TO 5', value: this.variant === 'classic' ? this.matchPhase === 'tiebreaker' ? 'NEXT GOAL WINS' : inStoppage ? `${periodMinutes} + ${clock}` : clock : this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} BALL SPEED` },
+      { label: this.variant === 'classic' ? timeLabel : 'FIRST TO 5', value: this.variant === 'classic' ? inStoppage ? `${periodMinutes} + ${clock}` : clock : this.serveDelay > 0 ? 'FACE OFF' : this.holder !== -1 ? `${this.holder === 1 && this.opponent === 'ai' ? 'AI' : `P${this.holder + 1}`} DRIBBLING` : `${Math.round(clamp(Math.hypot(this.puck.vx, this.puck.vy), 0, 999))} BALL SPEED` },
       { label: this.opponent === 'ai' ? 'AI' : 'PLAYER 2', value: String(this.scores[1]), accent: COLORS.coral },
     ]
   }

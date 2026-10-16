@@ -24,7 +24,10 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
   const isHockey = (runtime instanceof AirHockeyGame || runtime instanceof FootballGame)
   const isFootballHockey = runtime instanceof FootballGame
-  const hockeyControls = isFootballHockey
+  const isShootout = runtime instanceof AirHockeyGame && hud.some((item) => item.label === 'PENALTY SHOOTOUT' || item.label === 'SUDDEN DEATH')
+  const hockeyControls = isShootout
+    ? (hockeyOpponent === 'ai' ? 'PENALTIES · W/S AIM · SPACE SHOOT · ROBOT GOALKEEPERS' : 'PENALTIES · P1: W/S AIM · SPACE SHOOT | P2: ↑/↓ AIM · ENTER SHOOT')
+    : isFootballHockey
     ? (hockeyOpponent === 'ai' ? 'WASD MOVE · Q/E AIM · HOLD/RELEASE SPACE SHOOT · F PASS · R CALL FOR PASS · SHIFT SPRINT · SPACE TACKLE' : 'P1: WASD · Q/E AIM · SPACE SHOT/TACKLE · F PASS · R CALL FOR PASS | P2: ARROWS · ,/. AIM · ENTER · ; PASS · / CALL')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
 
