@@ -262,6 +262,10 @@ button:focus-visible, input:focus-visible {
 .game-overlay p { margin: 12px 0 22px; color: #c8d1dc; font-size: clamp(14px, 1.3vw, 18px); }
 .controls-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 24px; }
 .controls-list kbd { padding: 9px 13px; border: 1px solid rgba(244, 241, 232, .55); border-radius: 3px; background: rgba(7, 23, 44, .9); color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.hockey-draw-rule { display: grid; gap: 7px; width: min(100%, 340px); margin: 0 0 18px; text-align: left; }
+.hockey-draw-rule span { color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.hockey-draw-rule select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--cyan); border-radius: 3px; background: var(--deep); color: var(--text); font: inherit; font-size: 14px; color-scheme: dark; }
+.hockey-draw-rule select:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
 .hockey-mode-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 .overlay-primary { min-width: 180px; }
 .ready-overlay small { margin-top: 14px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .07em; text-transform: uppercase; }
@@ -328,6 +332,10 @@ button:focus-visible, input:focus-visible {
 }
 
 @media (max-width: 480px) {
+  .classic-setup-frame { min-height: 285px; }
+  .hockey-draw-rule { gap: 4px; margin-bottom: 10px; }
+  .hockey-draw-rule span { font-size: 12px; }
+  .hockey-draw-rule select { min-height: 36px; padding: 5px 8px; font-size: 12px; }
   .hockey-ready-overlay { padding: 8px; }
   .hockey-ready-overlay .overlay-rule, .hockey-ready-overlay h2 { display: none; }
   .hockey-ready-overlay p { margin: 0 0 7px; font-size: 12px; line-height: 1.2; }

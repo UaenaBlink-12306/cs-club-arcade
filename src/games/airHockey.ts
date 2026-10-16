@@ -35,6 +35,7 @@ const AI_CARRY_SPEED = 260
 const AI_ACCELERATION = 650
 
 export type HockeyOpponent = 'ai' | 'human'
+export type HockeyDrawRule = 'extra-time' | 'penalties'
 export type HockeyVariant = 'classic' | 'football'
 
 function reboundY(y: number) {
@@ -64,6 +65,7 @@ export class AirHockeyGame extends BaseGame {
   private serveDirection = 1
   private scorer = -1
   private opponent: HockeyOpponent = 'ai'
+  private drawRule: HockeyDrawRule = 'extra-time'
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
   private aiWantsControl = false
@@ -83,6 +85,11 @@ export class AirHockeyGame extends BaseGame {
 
   setOpponent(opponent: HockeyOpponent) {
     this.opponent = opponent
+    this.reset()
+  }
+
+  setDrawRule(rule: HockeyDrawRule) {
+    this.drawRule = rule
     this.reset()
   }
 
@@ -264,7 +271,7 @@ export class AirHockeyGame extends BaseGame {
     if (this.scores[0] !== this.scores[1]) {
       this.finishClassic(this.scores[0] > this.scores[1] ? 0 : 1)
     } else {
-      this.matchPhase = this.matchPhase === 'regulation' ? 'extra' : 'shootout'
+      this.matchPhase = this.matchPhase === 'regulation' && this.drawRule === 'extra-time' ? 'extra' : 'shootout'
       this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0; this.scorer = -1
       if (this.matchPhase === 'shootout') this.preparePenalty()
       else this.resetFaceoff(1.25)
@@ -392,7 +399,7 @@ export class AirHockeyGame extends BaseGame {
       const start = Math.max(0, Math.floor(currentAttempt / 5) * 5)
       const x = player === 0 ? 300 : 780
       ctx.fillStyle = this.strikers[player].color; ctx.font = '700 18px Arial Narrow'
-      ctx.fillText(`${player === 1 && this.opponent === 'ai' ? 'AI' : `P${player + 1}`} · ${this.scores[player]} AT 120 MIN`, x + 60, 115)
+      ctx.fillText(`${player === 1 && this.opponent === 'ai' ? 'AI' : `P${player + 1}`} · ${this.scores[player]} AT ${this.drawRule === 'penalties' ? CLASSIC_MATCH_MINUTES : CLASSIC_MATCH_MINUTES + EXTRA_TIME_MINUTES} MIN`, x + 60, 115)
       for (let i = 0; i < 5; i++) {
         const result = attempts[start + i]
         ctx.beginPath(); ctx.arc(x + i * 30, 142, 9, 0, Math.PI * 2)

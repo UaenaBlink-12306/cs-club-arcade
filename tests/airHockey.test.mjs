@@ -190,3 +190,50 @@ test('legacy football variant remains a first-to-five game', () => {
   runtime.scoreGoal(0)
   assert.match(runtime.result.detail, /FIRST TO FIVE · 5–0/)
 })
+
+test('straight-to-penalties skips extra time only after regulation stoppage, in either opponent mode', () => {
+  for (const opponent of ['ai', 'human']) {
+    const runtime = game(opponent)
+    runtime.setDrawRule('penalties')
+    runtime.scores = [2, 2]
+    runtime.phaseElapsed = 179.99; runtime.addedMinutes = 2
+    runtime.update(0.02, input())
+    assert.equal(runtime.matchPhase, 'regulation')
+    runtime.phaseElapsed = 183.99
+    runtime.update(0.02, input())
+    assert.equal(runtime.matchPhase, 'shootout')
+    assert.deepEqual(runtime.scores, [2, 2])
+    assert.deepEqual(runtime.penaltyAttempts, [[], []])
+    assert.equal(runtime.penaltyShooter, 0)
+    assert.equal(runtime.getHud()[1].label, 'PENALTY SHOOTOUT')
+    assert.equal(runtime.result, null)
+  }
+})
+
+test('straight-to-penalties still ends a non-tied match at full time', () => {
+  const runtime = game()
+  runtime.setDrawRule('penalties')
+  runtime.scores = [1, 2]; runtime.phaseElapsed = 181.99; runtime.addedMinutes = 1
+  runtime.update(0.02, input())
+  assert.equal(runtime.result.winnerName, 'PLAYER 2')
+  assert.match(runtime.result.detail, /FULL TIME · 1–2/)
+  assert.deepEqual(runtime.penaltyAttempts, [[], []])
+})
+
+test('the chosen draw rule survives opponent selection and replay, and can be changed for a new match', () => {
+  const runtime = game()
+  runtime.setDrawRule('penalties')
+  runtime.setOpponent('ai')
+  for (let round = 0; round < 2; round++) {
+    runtime.phaseElapsed = 181.99; runtime.addedMinutes = 1
+    runtime.update(0.02, input())
+    assert.equal(runtime.matchPhase, 'shootout')
+    runtime.reset()
+    assert.equal(runtime.matchPhase, 'regulation')
+    assert.deepEqual(runtime.penaltyAttempts, [[], []])
+  }
+  runtime.setDrawRule('extra-time')
+  runtime.phaseElapsed = 181.99; runtime.addedMinutes = 1
+  runtime.update(0.02, input())
+  assert.equal(runtime.matchPhase, 'extra')
+})

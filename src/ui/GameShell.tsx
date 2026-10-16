@@ -4,7 +4,7 @@ import { arcadeAudio } from '../audio/ArcadeAudio'
 import { InputController } from '../core/Input'
 import { GAME_HEIGHT, GAME_WIDTH, type GameMeta, type GameResult, type HudItem } from '../core/types'
 import { createGame } from '../games'
-import { AirHockeyGame, type HockeyOpponent } from '../games/airHockey'
+import { AirHockeyGame, type HockeyOpponent, type HockeyDrawRule } from '../games/airHockey'
 import { FootballGame } from '../games/football'
 import { getBest, recordResult } from '../utils/storage'
 
@@ -22,6 +22,8 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [newBest, setNewBest] = useState(false)
   const [audioVersion, setAudioVersion] = useState(0)
   const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
+  const [hockeyDrawRule, setHockeyDrawRule] = useState<HockeyDrawRule>('extra-time')
+  const isClassicHockey = runtime instanceof AirHockeyGame && runtime.variant === 'classic'
   const isHockey = (runtime instanceof AirHockeyGame || runtime instanceof FootballGame)
   const isFootballHockey = runtime instanceof FootballGame
   const isShootout = runtime instanceof AirHockeyGame && hud.some((item) => item.label === 'PENALTY SHOOTOUT' || item.label === 'SUDDEN DEATH')
@@ -91,6 +93,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const start = (opponent?: HockeyOpponent) => {
     if ((runtime instanceof AirHockeyGame || runtime instanceof FootballGame)) {
       const selected = opponent ?? 'ai'
+      if (runtime instanceof AirHockeyGame) runtime.setDrawRule(hockeyDrawRule)
       runtime.setOpponent(selected)
       setHockeyOpponent(selected)
       setHud(runtime.getHud())
@@ -117,14 +120,23 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
       </section>
 
       <section className="game-stage">
-        <div className="canvas-frame">
+        <div className={`canvas-frame ${isClassicHockey && phase === 'ready' ? 'classic-setup-frame' : ''}`}>
           <canvas ref={canvasRef} width={GAME_WIDTH} height={GAME_HEIGHT} aria-label={`${meta.title} play field`} />
           {phase === 'ready' && (
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You always control the blue #8. Your five AI teammates support your runs, receive passes and pass back. Press R to call for a pass. The red team has a main AI #8 and five AI teammates. In two-player mode each human stays with their own #8. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates, make supporting runs and tackle to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : meta.description}</p>
+              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You always control the blue #8. Your five AI teammates support your runs, receive passes and pass back. Press R to call for a pass. The red team has a main AI #8 and five AI teammates. In two-player mode each human stays with their own #8. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates, make supporting runs and tackle to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : isClassicHockey ? '90 minutes plus stoppage time. Choose how to settle a draw, then pick your opponent. Penalties: five shots each against robot goalkeepers, then sudden death.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
+              {isClassicHockey && (
+                <label className="hockey-draw-rule">
+                  <span>If tied after 90 minutes</span>
+                  <select value={hockeyDrawRule} onChange={(event) => setHockeyDrawRule(event.target.value as HockeyDrawRule)}>
+                    <option value="extra-time">30 min extra time, then penalties</option>
+                    <option value="penalties">Straight to penalties</option>
+                  </select>
+                </label>
+              )}
               {isHockey ? (
                 <div className="hockey-mode-actions">
                   <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start('ai')}>Play vs AI</button>
