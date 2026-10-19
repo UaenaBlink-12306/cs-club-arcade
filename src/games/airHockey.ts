@@ -481,7 +481,6 @@ export class AirHockeyGame extends BaseGame {
   private moveAi(dt: number) {
     const striker = this.strikers[1]
     const puck = this.puck
-    const p1Distance = Math.hypot(puck.x - this.strikers[0].x, puck.y - this.strikers[0].y)
     if (this.holder === 1) {
       const shotY = this.strikers[0].y < 300 ? 350 : 250
       this.aiWantsControl = this.aiCarryTime < 2.8 && striker.x > 405
@@ -490,21 +489,25 @@ export class AirHockeyGame extends BaseGame {
     } else {
       this.aiWantsControl = this.variant === 'football' && (this.holder === 0
         ? Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < AI_TACKLE_REACH
-        : puck.x > 500 && p1Distance > 140 && Math.hypot(puck.vx, puck.vy) < 460)
+        : Math.hypot(puck.vx, puck.vy) < 460)
     }
     this.aiDecisionDelay -= dt
     if (this.holder !== 1 && this.aiDecisionDelay <= 0) {
       this.aiDecisionDelay = 0.11
-      if (this.holder === 0 && puck.x > 560) {
-        // Challenge a player carrying the ball into the AI's half.
+      const goalCrossing = predictCrossing(puck, RIGHT - puck.r)
+      const goalThreat = puck.vx > 0 && goalCrossing !== null
+        && goalCrossing.y > this.goalTop - puck.r && goalCrossing.y < this.goalBottom + puck.r
+      const urgent = puck.x > striker.x - 50 || (RIGHT - puck.r - puck.x) / Math.max(1, puck.vx) < 0.75
+      if (this.holder === 0) {
+        // Press the carrier across the rink instead of waiting in our half.
         this.aiTarget = { x: clamp(puck.x + 25, LEFT + striker.r, RIGHT - striker.r), y: puck.y }
-      } else if (this.holder === -1 && puck.vx > 0 && predictCrossing(puck, Math.max(AI_GUARD_X, puck.x + 45)) && Math.hypot(puck.vx, puck.vy) >= 150) {
-        // Intercept before choosing an attacking run, even after the ball has
-        // passed the usual guard line. Prediction includes every side bank.
-        const guardX = clamp(Math.max(AI_GUARD_X, puck.x + 45), AI_GUARD_X, RIGHT - striker.r)
+      } else if (this.holder === -1 && goalThreat && urgent && Math.hypot(puck.vx, puck.vy) >= 150) {
+        // Retreat only for an immediate goal threat; step into the shot
+        // from our current position rather than camping at the guard line.
+        const guardX = clamp(Math.max(striker.x, puck.x + 45), LEFT + striker.r, RIGHT - striker.r)
         const crossing = predictCrossing(puck, guardX)
         this.aiTarget = { x: guardX, y: crossing?.y ?? puck.y }
-      } else if (this.holder === -1 && puck.x > 500 && (Math.hypot(puck.vx, puck.vy) < 150 || (puck.vx > -90 && (puck.x > 720 || p1Distance > 190)))) {
+      } else if (this.holder === -1) {
         // Get behind the puck and strike toward the side of the goal away from P1.
         const shotY = this.strikers[0].y < 300 ? 350 : 250
         const leadTime = clamp(Math.hypot(striker.x - puck.x, striker.y - puck.y) / AI_MOVE_SPEED, 0, 0.6)
@@ -515,8 +518,7 @@ export class AirHockeyGame extends BaseGame {
           y: clamp(future.y - 48 * (shotY - future.y) / distance, TOP + striker.r, BOTTOM - striker.r),
         }
       } else {
-        // Recover to a central goalkeeping position when the puck is moving away.
-        this.aiTarget = { x: AI_GUARD_X, y: 300 }
+        this.aiTarget = { x: 600, y: 300 }
       }
     }
 

@@ -287,12 +287,12 @@ test('AI collects stationary and slowly retreating balls in its half', () => {
   }
 })
 
-test('AI prioritizes bank-shot interception and handles balls beyond its guard line', () => {
+test('AI pursues bank shots and intercepts immediate threats beyond its guard line', () => {
   const runtime = game('ai')
   Object.assign(runtime.puck, { x: 600, y: 150, vx: 400, vy: -300 })
   runtime.moveAi(0)
-  assert.equal(runtime.aiTarget.x, 950)
-  assert.ok(runtime.aiTarget.y > 250)
+  assert.ok(runtime.aiTarget.x < 950)
+  assert.ok(runtime.aiTarget.y > 84 && runtime.aiTarget.y < 516)
   Object.assign(runtime.puck, { x: 990, y: 330, vx: 200, vy: 0 })
   runtime.aiDecisionDelay = 0; runtime.moveAi(0)
   assert.ok(runtime.aiTarget.x > 990)
@@ -309,4 +309,39 @@ test('keepers ignore distant balls that stop short and keep finite targets for v
   runtime.goalies.forEach(keeper => { keeper.reaction = 0 })
   runtime.moveGoalies(0)
   assert.ok(runtime.goalies.every(keeper => Number.isFinite(keeper.targetY)))
+})
+
+
+test('AI presses loose balls across midfield instead of retreating after its attack', () => {
+  for (const vx of [0, -120, -300, 180]) {
+    const runtime = game('ai')
+    Object.assign(runtime.puck, { x: 400, y: 340, vx, vy: 0 })
+    runtime.moveAi(0)
+    assert.ok(runtime.aiTarget.x < 600, `AI should attack in opponent half with vx ${vx}`)
+  }
+})
+
+test('AI challenges a carrier in the opponent half and attacks incoming balls that miss the goal', () => {
+  const runtime = game('ai')
+  runtime.holder = 0
+  Object.assign(runtime.puck, { x: 350, y: 350, vx: 0, vy: 0 })
+  runtime.moveAi(0)
+  assert.equal(runtime.aiTarget.x, 375)
+  runtime.holder = -1; runtime.aiDecisionDelay = 0
+  Object.assign(runtime.puck, { x: 650, y: 120, vx: 250, vy: 0 })
+  runtime.moveAi(0)
+  assert.ok(runtime.aiTarget.x < 950)
+})
+
+test('AI reaches and strikes a stationary ball in the opponent half', () => {
+  const runtime = game('ai')
+  runtime.serveDelay = 0
+  Object.assign(runtime.strikers[0], { x: 200, y: 150 })
+  Object.assign(runtime.puck, { x: 400, y: 340, vx: 0, vy: 0 })
+  let attacked = false
+  for (let i = 0; i < 720; i++) {
+    runtime.update(1 / 120, input())
+    if (runtime.puck.vx < -80) { attacked = true; break }
+  }
+  assert.ok(attacked)
 })
