@@ -33,7 +33,6 @@ export class FootballGame extends BaseGame {
   private restartDelay = 0
   private notice = ''
   private opponent: HockeyOpponent = 'ai'
-  private aiThink = 0
   private passTarget = -1
   private calls = [0, 0]
   private passes = [0, 0]
@@ -51,7 +50,7 @@ export class FootballGame extends BaseGame {
     this.players = []
     for (let side = 0; side < 2; side++) FORMATION.forEach(([x, y], i) => {
       const px = side === 0 ? L + x : R - x
-      this.players.push({ x: px, y: T + y, homeX: px, homeY: T + y, vx: 0, vy: 0, r: i === 0 ? 13 : 12,
+      this.players.push({ x: px, y: T + y, homeX: px, homeY: T + y, vx: 0, vy: 0, r: i === 0 ? 10 : 12,
         team: side, number: i === 0 ? 1 : i + 3, angle: side === 0 ? 0 : Math.PI, stamina: 1, cooldown: 0 })
     })
     const taker = team * TEAM_SIZE + TEAM_SIZE - 1
@@ -65,7 +64,7 @@ export class FootballGame extends BaseGame {
     p.angle = p.team === 0 ? 0 : Math.PI
     this.holder = taker; this.lastTouch = p.team; this.passTarget = -1
     Object.assign(this.ball, { x: p.x + Math.cos(p.angle) * 21, y: p.y, vx: 0, vy: 0 })
-    this.charges = [0, 0]; this.pickupDelay = 0; this.tackleGrace = 0; this.restartDelay = 1.1; this.aiThink = 0.7
+    this.charges = [0, 0]; this.pickupDelay = 0; this.tackleGrace = 0; this.restartDelay = 1.1
     this.notice = `${p.team === 0 ? 'BLUE' : 'RED'} · ${kind}`
     // Keep opponents away from the restart taker.
     this.players.forEach(other => {
@@ -94,6 +93,20 @@ export class FootballGame extends BaseGame {
   }
   private isHuman(index: number) {
     return index === this.selected[0] || (this.opponent === 'human' && index === this.selected[1])
+  }
+  private hitForward(index: number) {
+    const p = this.players[index], direction = p.team === 0 ? 1 : -1
+    const goalX = p.team === 0 ? R : L
+    const keeper = this.players[(1 - p.team) * TEAM_SIZE]
+    const shotY = keeper.y > 300 ? GOAL_TOP + 22 : GOAL_BOTTOM - 22
+    const options = this.passingOptions(index)
+    const requested = options.find(option => this.isHuman(option.i) && this.calls[p.team] > 0)
+    const forward = options.find(option => (option.other.x - p.x) * direction > 45 && option.clearance > 24)
+    if (requested) this.pass(index, requested.i)
+    else if (Math.abs(goalX - p.x) < 310 || !forward) {
+      p.angle = Math.atan2(shotY - p.y, goalX - p.x)
+      this.kick(index, p.angle, 700, true)
+    } else this.pass(index, forward.i)
   }
   private laneClearance(from: Footballer, to: Footballer) {
     const dx = to.x - from.x, dy = to.y - from.y, length = dx * dx + dy * dy
@@ -136,9 +149,10 @@ export class FootballGame extends BaseGame {
     // A forgiving standing tackle wins possession immediately.
     this.charges[owner.team] = 0
     this.holder = index; this.passTarget = -1; this.lastTouch = p.team
-    this.pickupDelay = 0; this.tackleGrace = 0.55; this.aiThink = 0.5
+    this.pickupDelay = 0; this.tackleGrace = 0.55
     this.ball.vx = 0; this.ball.vy = 0
     this.particles.burst(p.x, p.y, COLORS.lime, 10, 95)
+    if (!this.isHuman(index)) this.hitForward(index)
   }
   update(dt: number, input: InputFrame) {
     if (this.result) return
@@ -164,9 +178,10 @@ export class FootballGame extends BaseGame {
     }
     if (this.restartDelay > 0) { this.restartDelay = Math.max(0, this.restartDelay - dt); return }
     this.tackleGrace = Math.max(0, this.tackleGrace - dt)
-    this.pickupDelay = Math.max(0, this.pickupDelay - dt); this.aiThink -= dt
+    this.pickupDelay = Math.max(0, this.pickupDelay - dt)
     this.calls = this.calls.map(time => Math.max(0, time - dt))
     this.players.forEach(p => { p.cooldown = Math.max(0, p.cooldown - dt) })
+    if (this.holder >= 0 && !this.isHuman(this.holder)) this.hitForward(this.holder)
     for (let team = 0; team < 2; team++) {
       if (team === 1 && this.opponent === 'ai') continue
       if (input.wasPressed(team === 0 ? 'KeyR' : 'Slash')) this.calls[team] = 2.5
@@ -201,25 +216,9 @@ export class FootballGame extends BaseGame {
         ? this.passTarget : eligible[0]?.i
       this.players.forEach((p, i) => {
         if (p.team !== team || this.isHuman(i)) return
-        let tx = p.homeX, ty = p.homeY
+        let tx: number, ty: number
         if (p.number === 1) {
-          tx = p.homeX; ty = clamp(300 + (this.ball.y - 300) * 0.6, GOAL_TOP + 10, GOAL_BOTTOM - 10)
-          if (i === this.holder && this.aiThink <= 0) { p.angle = team === 0 ? 0 : Math.PI; this.pass(i); this.aiThink = 0.7 }
-        } else if (i === this.holder) {
-          const goalX = team === 0 ? R : L
-          const keeper = this.players[(1 - team) * TEAM_SIZE]
-          const shotY = keeper.y > 300 ? GOAL_TOP + 22 : GOAL_BOTTOM - 22
-          tx = goalX - direction * 110; ty = shotY
-          p.angle = Math.atan2(shotY - p.y, goalX - p.x)
-          if (this.aiThink <= 0) {
-            this.aiThink = 0.65
-            const option = this.passingOptions(i).find(option => option.clearance > 24)
-            const pressure = this.players.some(q => q.team !== team && Math.hypot(q.x - p.x, q.y - p.y) < 85)
-            const requested = option && this.isHuman(option.i) && this.calls[team] > 0
-            if (requested) this.pass(i, option.i)
-            else if (Math.abs(goalX - p.x) < 310) this.kick(i, p.angle, 610, true)
-            else if (option && (pressure || (option.other.x - p.x) * direction > 45)) this.pass(i, option.i)
-          }
+          tx = p.homeX; ty = clamp(300 + (this.ball.y - 300) * 0.35, GOAL_TOP + 10, GOAL_BOTTOM - 10)
         } else if (i === chaser && !attacking) {
           tx = clamp(this.ball.x + this.ball.vx * 0.12, L + 20, R - 20)
           ty = clamp(this.ball.y + this.ball.vy * 0.12, T + 20, B - 20)
@@ -242,7 +241,7 @@ export class FootballGame extends BaseGame {
         tx = clamp(tx, L + 25, R - 25); ty = clamp(ty, T + 30, B - 30)
         const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy)
         const mainAi = team === 1 && this.opponent === 'ai' && i === this.selected[1]
-        const speed = Math.min(p.number === 1 ? 135 : this.holder === i ? mainAi ? 175 : 155 : mainAi ? 210 : 185, d * 4)
+        const speed = Math.min(p.number === 1 ? 75 : mainAi ? 210 : 185, d * 4)
         p.vx = d > 1 ? dx / d * speed : 0; p.vy = d > 1 ? dy / d * speed : 0
         p.x += p.vx * dt; p.y += p.vy * dt
         if (i !== this.holder && d > 3) p.angle = Math.atan2(dy, dx)
@@ -273,10 +272,11 @@ export class FootballGame extends BaseGame {
       for (let step = 0; step < steps; step++) {
         this.ball.x += this.ball.vx * dt / steps; this.ball.y += this.ball.vy * dt / steps
         if (this.checkOut()) return
-        const catcher = this.players.findIndex(p => Math.hypot(p.x - this.ball.x, p.y - this.ball.y) < p.r + 8 && (p.number === 1 || this.pickupDelay === 0))
+        const catcher = this.players.findIndex(p => Math.hypot(p.x - this.ball.x, p.y - this.ball.y) < p.r + (p.number === 1 ? 3 : 8) && (p.number === 1 || this.pickupDelay === 0))
         if (catcher >= 0) {
           const p = this.players[catcher]; this.holder = catcher; this.lastTouch = p.team; this.passTarget = -1
-          this.charges[p.team] = 0; this.aiThink = 0.5; this.ball.vx = 0; this.ball.vy = 0
+          this.charges[p.team] = 0; this.ball.vx = 0; this.ball.vy = 0
+          if (!this.isHuman(catcher)) this.hitForward(catcher)
           break
         }
       }

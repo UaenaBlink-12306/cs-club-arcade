@@ -12,10 +12,10 @@ const RIGHT = 1108
 const TOP = 66
 const BOTTOM = 534
 const CREASE_DEPTH = 105
-const GOALIE_RADIUS = 16
-const GOALIE_REACTION = 0.32
-const GOALIE_SPEED = 95
-const GOALIE_RECOVERY = 1.1
+const GOALIE_RADIUS = 12
+const GOALIE_REACTION = 0.5
+const GOALIE_SPEED = 65
+const GOALIE_RECOVERY = 1.5
 const WIN_SCORE = 5
 const CLASSIC_MATCH_MINUTES = 90
 const REAL_SECONDS_PER_GAME_MINUTE = 2
@@ -31,7 +31,6 @@ const AI_TACKLE_REACH = 94
 const TACKLE_BALL_SPEED = 130
 const TACKLE_SLOW_TIME = 0.22
 const AI_MOVE_SPEED = 320
-const AI_CARRY_SPEED = 260
 const AI_ACCELERATION = 650
 
 export type HockeyOpponent = 'ai' | 'human'
@@ -86,7 +85,6 @@ export class AirHockeyGame extends BaseGame {
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
   private aiWantsControl = false
-  private aiCarryTime = 0
   private holder: -1 | 0 | 1 = -1
   private controlCooldown = 0
   private tackleSlowTime = 0
@@ -131,7 +129,6 @@ export class AirHockeyGame extends BaseGame {
     this.aiTarget = { x: AI_GUARD_X, y: 300 }
     this.aiDecisionDelay = 0
     this.aiWantsControl = false
-    this.aiCarryTime = 0
     this.holder = -1
     this.controlCooldown = 0
     this.tackleSlowTime = 0
@@ -173,7 +170,7 @@ export class AirHockeyGame extends BaseGame {
     this.tackleSlowTime = Math.max(0, this.tackleSlowTime - dt)
     this.tackleCooldown = this.tackleCooldown.map((time) => Math.max(0, time - dt)) as [number, number]
     const wantsControl: [boolean, boolean] = this.variant === 'football'
-      ? [input.isDown('Space'), this.opponent === 'ai' ? this.aiWantsControl : input.isDown('Enter')]
+      ? [input.isDown('Space'), this.opponent === 'human' && input.isDown('Enter')]
       : [false, false]
     if (this.holder !== -1) {
       const defenderIndex = (1 - this.holder) as 0 | 1
@@ -195,7 +192,6 @@ export class AirHockeyGame extends BaseGame {
       const catcher = this.strikers.findIndex((striker, index) => wantsControl[index] && Math.hypot(striker.x - this.puck.x, striker.y - this.puck.y) < CONTROL_REACH)
       if (catcher !== -1) {
         this.holder = catcher as 0 | 1
-        this.aiCarryTime = 0
         this.tackleSlowTime = 0
         this.particles.burst(this.puck.x, this.puck.y, this.strikers[catcher].color, 7, 85)
       }
@@ -207,7 +203,6 @@ export class AirHockeyGame extends BaseGame {
       this.puck.x = owner.x + direction.x * BALL_OFFSET
       this.puck.y = clamp(owner.y + direction.y * BALL_OFFSET, TOP + this.puck.r, BOTTOM - this.puck.r)
       this.puck.vx = owner.vx; this.puck.vy = owner.vy
-      if (this.holder === 1) this.aiCarryTime += dt
       const inGoal = this.puck.y > this.goalTop && this.puck.y < this.goalBottom
       if (inGoal && this.puck.x - this.puck.r < LEFT) { this.scoreGoal(1); return }
       if (inGoal && this.puck.x + this.puck.r > RIGHT) { this.scoreGoal(0); return }
@@ -460,7 +455,6 @@ export class AirHockeyGame extends BaseGame {
     this.holder = -1
     this.controlCooldown = 0.22
     this.tackleSlowTime = 0
-    this.aiCarryTime = 0
     this.particles.burst(this.puck.x, this.puck.y, striker.color, 15, 170)
     this.impact(4)
   }
@@ -492,7 +486,6 @@ export class AirHockeyGame extends BaseGame {
     this.controlCooldown = 0.32
     this.tackleSlowTime = TACKLE_SLOW_TIME
     this.tackleCooldown[defenderIndex] = 0.9
-    this.aiCarryTime = 0
     this.particles.burst(this.puck.x, this.puck.y, defender.color, 18, 200)
     this.impact(6)
   }
@@ -502,13 +495,11 @@ export class AirHockeyGame extends BaseGame {
     const puck = this.puck
     if (this.holder === 1) {
       const shotY = this.strikers[0].y < 300 ? 350 : 250
-      this.aiWantsControl = this.aiCarryTime < 2.8 && striker.x > 405
-      this.aiTarget = { x: LEFT + 150, y: shotY }
       this.facing[1] = normalize({ x: LEFT - striker.x, y: shotY - striker.y })
+      this.kickBall(1)
     } else {
-      this.aiWantsControl = this.variant === 'football' && (this.holder === 0
-        ? Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < AI_TACKLE_REACH
-        : Math.hypot(puck.vx, puck.vy) < 460)
+      this.aiWantsControl = this.variant === 'football' && this.holder === 0
+        && Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < AI_TACKLE_REACH
     }
     this.aiDecisionDelay -= dt
     if (this.holder !== 1 && this.aiDecisionDelay <= 0) {
@@ -544,7 +535,7 @@ export class AirHockeyGame extends BaseGame {
     const dx = this.aiTarget.x - striker.x
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
-    const maxSpeed = this.holder === 1 ? AI_CARRY_SPEED : AI_MOVE_SPEED
+    const maxSpeed = AI_MOVE_SPEED
     const speed = Math.min(maxSpeed, distance * 5)
     const desiredVx = distance > 0 ? dx / distance * speed : 0
     const desiredVy = distance > 0 ? dy / distance * speed : 0

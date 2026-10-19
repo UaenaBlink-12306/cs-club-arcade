@@ -196,6 +196,28 @@ test('legacy football variant remains a first-to-five game', () => {
   assert.match(runtime.result.detail, /FIRST TO FIVE · 5–0/)
 })
 
+test('AI strikes a loose ball without taking possession in either hockey variant', () => {
+  for (const variant of ['classic', 'football']) {
+    const runtime = new AirHockeyGame(meta, variant)
+    runtime.serveDelay = 0
+    Object.assign(runtime.puck, { x: 800, y: 300, vx: 0, vy: 0 })
+    Object.assign(runtime.strikers[1], { x: 850, y: 300, vx: -200, vy: 0 })
+    runtime.update(1 / 120, input())
+    assert.equal(runtime.holder, -1)
+    assert.ok(runtime.puck.vx < 0)
+  }
+})
+
+test('keepers react more slowly, cover less ground and have a smaller reach', () => {
+  const runtime = game()
+  Object.assign(runtime.puck, { x: 600, y: 350, vx: 500, vy: 0 })
+  runtime.moveGoalies(0.4)
+  assert.equal(runtime.goalies[1].y, 300)
+  runtime.moveGoalies(0.1)
+  assert.ok(runtime.goalies[1].y <= 306.5)
+  assert.equal(runtime.goalies[1].r, 12)
+})
+
 test('straight-to-penalties skips extra time only after regulation stoppage, in either opponent mode', () => {
   for (const opponent of ['ai', 'human']) {
     const runtime = game(opponent)
