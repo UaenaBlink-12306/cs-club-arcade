@@ -237,3 +237,76 @@ test('the chosen draw rule survives opponent selection and replay, and can be ch
   runtime.update(0.02, input())
   assert.equal(runtime.matchPhase, 'extra')
 })
+
+test('keepers track slow incoming balls below the old speed cutoff on both sides', () => {
+  for (const side of [0, 1]) {
+    const runtime = game()
+    const keeper = runtime.goalies[side]
+    Object.assign(runtime.puck, { x: keeper.x + (side === 0 ? 60 : -60), y: 340, vx: side === 0 ? -25 : 25, vy: 0 })
+    keeper.reaction = 0
+    runtime.moveGoalies(0.1)
+    assert.equal(keeper.targetY, 340)
+    assert.ok(keeper.y > 300)
+  }
+})
+
+test('goalkeepers predict top, bottom and repeated banks using actual wall physics', () => {
+  for (const side of [0, 1]) for (const vy of [-300, 300, 1300, -1300]) {
+    const runtime = game()
+    const keeper = runtime.goalies[side]
+    Object.assign(runtime.puck, { x: 600, y: 300, vx: side === 0 ? -400 : 400, vy })
+    keeper.reaction = 0; runtime.moveGoalies(0)
+    // Independently integrate the free ball until it crosses the keeper line.
+    const ball = { ...runtime.puck }
+    const dt = 1 / 2000
+    while (side === 0 ? ball.x > keeper.x : ball.x < keeper.x) {
+      ball.x += ball.vx * dt; ball.y += ball.vy * dt
+      const damping = Math.pow(0.997, dt * 60)
+      ball.vx *= damping; ball.vy *= damping
+      if (ball.y < 84) { ball.y = 84; ball.vy = Math.abs(ball.vy) * 0.98 }
+      if (ball.y > 516) { ball.y = 516; ball.vy = -Math.abs(ball.vy) * 0.98 }
+    }
+    const target = Math.max(248, Math.min(352, ball.y))
+    assert.ok(Math.abs(keeper.targetY - target) < 2, `side ${side}, vy ${vy}: ${keeper.targetY} vs ${target}`)
+  }
+})
+
+test('AI collects stationary and slowly retreating balls in its half', () => {
+  for (const vx of [0, -20, 20]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.puck, { x: 660, y: 340, vx, vy: 0 })
+    runtime.moveAi(1 / 120)
+    assert.ok(runtime.aiTarget.x < 750)
+    let struck = false
+    for (let i = 0; i < 480; i++) {
+      runtime.update(1 / 120, input())
+      if (Math.hypot(runtime.puck.vx, runtime.puck.vy) > 100) { struck = true; break }
+    }
+    assert.ok(struck, `AI should reach and strike ball with vx ${vx}`)
+  }
+})
+
+test('AI prioritizes bank-shot interception and handles balls beyond its guard line', () => {
+  const runtime = game('ai')
+  Object.assign(runtime.puck, { x: 600, y: 150, vx: 400, vy: -300 })
+  runtime.moveAi(0)
+  assert.equal(runtime.aiTarget.x, 950)
+  assert.ok(runtime.aiTarget.y > 250)
+  Object.assign(runtime.puck, { x: 990, y: 330, vx: 200, vy: 0 })
+  runtime.aiDecisionDelay = 0; runtime.moveAi(0)
+  assert.ok(runtime.aiTarget.x > 990)
+  assert.equal(runtime.aiTarget.y, 330)
+})
+
+test('keepers ignore distant balls that stop short and keep finite targets for vertical motion', () => {
+  const runtime = game()
+  Object.assign(runtime.puck, { x: 600, y: 350, vx: 5, vy: 100 })
+  runtime.goalies.forEach(keeper => { keeper.reaction = 0 })
+  runtime.moveGoalies(0)
+  assert.ok(runtime.goalies.every(keeper => keeper.targetY === 300))
+  runtime.puck.vx = 0
+  runtime.goalies.forEach(keeper => { keeper.reaction = 0 })
+  runtime.moveGoalies(0)
+  assert.ok(runtime.goalies.every(keeper => Number.isFinite(keeper.targetY)))
+})

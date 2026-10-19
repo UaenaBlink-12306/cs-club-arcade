@@ -38,12 +38,28 @@ export type HockeyOpponent = 'ai' | 'human'
 export type HockeyDrawRule = 'extra-time' | 'penalties'
 export type HockeyVariant = 'classic' | 'football'
 
-function reboundY(y: number) {
-  const low = TOP + 18
-  const high = BOTTOM - 18
-  const span = high - low
-  const position = ((y - low) % (2 * span) + 2 * span) % (2 * span)
-  return low + (position <= span ? position : 2 * span - position)
+const PUCK_DRAG = -60 * Math.log(0.997)
+
+// Travel is time integrated over drag, so both axes slow together. Each bank
+// loses another 2% of vertical velocity, just like the arena collision.
+function projectPuck(puck: Body, travel: number) {
+  const low = TOP + puck.r, high = BOTTOM - puck.r
+  let y = clamp(puck.y, low, high), vy = puck.vy, remaining = Math.max(0, travel)
+  while (Math.abs(vy) > 0.0001 && remaining > 0) {
+    const wall = vy > 0 ? high : low
+    const toWall = (wall - y) / vy
+    if (toWall > remaining) break
+    y = wall; remaining -= toWall; vy *= -0.98
+  }
+  return { x: puck.x + puck.vx * travel, y: y + vy * remaining }
+}
+
+function predictCrossing(puck: Body, x: number, drag = PUCK_DRAG) {
+  if (Math.abs(puck.vx) < 0.0001) return null
+  const travel = (x - puck.x) / puck.vx
+  // Do not invent an interception beyond the ball's stopping distance.
+  if (travel < 0 || (drag > 0 && travel >= 1 / drag)) return null
+  return projectPuck(puck, travel)
 }
 
 export class AirHockeyGame extends BaseGame {
@@ -482,18 +498,22 @@ export class AirHockeyGame extends BaseGame {
       if (this.holder === 0 && puck.x > 560) {
         // Challenge a player carrying the ball into the AI's half.
         this.aiTarget = { x: clamp(puck.x + 25, LEFT + striker.r, RIGHT - striker.r), y: puck.y }
-      } else if (puck.x > 500 && puck.vx > -90 && (puck.x > 720 || p1Distance > 190)) {
+      } else if (this.holder === -1 && puck.vx > 0 && predictCrossing(puck, Math.max(AI_GUARD_X, puck.x + 45)) && Math.hypot(puck.vx, puck.vy) >= 150) {
+        // Intercept before choosing an attacking run, even after the ball has
+        // passed the usual guard line. Prediction includes every side bank.
+        const guardX = clamp(Math.max(AI_GUARD_X, puck.x + 45), AI_GUARD_X, RIGHT - striker.r)
+        const crossing = predictCrossing(puck, guardX)
+        this.aiTarget = { x: guardX, y: crossing?.y ?? puck.y }
+      } else if (this.holder === -1 && puck.x > 500 && (Math.hypot(puck.vx, puck.vy) < 150 || (puck.vx > -90 && (puck.x > 720 || p1Distance > 190)))) {
         // Get behind the puck and strike toward the side of the goal away from P1.
         const shotY = this.strikers[0].y < 300 ? 350 : 250
-        const distance = Math.hypot(puck.x - LEFT, shotY - puck.y)
+        const leadTime = clamp(Math.hypot(striker.x - puck.x, striker.y - puck.y) / AI_MOVE_SPEED, 0, 0.6)
+        const future = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * leadTime)) / PUCK_DRAG)
+        const distance = Math.hypot(future.x - LEFT, shotY - future.y)
         this.aiTarget = {
-          x: clamp(puck.x + 51 * (puck.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
-          y: clamp(puck.y - 51 * (shotY - puck.y) / distance, TOP + striker.r, BOTTOM - striker.r),
+          x: clamp(future.x + 48 * (future.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
+          y: clamp(future.y - 48 * (shotY - future.y) / distance, TOP + striker.r, BOTTOM - striker.r),
         }
-      } else if (puck.vx > 45) {
-        // Cover where the puck will cross the defensive line, including wall banks.
-        const time = clamp((AI_GUARD_X - puck.x) / puck.vx, 0, 2)
-        this.aiTarget = { x: AI_GUARD_X, y: reboundY(puck.y + puck.vy * time) }
       } else {
         // Recover to a central goalkeeping position when the puck is moving away.
         this.aiTarget = { x: AI_GUARD_X, y: 300 }
@@ -528,10 +548,13 @@ export class AirHockeyGame extends BaseGame {
       goalie.reaction -= dt
       if (goalie.reaction <= 0) {
         goalie.reaction = GOALIE_REACTION
-        const incoming = index === 0 ? this.puck.vx < -40 : this.puck.vx > 40
-        if (incoming) {
-          goalie.targetY = clamp(this.puck.y, this.goalTop + 30, this.goalBottom - 30)
-        } else goalie.targetY = 300
+        const incoming = index === 0 ? this.puck.vx < 0 : this.puck.vx > 0
+        const crossing = incoming && this.holder === -1
+          ? predictCrossing(this.puck, goalie.anchorX, this.matchPhase === 'shootout' ? 0 : PUCK_DRAG)
+          : null
+        const nearby = Math.abs(this.puck.x - goalie.anchorX) < 160
+        const target = crossing?.y ?? (nearby ? this.puck.y : 300)
+        goalie.targetY = clamp(target, this.goalTop + 30, this.goalBottom - 30)
       }
       const previousY = goalie.y
       const maxSpeed = goalie.recovery > 0 ? 25 : GOALIE_SPEED
