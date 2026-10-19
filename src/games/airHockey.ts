@@ -74,6 +74,7 @@ export class AirHockeyGame extends BaseGame {
   private penaltyTimer = 0
   private penaltyAimY = 300
   private penaltyMessage = ''
+  private penaltyKeeperGuess: -1 | 0 | 1 | null = null
   private phaseElapsed = 0
   private lostTime = 0
   private addedMinutes = 0
@@ -111,6 +112,7 @@ export class AirHockeyGame extends BaseGame {
 
   reset() {
     this.penaltyAttempts = [[], []]; this.penaltyShooter = 0; this.penaltyState = 'aiming'; this.penaltyTimer = 0; this.penaltyAimY = 300; this.penaltyMessage = ''
+    this.penaltyKeeperGuess = null
     this.matchPhase = 'regulation'; this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0
     this.result = null; this.elapsed = 0; this.scores = [0, 0]; this.scorer = -1; this.serveDirection = Math.random() < 0.5 ? -1 : 1; this.particles.clear(); this.resetFaceoff(1.25)
   }
@@ -313,19 +315,31 @@ export class AirHockeyGame extends BaseGame {
     this.penaltyTimer = 0
     this.penaltyMessage = ''
     this.penaltyAimY = 300
+    this.penaltyKeeperGuess = null
     const direction = this.penaltyShooter === 0 ? 1 : -1
     this.puck.x = 600 + direction * 200
     const striker = this.strikers[this.penaltyShooter]
     striker.x = this.puck.x - direction * 60
     // The other striker and the shooter's own goalkeeper sit out this attempt.
     if (this.penaltyShooter === 1 && this.opponent === 'ai') {
-      this.penaltyAimY = this.goalTop + this.puck.r + Math.random() * (this.goalBottom - this.goalTop - this.puck.r * 2)
+      // Favor accurate corners, with occasional central shots to stay unpredictable.
+      // Pick the shot before the keeper guesses, without reading its decision.
+      const choice = Math.random()
+      const corner = (this.goalBottom - this.goalTop) / 2 - this.puck.r - 10
+      const lane = choice < 0.425 ? -1 : choice < 0.85 ? 1 : 0
+      this.penaltyAimY = 300 + lane * corner + (Math.random() - 0.5) * 6
     }
   }
 
   private shootPenalty() {
     this.penaltyState = 'flying'
     this.penaltyTimer = 0
+    // Commit once at the kick: no following the aim or tracking the flying puck.
+    this.penaltyKeeperGuess = (Math.floor(Math.random() * 3) - 1) as -1 | 0 | 1
+    const goalkeeper = this.goalies[1 - this.penaltyShooter]
+    const reach = (this.goalBottom - this.goalTop) / 2 - this.puck.r - 16
+    const perspective = this.penaltyShooter === 0 ? 1 : -1
+    goalkeeper.targetY = 300 + this.penaltyKeeperGuess * reach * perspective
     const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
     const direction = normalize({ x: targetX - this.puck.x, y: this.penaltyAimY - this.puck.y })
     this.puck.vx = direction.x * KICK_SPEED
@@ -360,7 +374,6 @@ export class AirHockeyGame extends BaseGame {
       return
     }
     if (this.penaltyState === 'aiming') {
-      this.moveGoalies(dt)
       if (this.penaltyShooter === 1 && this.opponent === 'ai') {
         if (this.penaltyTimer >= 1.2) this.shootPenalty()
         return
@@ -377,7 +390,9 @@ export class AirHockeyGame extends BaseGame {
     const goalkeeper = this.goalies[1 - this.penaltyShooter]
     const direction = this.penaltyShooter === 0 ? 1 : -1
     for (let i = 0; i < steps; i++) {
-      this.moveGoalies(step)
+      const previousY = goalkeeper.y
+      goalkeeper.y += clamp(goalkeeper.targetY - goalkeeper.y, -220 * step, 220 * step)
+      goalkeeper.vy = (goalkeeper.y - previousY) / step
       this.puck.x += this.puck.vx * step
       this.puck.y += this.puck.vy * step
       if (Math.hypot(this.puck.x - goalkeeper.x, this.puck.y - goalkeeper.y) <= this.puck.r + goalkeeper.r) {
@@ -400,6 +415,10 @@ export class AirHockeyGame extends BaseGame {
     const shooter = this.penaltyShooter === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.penaltyShooter + 1}`
     ctx.fillText(this.penaltyState === 'result' ? `${shooter} · ${this.penaltyMessage}` : `${shooter} vs ROBOT GOALKEEPER`, 600, 45)
     ctx.font = '700 20px Arial Narrow'
+    ctx.fillStyle = COLORS.muted
+    const guess = this.penaltyKeeperGuess === null ? 'KEEPER GUESSES LEFT, CENTER OR RIGHT' : `KEEPER GUESSED ${this.penaltyKeeperGuess === -1 ? 'LEFT' : this.penaltyKeeperGuess === 1 ? 'RIGHT' : 'CENTER'}`
+    ctx.fillText(guess, 600, 178)
+    ctx.fillStyle = COLORS.text
     const aiTurn = this.penaltyShooter === 1 && this.opponent === 'ai'
     const controls = this.penaltyShooter === 0 ? 'W / S AIM · SPACE SHOOT' : '↑ / ↓ AIM · ENTER SHOOT'
     ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : `${controls} · ${Math.max(0, Math.ceil(10 - this.penaltyTimer))}s` : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)

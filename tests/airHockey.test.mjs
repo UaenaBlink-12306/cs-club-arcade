@@ -41,9 +41,14 @@ function attempt(runtime, scored) {
   runtime.resolvePenalty(scored, scored ? 'GOAL!' : 'SAVED!')
   advance(runtime, 1.61)
 }
-function shot(runtime, target) {
+function withRandom(value, callback) {
+  const original = Math.random
+  Math.random = () => value
+  try { return callback() } finally { Math.random = original }
+}
+function shot(runtime, target, guessRoll = 0.5) {
   runtime.penaltyAimY = target
-  runtime.update(1 / 120, input([], [runtime.penaltyShooter === 0 ? 'Space' : 'Enter']))
+  withRandom(guessRoll, () => runtime.update(1 / 120, input([], [runtime.penaltyShooter === 0 ? 'Space' : 'Enter'])))
   advance(runtime, 0.8)
 }
 
@@ -93,7 +98,7 @@ test('human controls aim and shoot only on the active player’s turn', () => {
   assert.ok(runtime.puck.vx < 0)
 })
 
-test('robot keeper saves central shots; corner goals and wide shots resolve in both directions', () => {
+test('a keeper guessing center saves central shots; corners and wide shots resolve in both directions', () => {
   for (const player of [0, 1]) {
     for (const [target, result] of [[300, 'SAVED!'], [242, 'GOAL!'], [400, 'WIDE!']]) {
       const runtime = shootout()
@@ -344,4 +349,73 @@ test('AI reaches and strikes a stationary ball in the opponent half', () => {
     if (runtime.puck.vx < -80) { attacked = true; break }
   }
   assert.ok(attacked)
+})
+
+test('keepers stay central while aiming and commit to one independent guess at the kick', () => {
+  for (const player of [0, 1]) {
+    for (const [roll, expectedGuess] of [[0, -1], [0.5, 0], [0.999, 1]]) {
+      const runtime = shootout()
+      runtime.penaltyShooter = player; runtime.preparePenalty()
+      const keeper = runtime.goalies[1 - player]
+      runtime.penaltyAimY = 245
+      advance(runtime, 1)
+      assert.equal(keeper.y, 300)
+      assert.equal(runtime.penaltyKeeperGuess, null)
+      withRandom(roll, () => runtime.shootPenalty())
+      assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
+      const target = keeper.targetY
+      runtime.penaltyAimY = 355
+      advance(runtime, 0.2)
+      assert.equal(keeper.targetY, target)
+      assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
+    }
+  }
+})
+
+test('matching guesses can save all three lanes; wrong guesses concede in both directions', () => {
+  for (const player of [0, 1]) {
+    for (const lane of [-1, 0, 1]) {
+      for (const guess of [-1, 0, 1]) {
+        const runtime = shootout()
+        runtime.penaltyShooter = player; runtime.preparePenalty()
+        const perspective = player === 0 ? 1 : -1
+        shot(runtime, 300 + lane * 54 * perspective, (guess + 1.5) / 3)
+        assert.equal(runtime.penaltyMessage, lane === guess ? 'SAVED!' : 'GOAL!', `player ${player}, lane ${lane}, guess ${guess}`)
+      }
+    }
+  }
+})
+
+test('AI aims accurate varied shots and scores two thirds against evenly sampled guesses', () => {
+  let goals = 0
+  const targets = []
+  for (const aimRoll of [0, 0.2, 0.424, 0.425, 0.6, 0.849, 0.85, 0.999]) {
+    for (const guessRoll of [0, 0.5, 0.999]) {
+      const runtime = shootout('ai')
+      runtime.penaltyShooter = 1
+      withRandom(aimRoll, () => runtime.preparePenalty())
+      targets.push(runtime.penaltyAimY)
+      assert.ok(runtime.penaltyAimY - runtime.puck.r > runtime.goalTop)
+      assert.ok(runtime.penaltyAimY + runtime.puck.r < runtime.goalBottom)
+      withRandom(guessRoll, () => runtime.shootPenalty())
+      advance(runtime, 0.8)
+      assert.notEqual(runtime.penaltyMessage, 'WIDE!')
+      if (runtime.penaltyAttempts[1][0]) goals++
+    }
+  }
+  assert.equal(goals, 16)
+  assert.ok(targets.some(y => y < 260))
+  assert.ok(targets.some(y => y > 340))
+  assert.ok(targets.some(y => Math.abs(y - 300) < 4))
+})
+
+test('new attempts and replay clear the keeper guess', () => {
+  const runtime = shootout()
+  shot(runtime, 245, 0)
+  advance(runtime, 1.61)
+  assert.equal(runtime.penaltyKeeperGuess, null)
+  assert.equal(runtime.goalies[0].y, 300)
+  runtime.shootPenalty()
+  runtime.reset()
+  assert.equal(runtime.penaltyKeeperGuess, null)
 })
