@@ -655,3 +655,45 @@ test('contact strikes do not affect human opponents or shoot a distant ball', ()
     assert.equal(runtime.puck.vx, 0)
   }
 })
+
+test('AI advances through its own half with repeated light physical touches, then attacks in the human half', () => {
+  for (const fps of [30, 60, 120]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 200, y: 100 })
+    Object.assign(runtime.strikers[1], { x: 1020, y: 300, vx: 0, vy: 0 })
+    Object.assign(runtime.puck, { x: 900, y: 300, vx: 0, vy: 0 })
+    const ownHalfTouches = []
+    let firstTouchAt = Infinity, attackingShot = false
+    for (let frame = 0; frame < fps * 4; frame++) {
+      const beforeX = runtime.puck.x, beforeVx = runtime.puck.vx
+      runtime.update(1 / fps, input())
+      const touched = runtime.puck.vx < beforeVx * Math.pow(0.997, 60 / fps) - 2
+      if (touched) {
+        firstTouchAt = Math.min(firstTouchAt, frame / fps)
+        if (beforeX > 600) ownHalfTouches.push(Math.abs(runtime.puck.vx))
+        else if (runtime.puck.vx < -400) { attackingShot = true; break }
+      }
+      assert.equal(runtime.holder, -1, 'control must come from touches, not attaching the ball')
+    }
+    assert.ok(firstTouchAt < 1.5, `${fps} fps: AI must make contact instead of shadowing`)
+    assert.ok(ownHalfTouches.length >= 2, `${fps} fps: expected repeated controlled touches`)
+    assert.ok(ownHalfTouches[0] < 250, `${fps} fps: first touch should be gentle`)
+    assert.ok(ownHalfTouches.every(speed => speed < 400), `${fps} fps: own-half control must stay light`)
+    assert.ok(attackingShot, `${fps} fps: favor a committed shot after crossing midfield`)
+  }
+})
+
+test('AI favors a momentum-driven shot immediately when starting in the human half', () => {
+  const runtime = game('ai')
+  runtime.serveDelay = 0
+  Object.assign(runtime.strikers[0], { x: 200, y: 100 })
+  Object.assign(runtime.strikers[1], { x: 570, y: 300, vx: 0, vy: 0 })
+  Object.assign(runtime.puck, { x: 450, y: 300, vx: 0, vy: 0 })
+  let shot = false
+  for (let frame = 0; frame < 120; frame++) {
+    runtime.update(1 / 120, input())
+    if (runtime.puck.vx < -400) { shot = true; break }
+  }
+  assert.ok(shot, 'AI should commit to attacking rather than slow dribbling in the human half')
+})

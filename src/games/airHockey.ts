@@ -522,6 +522,10 @@ export class AirHockeyGame extends BaseGame {
   private moveAi(dt: number) {
     const striker = this.strikers[1]
     const puck = this.puck
+    const ballDistance = Math.hypot(striker.x - puck.x, striker.y - puck.y)
+    // Controlled touches belong in our half. In the attacking half, commit to shots.
+    const gentleTouch = this.holder === -1 && puck.x > 600 && puck.vx <= 80
+      && Math.hypot(puck.vx, puck.vy) < 320 && ballDistance < 220 && striker.x > puck.x + 10
     if (this.holder === 1) {
       const shotY = this.strikers[0].y < 300 ? 350 : 250
       this.facing[1] = normalize({ x: LEFT - striker.x, y: shotY - striker.y })
@@ -549,12 +553,11 @@ export class AirHockeyGame extends BaseGame {
       } else if (this.holder === -1) {
         // Get behind the puck and strike toward the side of the goal away from P1.
         const shotY = this.strikers[0].y < 300 ? 350 : 250
-        const ballDistance = Math.hypot(striker.x - puck.x, striker.y - puck.y)
         const leadTime = clamp(ballDistance / STRIKER_MOVE_SPEED, 0, 0.6)
         const future = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * leadTime)) / PUCK_DRAG)
         const distance = Math.hypot(future.x - LEFT, shotY - future.y)
         // Build momentum through the ball, instead of braking beside it.
-        const approach = ballDistance < 160 && striker.x > puck.x + 10 ? -90 : 48
+        const approach = gentleTouch ? -45 : ballDistance < 160 && striker.x > puck.x + 10 ? -90 : 48
         this.aiTarget = {
           x: clamp(future.x + approach * (future.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
           y: clamp(future.y - approach * (shotY - future.y) / distance, TOP + striker.r, BOTTOM - striker.r),
@@ -567,8 +570,17 @@ export class AirHockeyGame extends BaseGame {
     const dx = this.aiTarget.x - striker.x
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
+    let moveX = distance > 3 ? dx : 0, moveY = distance > 3 ? dy : 0
+    if (gentleTouch && distance > 3) {
+      // Catch the ball with a small closing speed, then tap it again as drag slows it.
+      // Braking and acceleration are inputs to the same physics used by humans.
+      const speed = clamp(-puck.vx + 60, 70, 250)
+      moveX = dx / distance * speed - striker.vx
+      moveY = dy / distance * speed - striker.vy
+      if (Math.hypot(moveX, moveY) < STRIKER_ACCELERATION * dt / 2) { moveX = 0; moveY = 0 }
+    }
     // AI chooses a movement direction; humans and AI share all movement physics.
-    moveBody(striker, distance > 3 ? dx : 0, distance > 3 ? dy : 0, dt,
+    moveBody(striker, moveX, moveY, dt,
       STRIKER_ACCELERATION, this.holder === 1 ? 340 : STRIKER_MOVE_SPEED, STRIKER_DRAG)
   }
 
