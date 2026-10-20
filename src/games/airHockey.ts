@@ -33,8 +33,9 @@ const TACKLE_REACH = 108
 const AI_TACKLE_REACH = 94
 const TACKLE_BALL_SPEED = 130
 const TACKLE_SLOW_TIME = 0.22
-const AI_MOVE_SPEED = 320
-const AI_ACCELERATION = 650
+const STRIKER_MOVE_SPEED = 500
+const STRIKER_ACCELERATION = 1050
+const STRIKER_DRAG = 0.82
 
 export type HockeyOpponent = 'ai' | 'human'
 export type HockeyDrawRule = 'extra-time' | 'penalties'
@@ -87,7 +88,6 @@ export class AirHockeyGame extends BaseGame {
   private drawRule: HockeyDrawRule = 'extra-time'
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
-  private aiStrikeCooldown = 0
   private aiWantsControl = false
   private holder: -1 | 0 | 1 = -1
   private controlCooldown = 0
@@ -132,7 +132,6 @@ export class AirHockeyGame extends BaseGame {
     this.serveDelay = delay
     this.aiTarget = { x: AI_GUARD_X, y: 300 }
     this.aiDecisionDelay = 0
-    this.aiStrikeCooldown = 0
     this.aiWantsControl = false
     this.holder = -1
     this.controlCooldown = 0
@@ -159,20 +158,19 @@ export class AirHockeyGame extends BaseGame {
     const p1X = axis(input.down, 'KeyA', 'KeyD')
     const p1Y = axis(input.down, 'KeyW', 'KeyS')
     this.updateFacing(0, p1X, p1Y)
-    moveBody(this.strikers[0], p1X, p1Y, dt, 1050, this.holder === 0 ? 340 : 500, 0.82)
+    moveBody(this.strikers[0], p1X, p1Y, dt, STRIKER_ACCELERATION, this.holder === 0 ? 340 : STRIKER_MOVE_SPEED, STRIKER_DRAG)
     if (this.opponent === 'ai') this.moveAi(dt)
     else {
       const p2X = axis(input.down, 'ArrowLeft', 'ArrowRight')
       const p2Y = axis(input.down, 'ArrowUp', 'ArrowDown')
       this.updateFacing(1, p2X, p2Y)
-      moveBody(this.strikers[1], p2X, p2Y, dt, 1050, this.holder === 1 ? 340 : 500, 0.82)
+      moveBody(this.strikers[1], p2X, p2Y, dt, STRIKER_ACCELERATION, this.holder === 1 ? 340 : STRIKER_MOVE_SPEED, STRIKER_DRAG)
     }
     resolveCircleCollision(this.strikers[0], this.strikers[1], 0.5)
     this.strikers.forEach((striker) => this.keepStrikerInArena(striker))
     this.moveGoalies(dt)
 
     this.controlCooldown = Math.max(0, this.controlCooldown - dt)
-    this.aiStrikeCooldown = Math.max(0, this.aiStrikeCooldown - dt)
     this.tackleSlowTime = Math.max(0, this.tackleSlowTime - dt)
     this.tackleCooldown = this.tackleCooldown.map((time) => Math.max(0, time - dt)) as [number, number]
     const wantsControl: [boolean, boolean] = this.variant === 'football'
@@ -255,17 +253,6 @@ export class AirHockeyGame extends BaseGame {
 
     this.strikers.forEach((striker, index) => {
       if (index === releasedBy) return
-      // Contact must produce a shot, even when pursuit has matched the ball's speed.
-      if (index === 1 && this.opponent === 'ai' && this.aiStrikeCooldown === 0
-        && striker.x >= this.puck.x - 6
-        && Math.hypot(striker.x - this.puck.x, striker.y - this.puck.y) <= striker.r + this.puck.r + 4) {
-        const shotY = this.strikers[0].y < 300 ? 350 : 250
-        const direction = normalize({ x: LEFT - this.puck.x, y: shotY - this.puck.y })
-        this.puck.vx = direction.x * KICK_SPEED; this.puck.vy = direction.y * KICK_SPEED
-        this.aiStrikeCooldown = 0.25; this.tackleSlowTime = 0
-        this.particles.burst(this.puck.x, this.puck.y, striker.color, 15, 170); this.impact(4)
-        return
-      }
       const impulse = resolveCircleCollision(striker, this.puck, 1.12)
       if (impulse <= 0) return
       this.puck.vx += striker.vx * 0.18; this.puck.vy += striker.vy * 0.18
@@ -558,12 +545,15 @@ export class AirHockeyGame extends BaseGame {
       } else if (this.holder === -1) {
         // Get behind the puck and strike toward the side of the goal away from P1.
         const shotY = this.strikers[0].y < 300 ? 350 : 250
-        const leadTime = clamp(Math.hypot(striker.x - puck.x, striker.y - puck.y) / AI_MOVE_SPEED, 0, 0.6)
+        const ballDistance = Math.hypot(striker.x - puck.x, striker.y - puck.y)
+        const leadTime = clamp(ballDistance / STRIKER_MOVE_SPEED, 0, 0.6)
         const future = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * leadTime)) / PUCK_DRAG)
         const distance = Math.hypot(future.x - LEFT, shotY - future.y)
+        // Build momentum through the ball, instead of braking beside it.
+        const approach = ballDistance < 160 && striker.x > puck.x + 10 ? -90 : 48
         this.aiTarget = {
-          x: clamp(future.x + 48 * (future.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
-          y: clamp(future.y - 48 * (shotY - future.y) / distance, TOP + striker.r, BOTTOM - striker.r),
+          x: clamp(future.x + approach * (future.x - LEFT) / distance, LEFT + striker.r, RIGHT - striker.r),
+          y: clamp(future.y - approach * (shotY - future.y) / distance, TOP + striker.r, BOTTOM - striker.r),
         }
       } else {
         this.aiTarget = { x: 600, y: 300 }
@@ -573,24 +563,9 @@ export class AirHockeyGame extends BaseGame {
     const dx = this.aiTarget.x - striker.x
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
-    const maxSpeed = AI_MOVE_SPEED
-    const committing = this.holder === -1 && Math.hypot(striker.x - puck.x, striker.y - puck.y) < 160
-    const speed = committing ? Math.min(maxSpeed, distance / Math.max(dt, 1 / 120)) : Math.min(maxSpeed, distance * 5)
-    const desiredVx = distance > 0 ? dx / distance * speed : 0
-    const desiredVy = distance > 0 ? dy / distance * speed : 0
-    const changeX = desiredVx - striker.vx
-    const changeY = desiredVy - striker.vy
-    const changeSpeed = Math.hypot(changeX, changeY)
-    const steering = changeSpeed > 0 ? Math.min(1, AI_ACCELERATION * dt / changeSpeed) : 0
-    striker.vx += changeX * steering
-    striker.vy += changeY * steering
-    const actualSpeed = Math.hypot(striker.vx, striker.vy)
-    if (actualSpeed > maxSpeed) {
-      striker.vx = striker.vx / actualSpeed * maxSpeed
-      striker.vy = striker.vy / actualSpeed * maxSpeed
-    }
-    striker.x += striker.vx * dt
-    striker.y += striker.vy * dt
+    // AI chooses a movement direction; humans and AI share all movement physics.
+    moveBody(striker, distance > 3 ? dx : 0, distance > 3 ? dy : 0, dt,
+      STRIKER_ACCELERATION, this.holder === 1 ? 340 : STRIKER_MOVE_SPEED, STRIKER_DRAG)
   }
 
   private moveGoalies(dt: number) {

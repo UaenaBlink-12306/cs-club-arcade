@@ -538,16 +538,41 @@ test('new attempts and replay reset keeper positions and guesses', () => {
   assert.equal(runtime.goalies[1].y, 300)
 })
 
-test('AI hits firmly instead of matching a nearby ball’s speed', () => {
-  for (const variant of ['classic', 'football']) for (const vx of [-180, -80, 0, 80]) {
-    const runtime = new AirHockeyGame(meta, variant)
-    runtime.serveDelay = 0
-    Object.assign(runtime.strikers[0], { x: 250, y: 150 })
-    Object.assign(runtime.strikers[1], { x: 755, y: 300, vx, vy: 0 })
-    Object.assign(runtime.puck, { x: 700, y: 300, vx, vy: 0 })
-    runtime.update(1 / 120, input())
-    assert.ok(runtime.puck.vx < -600, `${variant}, vx ${vx}: contact must launch a firm shot`)
-    assert.equal(runtime.holder, -1)
+test('AI and humans transfer identical momentum at identical contact speeds', () => {
+  const speeds = []
+  for (const vx of [0, -120, -300]) {
+    const outcomes = []
+    for (const opponent of ['human', 'ai']) {
+      const runtime = game(opponent)
+      runtime.serveDelay = 0
+      Object.assign(runtime.strikers[0], { x: 250, y: 150 })
+      Object.assign(runtime.strikers[1], { x: 750, y: 300, vx, vy: 0 })
+      Object.assign(runtime.puck, { x: 700, y: 300, vx: 0, vy: 0 })
+      runtime.update(0, input())
+      outcomes.push({ vx: runtime.puck.vx, vy: runtime.puck.vy })
+    }
+    assert.deepEqual(outcomes[1], outcomes[0])
+    speeds.push(Math.hypot(outcomes[1].vx, outcomes[1].vy))
+  }
+  assert.equal(speeds[0], 0, 'stationary contact cannot create energy')
+  assert.ok(speeds[2] > speeds[1] && speeds[1] > speeds[0])
+})
+
+test('AI uses the same acceleration, drag and speed limit as human movement', () => {
+  const runtime = game('ai')
+  const human = game('human')
+  for (const game of [runtime, human]) {
+    game.serveDelay = 0
+    Object.assign(game.strikers[1], { x: 850, y: 300, vx: 0, vy: 0 })
+    Object.assign(game.puck, { x: 500, y: 300, vx: 0, vy: 0 })
+  }
+  runtime.aiDecisionDelay = 10
+  runtime.aiTarget = { x: 100, y: 300 }
+  for (let frame = 0; frame < 30; frame++) {
+    runtime.moveAi(1 / 120)
+    human.update(1 / 120, input(['ArrowLeft']))
+    assert.equal(runtime.strikers[1].vx, human.strikers[1].vx)
+    assert.equal(runtime.strikers[1].x, human.strikers[1].x)
   }
 })
 
