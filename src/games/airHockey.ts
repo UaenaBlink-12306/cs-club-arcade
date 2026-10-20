@@ -87,6 +87,7 @@ export class AirHockeyGame extends BaseGame {
   private drawRule: HockeyDrawRule = 'extra-time'
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
+  private aiStrikeCooldown = 0
   private aiWantsControl = false
   private holder: -1 | 0 | 1 = -1
   private controlCooldown = 0
@@ -131,6 +132,7 @@ export class AirHockeyGame extends BaseGame {
     this.serveDelay = delay
     this.aiTarget = { x: AI_GUARD_X, y: 300 }
     this.aiDecisionDelay = 0
+    this.aiStrikeCooldown = 0
     this.aiWantsControl = false
     this.holder = -1
     this.controlCooldown = 0
@@ -170,6 +172,7 @@ export class AirHockeyGame extends BaseGame {
     this.moveGoalies(dt)
 
     this.controlCooldown = Math.max(0, this.controlCooldown - dt)
+    this.aiStrikeCooldown = Math.max(0, this.aiStrikeCooldown - dt)
     this.tackleSlowTime = Math.max(0, this.tackleSlowTime - dt)
     this.tackleCooldown = this.tackleCooldown.map((time) => Math.max(0, time - dt)) as [number, number]
     const wantsControl: [boolean, boolean] = this.variant === 'football'
@@ -252,6 +255,17 @@ export class AirHockeyGame extends BaseGame {
 
     this.strikers.forEach((striker, index) => {
       if (index === releasedBy) return
+      // Contact must produce a shot, even when pursuit has matched the ball's speed.
+      if (index === 1 && this.opponent === 'ai' && this.aiStrikeCooldown === 0
+        && striker.x >= this.puck.x - 6
+        && Math.hypot(striker.x - this.puck.x, striker.y - this.puck.y) <= striker.r + this.puck.r + 4) {
+        const shotY = this.strikers[0].y < 300 ? 350 : 250
+        const direction = normalize({ x: LEFT - this.puck.x, y: shotY - this.puck.y })
+        this.puck.vx = direction.x * KICK_SPEED; this.puck.vy = direction.y * KICK_SPEED
+        this.aiStrikeCooldown = 0.25; this.tackleSlowTime = 0
+        this.particles.burst(this.puck.x, this.puck.y, striker.color, 15, 170); this.impact(4)
+        return
+      }
       const impulse = resolveCircleCollision(striker, this.puck, 1.12)
       if (impulse <= 0) return
       this.puck.vx += striker.vx * 0.18; this.puck.vy += striker.vy * 0.18
@@ -561,7 +575,8 @@ export class AirHockeyGame extends BaseGame {
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
     const maxSpeed = AI_MOVE_SPEED
-    const speed = Math.min(maxSpeed, distance * 5)
+    const committing = this.holder === -1 && Math.hypot(striker.x - puck.x, striker.y - puck.y) < 160
+    const speed = committing ? Math.min(maxSpeed, distance / Math.max(dt, 1 / 120)) : Math.min(maxSpeed, distance * 5)
     const desiredVx = distance > 0 ? dx / distance * speed : 0
     const desiredVy = distance > 0 ? dy / distance * speed : 0
     const changeX = desiredVx - striker.vx

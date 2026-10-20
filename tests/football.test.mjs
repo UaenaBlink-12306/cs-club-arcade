@@ -77,3 +77,18 @@ test('a shot beyond the smaller keeper reach can score in either direction', () 
     assert.equal(runtime.scores[team], 1)
   }
 })
+
+test('football AI closes the gap instead of following a moving ball at matching speed', () => {
+  const runtime = game()
+  runtime.holder = -1
+  runtime.players.forEach((p, i) => { if (i !== 11) { p.x = 200; p.y = 100 + i * 20 } })
+  Object.assign(runtime.players[11], { x: 724, y: 300 })
+  Object.assign(runtime.ball, { x: 700, y: 300, vx: -180, vy: 0 })
+  let struck = false
+  for (let frame = 0; frame < 24; frame++) {
+    runtime.update(1 / 120, input)
+    if (runtime.shots[1] + runtime.passes[1] > 0) { struck = true; break }
+  }
+  assert.ok(struck, 'AI in contact range must reach and strike within 0.2 seconds')
+  assert.equal(runtime.holder, -1)
+})

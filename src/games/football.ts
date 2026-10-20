@@ -241,7 +241,8 @@ export class FootballGame extends BaseGame {
         tx = clamp(tx, L + 25, R - 25); ty = clamp(ty, T + 30, B - 30)
         const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy)
         const mainAi = team === 1 && this.opponent === 'ai' && i === this.selected[1]
-        const speed = Math.min(p.number === 1 ? 75 : mainAi ? 210 : 185, d * 4)
+        const closingOnBall = p.number !== 1 && i === chaser && !attacking
+        const speed = Math.min(p.number === 1 ? 75 : mainAi ? 210 : 185, closingOnBall ? d / Math.max(dt, 1 / 120) : d * 4)
         p.vx = d > 1 ? dx / d * speed : 0; p.vy = d > 1 ? dy / d * speed : 0
         p.x += p.vx * dt; p.y += p.vy * dt
         if (i !== this.holder && d > 3) p.angle = Math.atan2(dy, dx)

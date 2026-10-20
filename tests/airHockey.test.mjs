@@ -537,3 +537,43 @@ test('new attempts and replay reset keeper positions and guesses', () => {
   assert.equal(runtime.goalies[0].y, 300)
   assert.equal(runtime.goalies[1].y, 300)
 })
+
+test('AI hits firmly instead of matching a nearby ball’s speed', () => {
+  for (const variant of ['classic', 'football']) for (const vx of [-180, -80, 0, 80]) {
+    const runtime = new AirHockeyGame(meta, variant)
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 250, y: 150 })
+    Object.assign(runtime.strikers[1], { x: 755, y: 300, vx, vy: 0 })
+    Object.assign(runtime.puck, { x: 700, y: 300, vx, vy: 0 })
+    runtime.update(1 / 120, input())
+    assert.ok(runtime.puck.vx < -600, `${variant}, vx ${vx}: contact must launch a firm shot`)
+    assert.equal(runtime.holder, -1)
+  }
+})
+
+test('AI closes on a slowly retreating ball and launches it without hovering', () => {
+  for (const y of [110, 300, 490]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 200, y: 200 })
+    Object.assign(runtime.strikers[1], { x: 840, y, vx: -160, vy: 0 })
+    Object.assign(runtime.puck, { x: 700, y, vx: -160, vy: 0 })
+    let shot = false
+    for (let frame = 0; frame < 180; frame++) {
+      runtime.update(1 / 120, input())
+      if (runtime.puck.vx < -500) { shot = true; break }
+    }
+    assert.ok(shot, `AI must strike within 1.5 seconds at y ${y}`)
+  }
+})
+
+test('contact strikes do not affect human opponents or shoot a distant ball', () => {
+  for (const [opponent, gap] of [['human', 55], ['ai', 100]]) {
+    const runtime = game(opponent)
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[1], { x: 700 + gap, y: 300, vx: 0, vy: 0 })
+    Object.assign(runtime.puck, { x: 700, y: 300, vx: 0, vy: 0 })
+    runtime.update(1 / 120, input())
+    assert.equal(runtime.puck.vx, 0)
+  }
+})
