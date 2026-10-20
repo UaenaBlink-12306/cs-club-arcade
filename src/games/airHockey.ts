@@ -401,7 +401,6 @@ export class AirHockeyGame extends BaseGame {
       const movement = this.penaltyShooter === 0 ? axis(input.down, 'KeyW', 'KeyS') : axis(input.down, 'ArrowUp', 'ArrowDown')
       this.penaltyAimY = clamp(this.penaltyAimY + movement * 120 * dt, this.goalTop - 60, this.goalBottom + 60)
       if (this.penaltyTimer >= PENALTY_READY_SECONDS && input.wasPressed(this.penaltyShooter === 0 ? 'Space' : 'Enter')) this.shootPenalty()
-      else if (this.penaltyTimer >= 10) this.resolvePenalty(false, 'TIME UP')
       return
     }
     // Small physics steps prevent fast shots from tunnelling through a moving keeper.
@@ -441,13 +440,8 @@ export class AirHockeyGame extends BaseGame {
     ctx.fillStyle = COLORS.text
     const aiTurn = this.penaltyShooter === 1 && this.opponent === 'ai'
     const controls = this.penaltyShooter === 0 ? 'W / S AIM · SPACE SHOOT' : '↑ / ↓ AIM · ENTER SHOOT'
-    const ready = this.penaltyTimer < PENALTY_READY_SECONDS ? 'KEEPER GET READY' : `${controls} · ${Math.max(0, Math.ceil(10 - this.penaltyTimer))}s`
+    const ready = this.penaltyTimer < PENALTY_READY_SECONDS ? 'KEEPER GET READY' : controls
     ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : ready : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)
-    if (this.penaltyState === 'aiming' && !aiTurn) {
-      const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
-      ctx.strokeStyle = this.strikers[this.penaltyShooter].color; ctx.lineWidth = 3; ctx.globalAlpha = 0.75
-      ctx.beginPath(); ctx.arc(targetX, this.penaltyAimY, 9, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1
-    }
     this.penaltyAttempts.forEach((attempts, player) => {
       // Keep the current sudden-death pair visible without overflowing the rink.
       const currentAttempt = Math.max(this.penaltyAttempts[0].length, this.penaltyAttempts[1].length) - (this.penaltyState === 'result' ? 1 : 0)

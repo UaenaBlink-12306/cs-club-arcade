@@ -122,13 +122,24 @@ test('a save cannot be counted twice and ends the shot without a rebound', () =>
   assert.equal(runtime.puck.vx, 0)
 })
 
-test('failing to shoot within ten seconds counts as one miss and passes the turn', () => {
-  const runtime = shootout()
-  advance(runtime, 10.01)
-  assert.equal(runtime.penaltyMessage, 'TIME UP')
-  assert.deepEqual(runtime.penaltyAttempts, [[false], []])
-  advance(runtime, 1.61)
-  assert.equal(runtime.penaltyShooter, 1)
+test('human penalty attempts have no time limit and can still be aimed and fired after waiting', () => {
+  for (const player of [0, 1]) {
+    const runtime = shootout()
+    runtime.penaltyShooter = player; runtime.preparePenalty()
+    advance(runtime, 30)
+    assert.equal(runtime.penaltyState, 'aiming')
+    assert.equal(runtime.penaltyShooter, player)
+    assert.deepEqual(runtime.penaltyAttempts, [[], []])
+    assert.equal(runtime.penaltyMessage, '')
+    runtime.update(0.1, input([player === 0 ? 'KeyW' : 'ArrowUp']))
+    assert.ok(runtime.penaltyAimY < 300)
+    runtime.update(1 / 120, input([], [player === 0 ? 'Space' : 'Enter']))
+    assert.equal(runtime.penaltyState, 'flying')
+    advance(runtime, 0.3)
+    assert.equal(runtime.penaltyAttempts[player].length, 1)
+    advance(runtime, 1.61)
+    assert.equal(runtime.penaltyShooter, 1 - player)
+  }
 })
 
 test('AI takes an actual shot against the human-controlled keeper', () => {
