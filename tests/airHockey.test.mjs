@@ -47,6 +47,7 @@ function withRandom(value, callback) {
   try { return callback() } finally { Math.random = original }
 }
 function shot(runtime, target, guessRoll = 0.5) {
+  if (runtime.penaltyState === 'aiming' && runtime.penaltyTimer < 0.76) advance(runtime, 0.76 - runtime.penaltyTimer)
   runtime.penaltyAimY = target
   withRandom(guessRoll, () => runtime.update(1 / 120, input([], [runtime.penaltyShooter === 0 ? 'Space' : 'Enter'])))
   advance(runtime, 0.8)
@@ -80,6 +81,7 @@ test('a non-tied regulation or extra-time match ends without penalties', () => {
 
 test('human controls aim and shoot only on the active player’s turn', () => {
   const runtime = shootout()
+  advance(runtime, 0.76)
   runtime.update(0.25, input(['KeyW']))
   assert.equal(runtime.penaltyAimY, 270)
   runtime.update(0.02, input([], ['Enter']))
@@ -89,6 +91,7 @@ test('human controls aim and shoot only on the active player’s turn', () => {
   assert.ok(runtime.puck.vx > 0)
   advance(runtime, 2.5)
   assert.equal(runtime.penaltyShooter, 1)
+  advance(runtime, 0.76)
   runtime.update(0.25, input(['ArrowDown']))
   assert.equal(runtime.penaltyAimY, 330)
   runtime.update(0.02, input([], ['Space']))
@@ -98,7 +101,7 @@ test('human controls aim and shoot only on the active player’s turn', () => {
   assert.ok(runtime.puck.vx < 0)
 })
 
-test('a keeper guessing center saves central shots; corners and wide shots resolve in both directions', () => {
+test('a stationary human keeper saves central shots; corners and wide shots resolve in both directions', () => {
   for (const player of [0, 1]) {
     for (const [target, result] of [[300, 'SAVED!'], [242, 'GOAL!'], [400, 'WIDE!']]) {
       const runtime = shootout()
@@ -128,7 +131,7 @@ test('failing to shoot within ten seconds counts as one miss and passes the turn
   assert.equal(runtime.penaltyShooter, 1)
 })
 
-test('AI takes an actual shot against the human team’s robot keeper', () => {
+test('AI takes an actual shot against the human-controlled keeper', () => {
   const runtime = shootout('ai')
   attempt(runtime, false)
   assert.equal(runtime.penaltyShooter, 1)
@@ -373,53 +376,48 @@ test('AI reaches and strikes a stationary ball in the opponent half', () => {
   assert.ok(attacked)
 })
 
-test('keepers stay central while aiming and commit to one independent guess at the kick', () => {
-  for (const player of [0, 1]) {
-    for (const [roll, expectedGuess] of [[0, -1], [0.5, 0], [0.999, 1]]) {
-      const runtime = shootout()
-      runtime.penaltyShooter = player; runtime.preparePenalty()
-      const keeper = runtime.goalies[1 - player]
-      runtime.penaltyAimY = 245
-      advance(runtime, 1)
-      assert.equal(keeper.y, 300)
-      assert.equal(runtime.penaltyKeeperGuess, null)
-      withRandom(roll, () => runtime.shootPenalty())
-      assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
-      const target = keeper.targetY
-      runtime.penaltyAimY = 355
-      advance(runtime, 0.2)
-      assert.equal(keeper.targetY, target)
-      assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
+test('AI keeper commits to an independent guess without tracking aim or puck', () => {
+  for (const [roll, expectedGuess] of [[0, -1], [0.5, 0], [0.999, 1]]) {
+    const runtime = shootout('ai')
+    const keeper = runtime.goalies[1]
+    runtime.penaltyAimY = 245
+    advance(runtime, 1)
+    assert.equal(keeper.y, 300)
+    assert.equal(runtime.penaltyKeeperGuess, null)
+    withRandom(roll, () => runtime.shootPenalty())
+    assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
+    const target = keeper.targetY
+    runtime.penaltyAimY = 355
+    advance(runtime, 0.2)
+    assert.equal(keeper.targetY, target)
+    assert.equal(runtime.penaltyKeeperGuess, expectedGuess)
+  }
+})
+
+test('AI matching guesses save all three lanes; wrong guesses concede', () => {
+  for (const lane of [-1, 0, 1]) {
+    for (const guess of [-1, 0, 1]) {
+      const runtime = shootout('ai')
+      shot(runtime, 300 + lane * 54, (guess + 1.5) / 3)
+      assert.equal(runtime.penaltyMessage, lane === guess ? 'SAVED!' : 'GOAL!', `lane ${lane}, guess ${guess}`)
     }
   }
 })
 
-test('matching guesses can save all three lanes; wrong guesses concede in both directions', () => {
-  for (const player of [0, 1]) {
-    for (const lane of [-1, 0, 1]) {
-      for (const guess of [-1, 0, 1]) {
-        const runtime = shootout()
-        runtime.penaltyShooter = player; runtime.preparePenalty()
-        const perspective = player === 0 ? 1 : -1
-        shot(runtime, 300 + lane * 54 * perspective, (guess + 1.5) / 3)
-        assert.equal(runtime.penaltyMessage, lane === guess ? 'SAVED!' : 'GOAL!', `player ${player}, lane ${lane}, guess ${guess}`)
-      }
-    }
-  }
-})
-
-test('AI aims accurate varied shots and scores two thirds against evenly sampled guesses', () => {
+test('AI aims accurate varied shots against independently positioned human keepers', () => {
   let goals = 0
   const targets = []
   for (const aimRoll of [0, 0.2, 0.424, 0.425, 0.6, 0.849, 0.85, 0.999]) {
-    for (const guessRoll of [0, 0.5, 0.999]) {
+    for (const keeperY of [246, 300, 354]) {
       const runtime = shootout('ai')
       runtime.penaltyShooter = 1
       withRandom(aimRoll, () => runtime.preparePenalty())
       targets.push(runtime.penaltyAimY)
       assert.ok(runtime.penaltyAimY - runtime.puck.r > runtime.goalTop)
       assert.ok(runtime.penaltyAimY + runtime.puck.r < runtime.goalBottom)
-      withRandom(guessRoll, () => runtime.shootPenalty())
+      runtime.goalies[0].y = keeperY
+      runtime.shootPenalty()
+      assert.equal(runtime.penaltyKeeperGuess, null)
       advance(runtime, 0.8)
       assert.notEqual(runtime.penaltyMessage, 'WIDE!')
       if (runtime.penaltyAttempts[1][0]) goals++
@@ -431,8 +429,104 @@ test('AI aims accurate varied shots and scores two thirds against evenly sampled
   assert.ok(targets.some(y => Math.abs(y - 300) < 4))
 })
 
-test('new attempts and replay clear the keeper guess', () => {
-  const runtime = shootout()
+test('human keepers move continuously, stop on release, reverse, and stay inside the goal', () => {
+  for (const player of [0, 1]) {
+    const runtime = shootout()
+    runtime.penaltyShooter = player; runtime.preparePenalty()
+    const keeper = runtime.goalies[1 - player]
+    const up = player === 0 ? 'ArrowUp' : 'KeyW'
+    const down = player === 0 ? 'ArrowDown' : 'KeyS'
+    runtime.update(0.05, input([up]))
+    assert.equal(keeper.y, 289)
+    runtime.update(0.05, input())
+    assert.equal(keeper.y, 289)
+    runtime.update(0.05, input([down]))
+    assert.equal(keeper.y, 300)
+    runtime.update(0.1, input([up, down]))
+    assert.equal(keeper.y, 300)
+    advance(runtime, 1, input([up]))
+    assert.equal(keeper.y, runtime.goalTop + keeper.r)
+    advance(runtime, 1, input([down]))
+    assert.equal(keeper.y, runtime.goalBottom - keeper.r)
+    const beforeShot = keeper.y
+    runtime.shootPenalty()
+    assert.equal(keeper.y, beforeShot)
+    assert.equal(runtime.penaltyKeeperGuess, null)
+    runtime.update(0.025, input([up]))
+    assert.ok(keeper.y < beforeShot)
+  }
+})
+
+test('attacker and keeper controls work simultaneously without swapping roles', () => {
+  for (const player of [0, 1]) {
+    const runtime = shootout()
+    runtime.penaltyShooter = player; runtime.preparePenalty()
+    const keeper = runtime.goalies[1 - player]
+    const attackerUp = player === 0 ? 'KeyW' : 'ArrowUp'
+    const keeperDown = player === 0 ? 'ArrowDown' : 'KeyS'
+    runtime.update(0.1, input([attackerUp, keeperDown]))
+    assert.equal(runtime.penaltyAimY, 288)
+    assert.equal(keeper.y, 322)
+    assert.equal(runtime.strikers[1 - player].y, 300)
+    runtime.update(0.01, input([], [player === 0 ? 'Enter' : 'Space']))
+    assert.equal(runtime.penaltyState, 'aiming')
+  }
+})
+
+test('ready period lets the keeper position before either human can fire', () => {
+  for (const player of [0, 1]) {
+    const runtime = shootout()
+    runtime.penaltyShooter = player; runtime.preparePenalty()
+    const fire = player === 0 ? 'Space' : 'Enter'
+    const keeperUp = player === 0 ? 'ArrowUp' : 'KeyW'
+    runtime.update(0.01, input([keeperUp], [fire]))
+    assert.equal(runtime.penaltyState, 'aiming')
+    assert.ok(runtime.goalies[1 - player].y < 300)
+    advance(runtime, 0.75)
+    runtime.update(1 / 120, input([], [fire]))
+    assert.equal(runtime.penaltyState, 'flying')
+    assert.ok(Math.abs(Math.hypot(runtime.puck.vx, runtime.puck.vy) - 1700) < 0.001)
+  }
+})
+
+test('anticipating saves either corner; reacting after 180ms or choosing the wrong side concedes', () => {
+  for (const player of [0, 1]) {
+    for (const lane of [-1, 1]) {
+      for (const fps of [30, 60, 120]) {
+        for (const strategy of ['anticipate', 'react', 'wrong']) {
+          const runtime = shootout()
+          runtime.penaltyShooter = player; runtime.preparePenalty()
+          const up = player === 0 ? 'ArrowUp' : 'KeyW'
+          const down = player === 0 ? 'ArrowDown' : 'KeyS'
+          const move = lane === -1 ? up : down
+          if (strategy !== 'react') advance(runtime, 54 / 220, input([strategy === 'anticipate' ? move : lane === -1 ? down : up]))
+          runtime.penaltyAimY = 300 + lane * 54
+          runtime.shootPenalty()
+          for (let frame = 0; frame < fps / 2 && runtime.penaltyState === 'flying'; frame++) {
+            runtime.update(1 / fps, input(strategy === 'react' && frame / fps >= 0.18 ? [move] : []))
+          }
+          assert.equal(runtime.penaltyMessage, strategy === 'anticipate' ? 'SAVED!' : 'GOAL!', `${player}/${lane}/${fps}/${strategy}`)
+          assert.equal(runtime.penaltyAttempts[player].length, 1)
+          assert.deepEqual(runtime.scores, [2, 2])
+        }
+      }
+    }
+  }
+})
+
+test('P1 can position their keeper during the AI windup', () => {
+  const runtime = shootout('ai')
+  runtime.penaltyShooter = 1
+  withRandom(0, () => runtime.preparePenalty())
+  advance(runtime, 54 / 220, input(['KeyW']))
+  advance(runtime, 1)
+  assert.equal(runtime.penaltyState, 'flying')
+  advance(runtime, 0.3)
+  assert.equal(runtime.penaltyMessage, 'SAVED!')
+})
+
+test('new attempts and replay reset keeper positions and guesses', () => {
+  const runtime = shootout('ai')
   shot(runtime, 245, 0)
   advance(runtime, 1.61)
   assert.equal(runtime.penaltyKeeperGuess, null)
@@ -440,4 +534,6 @@ test('new attempts and replay clear the keeper guess', () => {
   runtime.shootPenalty()
   runtime.reset()
   assert.equal(runtime.penaltyKeeperGuess, null)
+  assert.equal(runtime.goalies[0].y, 300)
+  assert.equal(runtime.goalies[1].y, 300)
 })

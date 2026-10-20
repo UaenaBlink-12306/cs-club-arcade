@@ -26,6 +26,9 @@ const AI_GUARD_X = 950
 const CONTROL_REACH = 70
 const BALL_OFFSET = 57
 const KICK_SPEED = 650
+const PENALTY_SHOT_SPEED = 1700
+const PENALTY_KEEPER_SPEED = 220
+const PENALTY_READY_SECONDS = 0.75
 const TACKLE_REACH = 108
 const AI_TACKLE_REACH = 94
 const TACKLE_BALL_SPEED = 130
@@ -329,18 +332,38 @@ export class AirHockeyGame extends BaseGame {
   private shootPenalty() {
     this.penaltyState = 'flying'
     this.penaltyTimer = 0
-    // Commit once at the kick: no following the aim or tracking the flying puck.
-    this.penaltyKeeperGuess = (Math.floor(Math.random() * 3) - 1) as -1 | 0 | 1
-    const goalkeeper = this.goalies[1 - this.penaltyShooter]
-    const reach = (this.goalBottom - this.goalTop) / 2 - this.puck.r - 16
-    const perspective = this.penaltyShooter === 0 ? 1 : -1
-    goalkeeper.targetY = 300 + this.penaltyKeeperGuess * reach * perspective
+    // Only the AI guesses. Human keepers retain continuous control through the shot.
+    if (!this.isHumanPenaltyKeeper()) {
+      this.penaltyKeeperGuess = (Math.floor(Math.random() * 3) - 1) as -1 | 0 | 1
+      const goalkeeper = this.goalies[1 - this.penaltyShooter]
+      const reach = (this.goalBottom - this.goalTop) / 2 - this.puck.r - 16
+      goalkeeper.targetY = 300 + this.penaltyKeeperGuess * reach
+    }
     const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
     const direction = normalize({ x: targetX - this.puck.x, y: this.penaltyAimY - this.puck.y })
-    this.puck.vx = direction.x * KICK_SPEED
-    this.puck.vy = direction.y * KICK_SPEED
+    this.puck.vx = direction.x * PENALTY_SHOT_SPEED
+    this.puck.vy = direction.y * PENALTY_SHOT_SPEED
     this.particles.burst(this.puck.x, this.puck.y, this.strikers[this.penaltyShooter].color, 12, 160)
     this.impact(3)
+  }
+
+  private isHumanPenaltyKeeper() {
+    return this.penaltyShooter === 1 || this.opponent === 'human'
+  }
+
+  private movePenaltyKeeper(dt: number, input: InputFrame) {
+    const keeper = this.goalies[1 - this.penaltyShooter]
+    const previousY = keeper.y
+    if (this.isHumanPenaltyKeeper()) {
+      const movement = this.penaltyShooter === 0
+        ? axis(input.down, 'ArrowUp', 'ArrowDown')
+        : axis(input.down, 'KeyW', 'KeyS')
+      keeper.y = clamp(keeper.y + movement * PENALTY_KEEPER_SPEED * dt, this.goalTop + keeper.r, this.goalBottom - keeper.r)
+      keeper.targetY = keeper.y
+    } else {
+      keeper.y += clamp(keeper.targetY - keeper.y, -PENALTY_KEEPER_SPEED * dt, PENALTY_KEEPER_SPEED * dt)
+    }
+    keeper.vy = dt > 0 ? (keeper.y - previousY) / dt : 0
   }
 
   private resolvePenalty(scored: boolean, message: string) {
@@ -369,25 +392,24 @@ export class AirHockeyGame extends BaseGame {
       return
     }
     if (this.penaltyState === 'aiming') {
+      this.movePenaltyKeeper(dt, input)
       if (this.penaltyShooter === 1 && this.opponent === 'ai') {
         if (this.penaltyTimer >= 1.2) this.shootPenalty()
         return
       }
       const movement = this.penaltyShooter === 0 ? axis(input.down, 'KeyW', 'KeyS') : axis(input.down, 'ArrowUp', 'ArrowDown')
       this.penaltyAimY = clamp(this.penaltyAimY + movement * 120 * dt, this.goalTop - 60, this.goalBottom + 60)
-      if (input.wasPressed(this.penaltyShooter === 0 ? 'Space' : 'Enter')) this.shootPenalty()
+      if (this.penaltyTimer >= PENALTY_READY_SECONDS && input.wasPressed(this.penaltyShooter === 0 ? 'Space' : 'Enter')) this.shootPenalty()
       else if (this.penaltyTimer >= 10) this.resolvePenalty(false, 'TIME UP')
       return
     }
-    // Small physics steps prevent a fast shot from tunnelling through the robot goalkeeper.
+    // Small physics steps prevent fast shots from tunnelling through a moving keeper.
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)))
     const step = dt / steps
     const goalkeeper = this.goalies[1 - this.penaltyShooter]
     const direction = this.penaltyShooter === 0 ? 1 : -1
     for (let i = 0; i < steps; i++) {
-      const previousY = goalkeeper.y
-      goalkeeper.y += clamp(goalkeeper.targetY - goalkeeper.y, -220 * step, 220 * step)
-      goalkeeper.vy = (goalkeeper.y - previousY) / step
+      this.movePenaltyKeeper(step, input)
       this.puck.x += this.puck.vx * step
       this.puck.y += this.puck.vy * step
       if (Math.hypot(this.puck.x - goalkeeper.x, this.puck.y - goalkeeper.y) <= this.puck.r + goalkeeper.r) {
@@ -408,15 +430,18 @@ export class AirHockeyGame extends BaseGame {
     ctx.save(); ctx.textAlign = 'center'; ctx.fillStyle = COLORS.text
     ctx.font = '800 28px Arial Narrow'
     const shooter = this.penaltyShooter === 1 && this.opponent === 'ai' ? 'AI' : `PLAYER ${this.penaltyShooter + 1}`
-    ctx.fillText(this.penaltyState === 'result' ? `${shooter} · ${this.penaltyMessage}` : `${shooter} vs ROBOT GOALKEEPER`, 600, 45)
+    const humanKeeper = this.isHumanPenaltyKeeper()
+    const keeper = humanKeeper ? `PLAYER ${2 - this.penaltyShooter} KEEPER` : 'AI KEEPER'
+    ctx.fillText(this.penaltyState === 'result' ? `${shooter} · ${this.penaltyMessage}` : `${shooter} vs ${keeper}`, 600, 45)
     ctx.font = '700 20px Arial Narrow'
     ctx.fillStyle = COLORS.muted
-    const guess = this.penaltyKeeperGuess === null ? 'KEEPER GUESSES LEFT, CENTER OR RIGHT' : `KEEPER GUESSED ${this.penaltyKeeperGuess === -1 ? 'LEFT' : this.penaltyKeeperGuess === 1 ? 'RIGHT' : 'CENTER'}`
-    ctx.fillText(guess, 600, 178)
+    const keeperControls = this.penaltyShooter === 0 ? 'P2 · ↑ / ↓ MOVE KEEPER' : 'P1 · W / S MOVE KEEPER'
+    ctx.fillText(humanKeeper ? `${keeperControls} · ANTICIPATE THE SHOT` : 'AI KEEPER COMMITS AT THE SHOT', 600, 178)
     ctx.fillStyle = COLORS.text
     const aiTurn = this.penaltyShooter === 1 && this.opponent === 'ai'
     const controls = this.penaltyShooter === 0 ? 'W / S AIM · SPACE SHOOT' : '↑ / ↓ AIM · ENTER SHOOT'
-    ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : `${controls} · ${Math.max(0, Math.ceil(10 - this.penaltyTimer))}s` : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)
+    const ready = this.penaltyTimer < PENALTY_READY_SECONDS ? 'KEEPER GET READY' : `${controls} · ${Math.max(0, Math.ceil(10 - this.penaltyTimer))}s`
+    ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : ready : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)
     if (this.penaltyState === 'aiming' && !aiTurn) {
       const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
       ctx.strokeStyle = this.strikers[this.penaltyShooter].color; ctx.lineWidth = 3; ctx.setLineDash([8, 10]); ctx.globalAlpha = 0.75

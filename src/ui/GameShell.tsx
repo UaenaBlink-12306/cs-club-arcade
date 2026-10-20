@@ -28,7 +28,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const isFootballHockey = runtime instanceof FootballGame
   const isShootout = runtime instanceof AirHockeyGame && hud.some((item) => item.label === 'PENALTY SHOOTOUT' || item.label === 'SUDDEN DEATH')
   const hockeyControls = isShootout
-    ? (hockeyOpponent === 'ai' ? 'PENALTIES · W/S AIM · SPACE SHOOT · ROBOT GOALKEEPERS' : 'PENALTIES · P1: W/S AIM · SPACE SHOOT | P2: ↑/↓ AIM · ENTER SHOOT')
+    ? (hockeyOpponent === 'ai' ? 'PENALTIES · W/S AIM OR MOVE KEEPER · SPACE SHOOT' : 'PENALTIES · P1: W/S · SPACE | P2: ↑/↓ · ENTER · AIM OR MOVE KEEPER')
     : isFootballHockey
     ? (hockeyOpponent === 'ai' ? 'WASD MOVE · Q/E AIM · HOLD/RELEASE SPACE SHOOT · F PASS · R CALL FOR PASS · SHIFT SPRINT · SPACE TACKLE' : 'P1: WASD · Q/E AIM · SPACE SHOT/TACKLE · F PASS · R CALL FOR PASS | P2: ARROWS · ,/. AIM · ENTER · ; PASS · / CALL')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
@@ -126,7 +126,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You always control the blue #8. Your five AI teammates support your runs, receive passes and pass back. Press R to call for a pass. The red team has a main AI #8 and five AI teammates. In two-player mode each human stays with their own #8. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates, make supporting runs and tackle to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : isClassicHockey ? '90 minutes plus stoppage time. Choose how to settle a draw, then pick your opponent. Penalties: five shots each against robot goalkeepers, then sudden death.' : meta.description}</p>
+              <p>{isFootballHockey ? 'Twelve players total: six per team, including a goalkeeper. You always control the blue #8. Your five AI teammates support your runs, receive passes and pass back. Press R to call for a pass. The red team has a main AI #8 and five AI teammates. In two-player mode each human stays with their own #8. Collect the ball to dribble. Hold and release shoot for power; rotate your aim even while standing still. Pass to teammates, make supporting runs and tackle to defend. Throw-ins, corners and goal kicks replace wall rebounds. Most goals at full time wins. The clock counts down from 90:00; each football minute lasts two seconds. Stoppage time is added for goals and restarts.' : isClassicHockey ? '90 minutes plus stoppage time. Choose how to settle a draw, then pick your opponent. Penalties: five shots each, then sudden death. Defend with W/S (P1) or ↑/↓ (P2). Hold keys to move your keeper before the fast shot.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isClassicHockey && (
                 <label className="hockey-draw-rule">
