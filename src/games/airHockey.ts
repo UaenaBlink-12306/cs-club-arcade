@@ -458,8 +458,7 @@ export class AirHockeyGame extends BaseGame {
     ctx.fillText(this.penaltyState === 'aiming' ? aiTurn ? 'AI IS LINING UP A SHOT…' : ready : 'FIVE SHOTS EACH · THEN SUDDEN DEATH', 600, 574)
     if (this.penaltyState === 'aiming' && !aiTurn) {
       const targetX = this.penaltyShooter === 0 ? RIGHT : LEFT
-      ctx.strokeStyle = this.strikers[this.penaltyShooter].color; ctx.lineWidth = 3; ctx.setLineDash([8, 10]); ctx.globalAlpha = 0.75
-      ctx.beginPath(); ctx.moveTo(this.puck.x, this.puck.y); ctx.lineTo(targetX, this.penaltyAimY); ctx.stroke(); ctx.setLineDash([])
+      ctx.strokeStyle = this.strikers[this.penaltyShooter].color; ctx.lineWidth = 3; ctx.globalAlpha = 0.75
       ctx.beginPath(); ctx.arc(targetX, this.penaltyAimY, 9, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1
     }
     this.penaltyAttempts.forEach((attempts, player) => {
