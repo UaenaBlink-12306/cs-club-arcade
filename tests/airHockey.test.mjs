@@ -377,6 +377,7 @@ test('AI pursues bank shots and intercepts immediate threats beyond its guard li
   assert.ok(runtime.aiTarget.x < 950)
   assert.ok(runtime.aiTarget.y > 84 && runtime.aiTarget.y < 516)
   Object.assign(runtime.puck, { x: 990, y: 330, vx: 200, vy: 0 })
+  Object.assign(runtime.strikers[1], { x: 1035, y: 300, vx: 0, vy: 0 })
   runtime.aiDecisionDelay = 0; runtime.moveAi(0)
   assert.ok(runtime.aiTarget.x > 990)
   assert.equal(runtime.aiTarget.y, 330)
@@ -696,4 +697,37 @@ test('AI favors a momentum-driven shot immediately when starting in the human ha
     if (runtime.puck.vx < -400) { shot = true; break }
   }
   assert.ok(shot, 'AI should commit to attacking rather than slow dribbling in the human half')
+})
+
+test('AI goes around a ball on its goal side and clears it instead of scoring an own goal', () => {
+  for (const fps of [30, 60, 120]) for (const x of [750, 950, 1020]) for (const y of [250, 300, 350]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 200, y: 100 })
+    Object.assign(runtime.strikers[1], { x: x - 120, y, vx: 0, vy: 0 })
+    Object.assign(runtime.puck, { x, y, vx: 0, vy: 0 })
+    let furthestClearance = x, firstTouchVx
+    for (let frame = 0; frame < fps * 12; frame++) {
+      runtime.update(1 / fps, input())
+      furthestClearance = Math.min(furthestClearance, runtime.puck.x)
+      if (firstTouchVx === undefined && Math.hypot(runtime.puck.vx, runtime.puck.vy) > 10) firstTouchVx = runtime.puck.vx
+      if (runtime.serveDelay > 0) break
+    }
+    const context = `${fps} fps, ball ${x}/${y}`
+    assert.equal(runtime.scores[0], 0, `${context}: AI must not push the ball into its own net`)
+    assert.ok(furthestClearance < x - 200, `${context}: AI must actively clear, not just avoid the ball`)
+    assert.ok(firstTouchVx <= 0, `${context}: first touch must go away from the AI goal`)
+  }
+})
+
+test('wrong-side recovery chooses a route beside the ball instead of straight through it', () => {
+  const runtime = game('ai')
+  Object.assign(runtime.strikers[1], { x: 830, y: 300, vx: 0, vy: 0 })
+  Object.assign(runtime.puck, { x: 950, y: 300, vx: 0, vy: 0 })
+  runtime.moveAi(1 / 120)
+  assert.equal(runtime.aiRecovering, true)
+  assert.ok(runtime.aiTarget.x <= 830)
+  assert.ok(Math.abs(runtime.aiTarget.y - 300) >= 80)
+  runtime.reset()
+  assert.equal(runtime.aiRecovering, false)
 })

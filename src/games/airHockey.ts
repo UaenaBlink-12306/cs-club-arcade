@@ -90,6 +90,8 @@ export class AirHockeyGame extends BaseGame {
   private shootoutOnly = false
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
+  private aiRecovering = false
+  private aiRecoverySide = -1
   private aiWantsControl = false
   private holder: -1 | 0 | 1 = -1
   private controlCooldown = 0
@@ -140,6 +142,8 @@ export class AirHockeyGame extends BaseGame {
     this.serveDelay = delay
     this.aiTarget = { x: AI_GUARD_X, y: 300 }
     this.aiDecisionDelay = 0
+    this.aiRecovering = false
+    this.aiRecoverySide = -1
     this.aiWantsControl = false
     this.holder = -1
     this.controlCooldown = 0
@@ -523,8 +527,14 @@ export class AirHockeyGame extends BaseGame {
     const striker = this.strikers[1]
     const puck = this.puck
     const ballDistance = Math.hypot(striker.x - puck.x, striker.y - puck.y)
+    if (this.holder !== -1) this.aiRecovering = false
+    else if (!this.aiRecovering && striker.x < puck.x && ballDistance < 400) {
+      this.aiRecovering = true
+      this.aiRecoverySide = puck.y < 300 ? 1 : -1
+    }
+    if (this.aiRecovering && striker.x >= Math.min(puck.x + 75, RIGHT - striker.r) - 3) this.aiRecovering = false
     // Controlled touches belong in our half. In the attacking half, commit to shots.
-    const gentleTouch = this.holder === -1 && puck.x > 600 && puck.vx <= 80
+    const gentleTouch = !this.aiRecovering && this.holder === -1 && puck.x > 600 && puck.vx <= 80
       && Math.hypot(puck.vx, puck.vy) < 320 && ballDistance < 220 && striker.x > puck.x + 10
     if (this.holder === 1) {
       const shotY = this.strikers[0].y < 300 ? 350 : 250
@@ -535,13 +545,22 @@ export class AirHockeyGame extends BaseGame {
         && Math.hypot(striker.x - this.strikers[0].x, striker.y - this.strikers[0].y) < AI_TACKLE_REACH
     }
     this.aiDecisionDelay -= dt
-    if (this.holder !== 1 && this.aiDecisionDelay <= 0) {
+    if (this.holder !== 1 && (this.aiDecisionDelay <= 0 || this.aiRecovering)) {
       this.aiDecisionDelay = 0.11
       const goalCrossing = predictCrossing(puck, RIGHT - puck.r)
       const goalThreat = puck.vx > 0 && goalCrossing !== null
         && goalCrossing.y > this.goalTop - puck.r && goalCrossing.y < this.goalBottom + puck.r
       const urgent = puck.x > striker.x - 50 || (RIGHT - puck.r - puck.x) / Math.max(1, puck.vx) < 0.75
-      if (this.holder === 0) {
+      if (this.aiRecovering) {
+        // Do not drive through a ball that is between us and our own goal.
+        // Move around it with enough clearance for both bodies, then attack from the right.
+        const routeY = clamp(puck.y + this.aiRecoverySide * 100, TOP + striker.r, BOTTOM - striker.r)
+        const clearOfBall = Math.abs(striker.y - puck.y) >= striker.r + puck.r + 25
+        this.aiTarget = {
+          x: clearOfBall ? Math.min(puck.x + 90, RIGHT - striker.r) : Math.min(striker.x, puck.x - 85),
+          y: routeY,
+        }
+      } else if (this.holder === 0) {
         // Press the carrier across the rink instead of waiting in our half.
         this.aiTarget = { x: clamp(puck.x + 25, LEFT + striker.r, RIGHT - striker.r), y: puck.y }
       } else if (this.holder === -1 && goalThreat && urgent && Math.hypot(puck.vx, puck.vy) >= 150) {
@@ -571,10 +590,10 @@ export class AirHockeyGame extends BaseGame {
     const dy = this.aiTarget.y - striker.y
     const distance = Math.hypot(dx, dy)
     let moveX = distance > 3 ? dx : 0, moveY = distance > 3 ? dy : 0
-    if (gentleTouch && distance > 3) {
+    if ((gentleTouch || this.aiRecovering) && distance > 3) {
       // Catch the ball with a small closing speed, then tap it again as drag slows it.
       // Braking and acceleration are inputs to the same physics used by humans.
-      const speed = clamp(-puck.vx + 60, 70, 250)
+      const speed = this.aiRecovering ? Math.min(230, distance * 4) : clamp(-puck.vx + 60, 70, 250)
       moveX = dx / distance * speed - striker.vx
       moveY = dy / distance * speed - striker.vy
       if (Math.hypot(moveX, moveY) < STRIKER_ACCELERATION * dt / 2) { moveX = 0; moveY = 0 }
