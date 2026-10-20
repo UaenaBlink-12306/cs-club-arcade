@@ -39,6 +39,7 @@ const STRIKER_DRAG = 0.82
 
 export type HockeyOpponent = 'ai' | 'human'
 export type HockeyDrawRule = 'extra-time' | 'penalties'
+export type HockeyMatchFormat = HockeyDrawRule | 'shootout-only'
 export type HockeyVariant = 'classic' | 'football'
 
 const PUCK_DRAG = -60 * Math.log(0.997)
@@ -86,6 +87,7 @@ export class AirHockeyGame extends BaseGame {
   private scorer = -1
   private opponent: HockeyOpponent = 'ai'
   private drawRule: HockeyDrawRule = 'extra-time'
+  private shootoutOnly = false
   private aiTarget = { x: AI_GUARD_X, y: 300 }
   private aiDecisionDelay = 0
   private aiWantsControl = false
@@ -108,7 +110,12 @@ export class AirHockeyGame extends BaseGame {
   }
 
   setDrawRule(rule: HockeyDrawRule) {
-    this.drawRule = rule
+    this.setMatchFormat(rule)
+  }
+
+  setMatchFormat(format: HockeyMatchFormat) {
+    this.shootoutOnly = this.variant === 'classic' && format === 'shootout-only'
+    this.drawRule = format === 'shootout-only' ? 'penalties' : format
     this.reset()
   }
 
@@ -117,6 +124,7 @@ export class AirHockeyGame extends BaseGame {
     this.penaltyKeeperGuess = null
     this.matchPhase = 'regulation'; this.phaseElapsed = 0; this.lostTime = 0; this.addedMinutes = 0
     this.result = null; this.elapsed = 0; this.scores = [0, 0]; this.scorer = -1; this.serveDirection = Math.random() < 0.5 ? -1 : 1; this.particles.clear(); this.resetFaceoff(1.25)
+    if (this.shootoutOnly) { this.matchPhase = 'shootout'; this.preparePenalty() }
   }
 
   private resetFaceoff(delay: number) {
@@ -301,7 +309,8 @@ export class AirHockeyGame extends BaseGame {
     const stage = this.matchPhase === 'shootout' ? 'AFTER PENALTIES'
       : this.matchPhase === 'extra' ? 'AFTER EXTRA TIME' : 'FULL TIME'
     const penalties = this.matchPhase === 'shootout' ? ` · PENALTIES ${this.penaltyGoals(0)}–${this.penaltyGoals(1)}` : ''
-    this.finish({ headline: `${winnerName} WINS`, detail: `${stage} · ${this.scores[0]}–${this.scores[1]}${penalties}`, score: 1, winnerName })
+    const detail = this.shootoutOnly ? `PENALTY SHOOTOUT · PENALTIES ${this.penaltyGoals(0)}–${this.penaltyGoals(1)}` : `${stage} · ${this.scores[0]}–${this.scores[1]}${penalties}`
+    this.finish({ headline: `${winnerName} WINS`, detail, score: 1, winnerName })
   }
 
   private penaltyGoals(player: 0 | 1) {
@@ -448,7 +457,8 @@ export class AirHockeyGame extends BaseGame {
       const start = Math.max(0, Math.floor(currentAttempt / 5) * 5)
       const x = player === 0 ? 300 : 780
       ctx.fillStyle = this.strikers[player].color; ctx.font = '700 18px Arial Narrow'
-      ctx.fillText(`${player === 1 && this.opponent === 'ai' ? 'AI' : `P${player + 1}`} · ${this.scores[player]} AT ${this.drawRule === 'penalties' ? CLASSIC_MATCH_MINUTES : CLASSIC_MATCH_MINUTES + EXTRA_TIME_MINUTES} MIN`, x + 60, 115)
+      const team = player === 1 && this.opponent === 'ai' ? 'AI' : `P${player + 1}`
+      ctx.fillText(this.shootoutOnly ? `${team} · PENALTIES ONLY` : `${team} · ${this.scores[player]} AT ${this.drawRule === 'penalties' ? CLASSIC_MATCH_MINUTES : CLASSIC_MATCH_MINUTES + EXTRA_TIME_MINUTES} MIN`, x + 60, 115)
       for (let i = 0; i < 5; i++) {
         const result = attempts[start + i]
         ctx.beginPath(); ctx.arc(x + i * 30, 142, 9, 0, Math.PI * 2)

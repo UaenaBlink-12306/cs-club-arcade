@@ -53,6 +53,48 @@ function shot(runtime, target, guessRoll = 0.5) {
   advance(runtime, 0.8)
 }
 
+test('shootout-only starts immediately for either opponent and replay stays in shootout mode', () => {
+  for (const opponent of ['ai', 'human']) {
+    const runtime = game()
+    runtime.setMatchFormat('shootout-only')
+    runtime.setOpponent(opponent)
+    for (let replay = 0; replay < 2; replay++) {
+      assert.equal(runtime.matchPhase, 'shootout')
+      assert.equal(runtime.phaseElapsed, 0)
+      assert.equal(runtime.serveDelay, 0)
+      assert.equal(runtime.penaltyState, 'aiming')
+      assert.equal(runtime.penaltyShooter, 0)
+      assert.equal(runtime.getHud()[1].value, 'P1 · SHOT 1/5')
+      assert.equal(runtime.getHud()[2].label, `${opponent === 'ai' ? 'AI' : 'PLAYER 2'} · PENALTIES`)
+      assert.deepEqual(runtime.scores, [0, 0])
+      assert.deepEqual(runtime.penaltyAttempts, [[], []])
+      assert.equal(runtime.result, null)
+      for (let round = 0; round < 3; round++) { attempt(runtime, true); attempt(runtime, false) }
+      assert.equal(runtime.result.winnerName, 'PLAYER 1')
+      assert.equal(runtime.result.detail, 'PENALTY SHOOTOUT · PENALTIES 3–0')
+      runtime.reset()
+    }
+  }
+})
+
+test('full-match formats restore regulation after selecting shootout-only', () => {
+  for (const format of ['extra-time', 'penalties']) {
+    const runtime = game()
+    runtime.setMatchFormat('shootout-only')
+    runtime.setMatchFormat(format)
+    runtime.setOpponent('human')
+    assert.equal(runtime.matchPhase, 'regulation')
+    assert.equal(runtime.getHud()[1].label, 'MATCH TIME · 90 MIN')
+    runtime.phaseElapsed = 181.99; runtime.addedMinutes = 1
+    runtime.update(0.02, input())
+    assert.equal(runtime.matchPhase, format === 'extra-time' ? 'extra' : 'shootout')
+  }
+  const legacy = new AirHockeyGame(meta, 'football')
+  legacy.setMatchFormat('shootout-only')
+  assert.equal(legacy.matchPhase, 'regulation')
+  assert.equal(legacy.getHud()[1].label, 'FIRST TO 5')
+})
+
 test('tied regulation includes stoppage before extra time; tied extra time includes stoppage before penalties', () => {
   const runtime = game()
   runtime.phaseElapsed = 179.99; runtime.addedMinutes = 2
