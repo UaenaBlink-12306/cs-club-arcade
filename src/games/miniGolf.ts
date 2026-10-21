@@ -60,6 +60,7 @@ export class MiniGolfGame extends BaseGame {
 
     const speed = Math.hypot(this.ball.vx, this.ball.vy)
     if (input.pointer.pressed && speed < 8 && distance(input.pointer, this.ball) < 38) { this.aiming = true; this.aim = { x: input.pointer.x, y: input.pointer.y } }
+    if (this.aiming && !input.pointer.down && !input.pointer.released) this.aiming = false
     if (this.aiming && input.pointer.down) this.aim = { x: input.pointer.x, y: input.pointer.y }
     if (this.aiming && input.pointer.released) {
       const pull = { x: this.ball.x - input.pointer.x, y: this.ball.y - input.pointer.y }

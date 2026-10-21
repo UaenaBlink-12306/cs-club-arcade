@@ -16,23 +16,29 @@ interface Props {
 export function ArcadeMenu({ onSelect, recordsVersion, audioVersion, onAudioChanged }: Props) {
   const [selected, setSelected] = useState(2)
   const cardRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const keyboardNavigation = useRef(false)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return
-      const columns = window.innerWidth >= 1120 ? 5 : window.innerWidth >= 700 ? 3 : 2
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) event.preventDefault()
+      if (!(event.target instanceof Element) || !event.target.closest('.game-card')) return
+      const grid = cardRefs.current[0]?.parentElement
+      const columns = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 1
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); keyboardNavigation.current = true }
       if (event.key === 'ArrowLeft') setSelected((value) => (value + games.length - 1) % games.length)
       if (event.key === 'ArrowRight') setSelected((value) => (value + 1) % games.length)
       if (event.key === 'ArrowUp') setSelected((value) => (value + games.length - columns) % games.length)
       if (event.key === 'ArrowDown') setSelected((value) => (value + columns) % games.length)
-      if (event.key === 'Enter') { arcadeAudio.play('start'); onSelect(games[selected].id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onSelect, selected])
+  }, [])
 
-  useEffect(() => { cardRefs.current[selected]?.focus({ preventScroll: true }) }, [selected])
+  useEffect(() => {
+    const card = cardRefs.current[selected]
+    card?.focus({ preventScroll: true })
+    if (keyboardNavigation.current) card?.scrollIntoView({ block: 'nearest' })
+    keyboardNavigation.current = false
+  }, [selected])
 
   const randomGame = () => {
     let index = Math.floor(Math.random() * games.length)
@@ -59,6 +65,7 @@ export function ArcadeMenu({ onSelect, recordsVersion, audioVersion, onAudioChan
             <button
               key={game.id}
               ref={(node) => { cardRefs.current[index] = node }}
+              tabIndex={selected === index ? 0 : -1}
               className={`game-card ${selected === index ? 'is-selected' : ''}`}
               style={{ '--game-accent': game.accent } as React.CSSProperties}
               onFocus={() => setSelected(index)}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Pause, Play, RotateCcw, Trophy, Volume2, VolumeX } from 'lucide-react'
 import { arcadeAudio } from '../audio/ArcadeAudio'
 import { InputController } from '../core/Input'
+import { FixedStepClock } from '../core/FixedStepClock'
 import { GAME_HEIGHT, GAME_WIDTH, type GameMeta, type GameResult, type HudItem } from '../core/types'
 import { createGame } from '../games'
 import { AirHockeyGame, type HockeyOpponent, type HockeyMatchFormat } from '../games/airHockey'
@@ -44,14 +45,19 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
     let frame = 0
     let last = performance.now()
     let lastHud = 0
+    const clock = new FixedStepClock()
 
     const loop = (now: number) => {
-      const dt = Math.min(0.033, Math.max(0, (now - last) / 1000))
+      const dt = Math.max(0, (now - last) / 1000)
       last = now
       input.setActive(phaseRef.current === 'playing')
-      if (phaseRef.current === 'playing') runtime.update(dt, input.snapshot())
+      if (phaseRef.current === 'playing') {
+        clock.advance(dt, (step) => {
+          runtime.update(step, input.snapshot())
+          input.endFrame()
+        })
+      } else clock.reset()
       runtime.render(ctx)
-      input.endFrame()
 
       if (now - lastHud > 90) { lastHud = now; setHud(runtime.getHud()) }
       if (phaseRef.current === 'playing' && runtime.result && !recordedRef.current) {
@@ -65,8 +71,40 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
       }
       frame = requestAnimationFrame(loop)
     }
+    const pauseOnLeave = () => {
+      if (phaseRef.current === 'playing' || phaseRef.current === 'countdown') {
+        input.setActive(false)
+        clock.reset()
+        setPhase('paused')
+      }
+    }
+    const onVisibility = () => { if (document.hidden) pauseOnLeave() }
+    window.addEventListener('blur', pauseOnLeave)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.render_game_to_text = () => JSON.stringify({
+      game: meta.id, phase: phaseRef.current, coordinates: '1200x600; origin top left; x right, y down',
+      hud: runtime.getHud(), state: runtime.getState?.(), result: runtime.result,
+    })
+    // Deterministic development hook for replaying input and collision scenarios.
+    if (import.meta.env.DEV) window.advanceTime = (ms: number) => {
+      input.setActive(phaseRef.current === 'playing')
+      if (phaseRef.current === 'playing') {
+        for (let remaining = Math.max(0, ms) / 1000; remaining > 1e-9; remaining -= clock.step) {
+          runtime.update(Math.min(clock.step, remaining), input.snapshot())
+          input.endFrame()
+        }
+      }
+      runtime.render(ctx)
+      setHud(runtime.getHud())
+    }
     frame = requestAnimationFrame(loop)
-    return () => { cancelAnimationFrame(frame); input.destroy(); runtime.destroy?.() }
+    return () => {
+      cancelAnimationFrame(frame); input.destroy(); runtime.destroy?.()
+      window.removeEventListener('blur', pauseOnLeave)
+      document.removeEventListener('visibilitychange', onVisibility)
+      delete window.render_game_to_text
+      delete window.advanceTime
+    }
   }, [meta, onRecordsChanged, runtime])
 
   useEffect(() => {
@@ -149,7 +187,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
           )}
           {phase === 'countdown' && <div className="game-overlay countdown-overlay" aria-live="assertive"><strong>{countdown}</strong></div>}
           {phase === 'paused' && (
-            <div className="game-overlay pause-overlay"><h2>Paused</h2><p>Take a breath. The arena is frozen.</p><button className="action-button action-primary overlay-primary" onClick={() => setPhase('playing')}><Play />Resume</button><button className="text-button" onClick={onExit}>Return to arcade</button></div>
+            <div className="game-overlay pause-overlay"><h2>Paused</h2><p>The game is paused. Switching tabs pauses automatically.</p><button className="action-button action-primary overlay-primary" onClick={() => setPhase('playing')}><Play />Resume</button><button className="text-button" onClick={onExit}>Return to arcade</button></div>
           )}
           {phase === 'over' && result && (
             <div className="game-overlay over-overlay" aria-live="polite">

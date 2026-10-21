@@ -21,6 +21,8 @@ export class InputController {
     window.addEventListener('keyup', this.onKeyUp, { passive: false })
     canvas.addEventListener('pointermove', this.onPointerMove)
     canvas.addEventListener('pointerdown', this.onPointerDown)
+    canvas.addEventListener('pointercancel', this.onPointerCancel)
+    canvas.addEventListener('lostpointercapture', this.onPointerCancel)
     window.addEventListener('pointerup', this.onPointerUp)
     window.addEventListener('blur', this.onBlur)
   }
@@ -57,6 +59,8 @@ export class InputController {
     window.removeEventListener('keyup', this.onKeyUp)
     this.canvas.removeEventListener('pointermove', this.onPointerMove)
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
+    this.canvas.removeEventListener('pointercancel', this.onPointerCancel)
+    this.canvas.removeEventListener('lostpointercapture', this.onPointerCancel)
     window.removeEventListener('pointerup', this.onPointerUp)
     window.removeEventListener('blur', this.onBlur)
   }
@@ -84,7 +88,7 @@ export class InputController {
   private onPointerMove = (event: PointerEvent) => this.updatePointer(event)
 
   private onPointerDown = (event: PointerEvent) => {
-    if (!this.active) return
+    if (!this.active || event.button !== 0) return
     this.updatePointer(event)
     this.pointer.down = true
     this.pointer.pressed = true
@@ -92,10 +96,17 @@ export class InputController {
   }
 
   private onPointerUp = (event: PointerEvent) => {
-    if (!this.active) return
+    if (!this.active || !this.pointer.down || event.button !== 0) return
     this.updatePointer(event)
     this.pointer.down = false
     this.pointer.released = true
+  }
+
+  private onPointerCancel = () => {
+    if (!this.pointer.down) return
+    this.pointer.down = false
+    this.pointer.pressed = false
+    this.pointer.released = false
   }
 
   private onBlur = () => {

@@ -18,6 +18,8 @@ export class DodgeHellGame extends BaseGame {
   private laserTimer = 7
   private ringTimer = 4.5
   private dashCooldown = 0
+  private dashRemaining = 0
+  private dashDirection = { x: 1, y: 0 }
   private invulnerable = 0
   private lastDirection = { x: 1, y: 0 }
 
@@ -25,7 +27,7 @@ export class DodgeHellGame extends BaseGame {
 
   reset() {
     this.result = null; this.elapsed = 0; this.bullets = []; this.lasers = []; this.ringWarnings = []; this.spawnTimer = 0; this.laserTimer = 7; this.ringTimer = 4.5
-    this.dashCooldown = 0; this.invulnerable = 0; this.lastDirection = { x: 1, y: 0 }
+    this.dashCooldown = 0; this.dashRemaining = 0; this.dashDirection = { x: 1, y: 0 }; this.invulnerable = 0; this.lastDirection = { x: 1, y: 0 }
     Object.assign(this.player, { x: 600, y: 300, vx: 0, vy: 0 }); this.particles.clear()
   }
 
@@ -36,15 +38,19 @@ export class DodgeHellGame extends BaseGame {
     this.invulnerable = Math.max(0, this.invulnerable - dt)
     const dx = axis(input.down, 'KeyA', 'KeyD') || axis(input.down, 'ArrowLeft', 'ArrowRight')
     const dy = axis(input.down, 'KeyW', 'KeyS') || axis(input.down, 'ArrowUp', 'ArrowDown')
-    if (dx || dy) this.lastDirection = normalize({ x: dx, y: dy })
-    const speed = 290
-    this.player.vx = dx * speed; this.player.vy = dy * speed
+    const direction = normalize({ x: dx, y: dy })
+    if (dx || dy) this.lastDirection = direction
     if (input.wasPressed('Space') && this.dashCooldown <= 0) {
-      this.player.vx = this.lastDirection.x * 870; this.player.vy = this.lastDirection.y * 870
+      this.dashRemaining = 0.16; this.dashDirection = { ...this.lastDirection }
       this.dashCooldown = 2; this.invulnerable = 0.23; this.impact(4)
     }
-    this.player.x = clamp(this.player.x + this.player.vx * dt, 30, 1170)
-    this.player.y = clamp(this.player.y + this.player.vy * dt, 30, 570)
+    const dashTime = Math.min(dt, this.dashRemaining)
+    const moveTime = dt - dashTime
+    this.player.vx = dashTime > 0 ? this.dashDirection.x * 870 : direction.x * 290
+    this.player.vy = dashTime > 0 ? this.dashDirection.y * 870 : direction.y * 290
+    this.player.x = clamp(this.player.x + this.dashDirection.x * 870 * dashTime + direction.x * 290 * moveTime, 30, 1170)
+    this.player.y = clamp(this.player.y + this.dashDirection.y * 870 * dashTime + direction.y * 290 * moveTime, 30, 570)
+    this.dashRemaining = Math.max(0, this.dashRemaining - dt)
     if (this.invulnerable > 0) this.particles.trail(this.player.x, this.player.y, COLORS.cyan, -this.player.vx * 0.25, -this.player.vy * 0.25)
 
     this.spawnTimer -= dt
