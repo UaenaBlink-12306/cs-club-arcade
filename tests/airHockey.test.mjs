@@ -731,3 +731,63 @@ test('wrong-side recovery chooses a route beside the ball instead of straight th
   runtime.reset()
   assert.equal(runtime.aiRecovering, false)
 })
+
+test('AI clears loose pucks trapped against either side rail', () => {
+  for (const fps of [30, 60, 120]) for (const y of [84, 516]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 200, y: 300 })
+    Object.assign(runtime.strikers[1], { x: 780, y: 300, vx: 0, vy: 0 })
+    Object.assign(runtime.puck, { x: 900, y, vx: 0, vy: 0 })
+    let cleared = false
+    for (let frame = 0; frame < fps * 8; frame++) {
+      runtime.update(1 / fps, input())
+      if (runtime.puck.x < 600 || runtime.scores[1] > 0) { cleared = true; break }
+    }
+    assert.ok(cleared, `${fps} fps, rail ${y}: clear the puck instead of circling forever`)
+    assert.equal(runtime.scores[0], 0)
+  }
+})
+
+test('AI chooses a shot lane away from the defending goalkeeper', () => {
+  const runtime = game('ai')
+  Object.assign(runtime.strikers[0], { x: 250, y: 100, vx: 0, vy: 0 })
+  Object.assign(runtime.strikers[1], { x: 560, y: 300, vx: 0, vy: 0 })
+  Object.assign(runtime.puck, { x: 450, y: 300, vx: 0, vy: 0 })
+  for (const keeperY of [248, 352]) {
+    runtime.goalies[0].y = keeperY
+    runtime.aiDecisionDelay = 0
+    runtime.moveAi(0)
+    // The approach point lies on the opposite side of the puck from the shot.
+    const shotSlope = (runtime.puck.y - runtime.aiTarget.y) / (runtime.puck.x - runtime.aiTarget.x)
+    const goalY = runtime.puck.y + shotSlope * (92 - runtime.puck.x)
+    assert.ok(keeperY < 300 ? goalY > 300 : goalY < 300, `keeper ${keeperY}, projected shot ${goalY}`)
+  }
+})
+
+test('fast regulation shots cannot tunnel through either goalkeeper during a dropped frame', () => {
+  for (const side of [0, 1]) {
+    const runtime = game()
+    runtime.serveDelay = 0
+    const keeper = runtime.goalies[side]
+    Object.assign(runtime.strikers[0], { x: 300, y: 100 })
+    Object.assign(runtime.strikers[1], { x: 900, y: 100 })
+    Object.assign(runtime.puck, { x: keeper.x + (side === 0 ? 45 : -45), y: 300, vx: side === 0 ? -1700 : 1700, vy: 0 })
+    runtime.update(0.05, input())
+    assert.deepEqual(runtime.scores, [0, 0], `side ${side}: keeper must save a central shot`)
+    assert.ok(side === 0 ? runtime.puck.vx > 0 : runtime.puck.vx < 0)
+  }
+})
+
+test('AI retreats to a reachable interception instead of chasing a shot into its net', () => {
+  for (const [y, vx] of [[120, 400], [230, 650], [370, 650], [480, 400]]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 200, y: 100 })
+    Object.assign(runtime.strikers[1], { x: 900, y: 300, vx: 0, vy: 0 })
+    const targetY = y < 300 ? 250 : 350
+    Object.assign(runtime.puck, { x: 800, y, vx, vy: (targetY - y) / 290 * vx })
+    advance(runtime, 1.2)
+    assert.equal(runtime.scores[0], 0, `shot ${y}/${vx}: cover the reachable path before the goal`)
+  }
+})

@@ -153,6 +153,15 @@ export class AirHockeyGame extends BaseGame {
   }
 
   update(dt: number, input: InputFrame) {
+    // Use small physics steps even when a caller delivers a slow frame. Consume
+    // taps once, while held movement remains active in every step.
+    if (this.matchPhase !== 'shootout' && dt > 1 / 120 + 0.000001) {
+      const steps = Math.ceil(dt * 120)
+      const heldInput = { ...input, pressed: new Set<string>(), released: new Set<string>(),
+        pointer: { ...input.pointer, pressed: false, released: false }, wasPressed: () => false }
+      for (let i = 0; i < steps && !this.result; i++) this.update(dt / steps, i === 0 ? input : heldInput)
+      return
+    }
     if (this.result) return
     this.tickEffects(dt)
     if (this.matchPhase === 'shootout') { this.updateShootout(dt, input); return }
@@ -523,6 +532,49 @@ export class AirHockeyGame extends BaseGame {
     this.impact(6)
   }
 
+  private chooseAiShotY() {
+    const puck = this.puck
+    const defender = this.strikers[0]
+    const keeper = this.goalies[0]
+    const inset = puck.r + 12
+    const lanes = [this.goalTop + inset, 300, this.goalBottom - inset]
+    let bestY = 300, bestScore = -Infinity
+    for (const y of lanes) {
+      const dx = LEFT - puck.x, dy = y - puck.y
+      const lengthSquared = dx * dx + dy * dy
+      const keeperTime = Math.abs(puck.x - keeper.x) / 650
+      const keeperY = clamp(keeper.y + keeper.vy * Math.min(keeperTime, 0.3), this.goalTop + 30, this.goalBottom - 30)
+      const crossingY = puck.y + dy * (keeper.x - puck.x) / (dx || -1)
+      const keeperClearance = Math.abs(crossingY - keeperY) - keeper.r - puck.r
+      const t = clamp(((defender.x - puck.x) * dx + (defender.y - puck.y) * dy) / Math.max(1, lengthSquared), 0, 1)
+      const defenderClearance = Math.hypot(defender.x - puck.x - dx * t, defender.y - puck.y - dy * t) - defender.r - puck.r
+      // Prefer open lanes, with a small cost for a sharp change of direction.
+      const score = Math.min(keeper.recovery > 0.45 ? 100 : keeperClearance, defenderClearance) - Math.abs(dy) * 0.025
+      if (score > bestScore) { bestScore = score; bestY = y }
+    }
+    return bestY
+  }
+
+  private findAiInterception() {
+    const striker = this.strikers[1], puck = this.puck
+    const damping = -10 * Math.log(STRIKER_DRAG)
+    let fallback = { x: RIGHT - striker.r, y: predictCrossing(puck, RIGHT - striker.r)?.y ?? puck.y }
+    for (let x = Math.max(striker.x, puck.x + 10); x <= RIGHT - striker.r; x += 8) {
+      const crossing = predictCrossing(puck, x)
+      if (!crossing) continue
+      fallback = crossing
+      const travel = (x - puck.x) / puck.vx
+      const time = -Math.log(1 - travel * PUCK_DRAG) / PUCK_DRAG
+      const dx = x - striker.x, dy = crossing.y - striker.y
+      const distance = Math.hypot(dx, dy)
+      const velocityToward = distance > 0 ? (striker.vx * dx + striker.vy * dy) / distance : 0
+      const coast = (1 - Math.exp(-damping * time)) / damping
+      const reach = Math.min(STRIKER_MOVE_SPEED * time, velocityToward * coast + STRIKER_ACCELERATION / damping * (time - coast))
+      if (distance <= Math.max(0, reach) + (striker.r + puck.r) * 0.98) return crossing
+    }
+    return fallback
+  }
+
   private moveAi(dt: number) {
     const striker = this.strikers[1]
     const puck = this.puck
@@ -537,7 +589,7 @@ export class AirHockeyGame extends BaseGame {
     const gentleTouch = !this.aiRecovering && this.holder === -1 && puck.x > 600 && puck.vx <= 80
       && Math.hypot(puck.vx, puck.vy) < 320 && ballDistance < 220 && striker.x > puck.x + 10
     if (this.holder === 1) {
-      const shotY = this.strikers[0].y < 300 ? 350 : 250
+      const shotY = this.chooseAiShotY()
       this.facing[1] = normalize({ x: LEFT - striker.x, y: shotY - striker.y })
       this.kickBall(1)
     } else {
@@ -551,7 +603,12 @@ export class AirHockeyGame extends BaseGame {
       const goalThreat = puck.vx > 0 && goalCrossing !== null
         && goalCrossing.y > this.goalTop - puck.r && goalCrossing.y < this.goalBottom + puck.r
       const urgent = puck.x > striker.x - 50 || (RIGHT - puck.r - puck.x) / Math.max(1, puck.vx) < 0.75
-      if (this.aiRecovering) {
+      const canBlock = striker.x >= puck.x - striker.r && goalThreat && urgent && Math.hypot(puck.vx, puck.vy) >= 150
+      if (canBlock) {
+        this.aiRecovering = false
+        // Meet the projected shot in front of the goal, including wall banks.
+        this.aiTarget = this.findAiInterception()
+      } else if (this.aiRecovering) {
         // Do not drive through a ball that is between us and our own goal.
         // Move around it with enough clearance for both bodies, then attack from the right.
         const routeY = clamp(puck.y + this.aiRecoverySide * 100, TOP + striker.r, BOTTOM - striker.r)
@@ -563,16 +620,19 @@ export class AirHockeyGame extends BaseGame {
       } else if (this.holder === 0) {
         // Press the carrier across the rink instead of waiting in our half.
         this.aiTarget = { x: clamp(puck.x + 25, LEFT + striker.r, RIGHT - striker.r), y: puck.y }
-      } else if (this.holder === -1 && goalThreat && urgent && Math.hypot(puck.vx, puck.vy) >= 150) {
-        // Retreat only for an immediate goal threat; step into the shot
-        // from our current position rather than camping at the guard line.
-        const guardX = clamp(Math.max(striker.x, puck.x + 45), LEFT + striker.r, RIGHT - striker.r)
-        const crossing = predictCrossing(puck, guardX)
-        this.aiTarget = { x: guardX, y: crossing?.y ?? puck.y }
       } else if (this.holder === -1) {
         // Get behind the puck and strike toward the side of the goal away from P1.
-        const shotY = this.strikers[0].y < 300 ? 350 : 250
-        const leadTime = clamp(ballDistance / STRIKER_MOVE_SPEED, 0, 0.6)
+        const shotY = this.chooseAiShotY()
+        let leadTime = clamp(ballDistance / STRIKER_MOVE_SPEED, 0, 0.6)
+        if (Math.hypot(puck.vx, puck.vy) >= 320) {
+          // Find the first reachable point, accounting for acceleration from rest.
+          for (let time = 0.08; time <= 1.2; time += 0.04) {
+            const point = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * time)) / PUCK_DRAG)
+            if (point.x < LEFT + puck.r || point.x > RIGHT - puck.r) break
+            const reach = Math.min(STRIKER_MOVE_SPEED * time, Math.hypot(striker.vx, striker.vy) * time + 0.5 * STRIKER_ACCELERATION * time * time)
+            if (Math.hypot(point.x - striker.x, point.y - striker.y) <= reach + striker.r + puck.r) { leadTime = time; break }
+          }
+        }
         const future = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * leadTime)) / PUCK_DRAG)
         const distance = Math.hypot(future.x - LEFT, shotY - future.y)
         // Build momentum through the ball, instead of braking beside it.
@@ -699,6 +759,17 @@ export class AirHockeyGame extends BaseGame {
   private drawGoal(ctx: CanvasRenderingContext2D, x: number, direction: number, color: string) {
     ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = `${color}1f`; ctx.lineWidth = 4; const width = 54 * direction
     ctx.fillRect(x, this.goalTop, width, this.goalBottom - this.goalTop); ctx.strokeRect(x, this.goalTop, width, this.goalBottom - this.goalTop); ctx.restore()
+  }
+
+  getState() {
+    const body = (item: Body) => ({ x: +item.x.toFixed(1), y: +item.y.toFixed(1), vx: +item.vx.toFixed(1), vy: +item.vy.toFixed(1), radius: item.r })
+    return {
+      period: this.matchPhase, opponent: this.opponent, scores: this.scores,
+      puck: body(this.puck), strikers: this.strikers.map(body), goalkeepers: this.goalies.map(body),
+      faceoff: +Math.max(0, this.serveDelay).toFixed(2),
+      ai: { mode: this.aiRecovering ? 'recover' : 'intercept / attack', target: this.aiTarget },
+      ...(this.matchPhase === 'shootout' ? { shooter: this.penaltyShooter, shot: this.penaltyState, aimY: this.penaltyAimY, attempts: this.penaltyAttempts } : {}),
+    }
   }
 
   getHud(): HudItem[] {
