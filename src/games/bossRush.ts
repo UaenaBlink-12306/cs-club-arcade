@@ -13,10 +13,14 @@ export class BossRushGame extends BaseGame {
   private shootCooldown = 0
   private attackTimer = 1
   private bossDirection = 1
+  private dashRemaining = 0
+  private dashDirection = { x: 1, y: 0 }
+  private lastDirection = { x: 1, y: 0 }
 
   constructor(meta: GameMeta) { super(meta); this.reset() }
 
   reset() {
+    this.dashRemaining = 0; this.dashDirection = { x: 1, y: 0 }; this.lastDirection = { x: 1, y: 0 }
     this.result = null; this.elapsed = 0; this.playerShots = []; this.enemyShots = []; this.shootCooldown = 0; this.attackTimer = 1; this.bossDirection = 1; this.particles.clear()
     Object.assign(this.player, { x: 600, y: 500, hp: 3, invulnerable: 0, dash: 0 }); Object.assign(this.boss, { x: 600, y: 130, hp: 420 })
   }
@@ -25,9 +29,15 @@ export class BossRushGame extends BaseGame {
     if (this.result) return
     this.tickEffects(dt); this.player.invulnerable = Math.max(0, this.player.invulnerable - dt); this.player.dash = Math.max(0, this.player.dash - dt); this.shootCooldown -= dt
     const dx = axis(input.down, 'KeyA', 'KeyD'); const dy = axis(input.down, 'KeyW', 'KeyS'); const dir = normalize({ x: dx, y: dy })
-    let speed = 285
-    if (input.wasPressed('Space') && this.player.dash <= 0) { this.player.dash = 2; this.player.invulnerable = 0.24; speed = 850; this.particles.burst(this.player.x, this.player.y, COLORS.cyan, 10, 140) }
-    this.player.x = clamp(this.player.x + dir.x * speed * dt, 35, 1165); this.player.y = clamp(this.player.y + dir.y * speed * dt, 235, 565)
+    if (dx || dy) this.lastDirection = dir
+    if (input.wasPressed('Space') && this.player.dash <= 0) {
+      this.player.dash = 2; this.player.invulnerable = 0.24; this.dashRemaining = 0.16; this.dashDirection = { ...this.lastDirection }
+      this.particles.burst(this.player.x, this.player.y, COLORS.cyan, 10, 140)
+    }
+    const dashTime = Math.min(dt, this.dashRemaining), moveTime = dt - dashTime
+    this.player.x = clamp(this.player.x + this.dashDirection.x * 850 * dashTime + dir.x * 285 * moveTime, 35, 1165)
+    this.player.y = clamp(this.player.y + this.dashDirection.y * 850 * dashTime + dir.y * 285 * moveTime, 235, 565)
+    this.dashRemaining = Math.max(0, this.dashRemaining - dt)
     const aim = normalize({ x: input.pointer.x - this.player.x, y: input.pointer.y - this.player.y })
     if (input.pointer.down && this.shootCooldown <= 0) { this.shootCooldown = 0.12; this.playerShots.push({ x: this.player.x + aim.x * 22, y: this.player.y + aim.y * 22, vx: aim.x * 720, vy: aim.y * 720, r: 5 }) }
 

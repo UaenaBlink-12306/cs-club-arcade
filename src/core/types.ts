@@ -67,5 +67,6 @@ export interface GameRuntime {
   update(dt: number, input: InputFrame): void
   render(ctx: CanvasRenderingContext2D): void
   getHud(): HudItem[]
+  getState?(): unknown
   destroy?(): void
 }

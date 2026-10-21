@@ -256,6 +256,9 @@ button:focus-visible, input:focus-visible {
   backdrop-filter: blur(6px);
 }
 
+.game-overlay { overflow-y: auto; justify-content: safe center; }
+.game-overlay > * { flex-shrink: 0; }
+
 .ready-overlay { background: radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--game-accent) 12%, transparent), transparent 44%), rgba(3, 9, 22, .86); }
 .overlay-rule { width: 55px; height: 4px; margin-bottom: 24px; background: var(--game-accent); box-shadow: 0 0 20px color-mix(in srgb, var(--game-accent) 70%, transparent); }
 .game-overlay h2 { max-width: 800px; font-size: clamp(46px, 6.5vw, 88px); }

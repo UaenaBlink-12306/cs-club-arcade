@@ -52,6 +52,7 @@ export class SlingshotGame extends BaseGame {
     const active = this.players[this.current]
     const totalSpeed = this.players.reduce((sum, player) => sum + Math.hypot(player.vx, player.vy), 0)
     if (totalSpeed < 24 && input.pointer.pressed && distance(input.pointer, active) < active.r + 18) { this.dragging = true; this.aim = { x: input.pointer.x, y: input.pointer.y } }
+    if (this.dragging && !input.pointer.down && !input.pointer.released) this.dragging = false
     if (this.dragging && input.pointer.down) this.aim = { x: input.pointer.x, y: input.pointer.y }
     if (this.dragging && input.pointer.released) {
       const pull = { x: active.x - input.pointer.x, y: active.y - input.pointer.y }; const strength = clamp(Math.hypot(pull.x, pull.y) * LAUNCH_POWER, 0, MAX_LAUNCH_SPEED); const dir = normalize(pull)
