@@ -731,3 +731,45 @@ test('wrong-side recovery chooses a route beside the ball instead of straight th
   runtime.reset()
   assert.equal(runtime.aiRecovering, false)
 })
+
+test('AI abandons a stale attack immediately when a distant ball passes it', () => {
+  const runtime = game('ai')
+  Object.assign(runtime.strikers[1], { x: 350, y: 300, vx: -200, vy: 0 })
+  Object.assign(runtime.puck, { x: 800, y: 300, vx: 250, vy: 0 })
+  runtime.aiTarget = { x: 200, y: 300 }
+  runtime.aiDecisionDelay = 0.1
+  runtime.moveAi(1 / 120)
+  assert.equal(runtime.aiRecovering, true)
+  assert.ok(runtime.aiTarget.x > runtime.puck.x + 90, 'lead the ball toward its defensive interception')
+  assert.ok(runtime.strikers[1].vx > -200, 'brake the attack immediately')
+})
+
+test('AI anticipates being beaten instead of continuing its attacking run', () => {
+  const runtime = game('ai')
+  Object.assign(runtime.strikers[1], { x: 500, y: 300, vx: -200, vy: 0 })
+  Object.assign(runtime.puck, { x: 470, y: 300, vx: 300, vy: 0 })
+  runtime.aiDecisionDelay = 0.1
+  runtime.moveAi(1 / 120)
+  assert.equal(runtime.aiRecovering, true)
+  assert.ok(Math.abs(runtime.aiTarget.y - 300) >= 80, 'avoid charging through the incoming ball')
+})
+
+test('AI sprints back after being beaten and recovers goal-side across frame rates and banks', () => {
+  for (const fps of [30, 60, 120]) for (const vy of [0, -200, 200]) {
+    const runtime = game('ai')
+    runtime.serveDelay = 0
+    Object.assign(runtime.strikers[0], { x: 180, y: 100 })
+    Object.assign(runtime.strikers[1], { x: 400, y: 300, vx: -180, vy: 0 })
+    Object.assign(runtime.puck, { x: 520, y: 300, vx: 180, vy })
+    let sprinted = false, recovered = false
+    for (let frame = 0; frame < fps * 4; frame++) {
+      runtime.update(1 / fps, input())
+      if (runtime.strikers[1].vx > 300) sprinted = true
+      if (runtime.strikers[1].x > runtime.puck.x + 50) { recovered = true; break }
+    }
+    const context = `${fps} fps, bank velocity ${vy}`
+    assert.ok(sprinted, `${context}: must run back faster than the old recovery limit`)
+    assert.ok(recovered, `${context}: must get between the ball and its own goal`)
+    assert.equal(runtime.scores[0], 0, `${context}: recover before conceding`)
+  }
+})

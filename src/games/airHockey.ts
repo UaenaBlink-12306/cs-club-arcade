@@ -528,7 +528,8 @@ export class AirHockeyGame extends BaseGame {
     const puck = this.puck
     const ballDistance = Math.hypot(striker.x - puck.x, striker.y - puck.y)
     if (this.holder !== -1) this.aiRecovering = false
-    else if (!this.aiRecovering && striker.x < puck.x && ballDistance < 400) {
+    else if (!this.aiRecovering && (striker.x < puck.x
+      || (puck.vx > 80 && puck.x + puck.vx * 0.2 > striker.x && striker.vx < puck.vx))) {
       this.aiRecovering = true
       this.aiRecoverySide = puck.y < 300 ? 1 : -1
     }
@@ -554,11 +555,18 @@ export class AirHockeyGame extends BaseGame {
       if (this.aiRecovering) {
         // Do not drive through a ball that is between us and our own goal.
         // Move around it with enough clearance for both bodies, then attack from the right.
+        const chaseTime = clamp(ballDistance / STRIKER_MOVE_SPEED, 0, 0.8)
+        const future = projectPuck(puck, (1 - Math.exp(-PUCK_DRAG * chaseTime)) / PUCK_DRAG)
         const routeY = clamp(puck.y + this.aiRecoverySide * 100, TOP + striker.r, BOTTOM - striker.r)
-        const clearOfBall = Math.abs(striker.y - puck.y) >= striker.r + puck.r + 25
+        const clearOfBall = (puck.vx > 80 && striker.x >= puck.x)
+          || Math.abs(striker.y - puck.y) >= striker.r + puck.r + 25
+        // A distant ball needs an immediate sprint back, not a lateral detour.
+        // Lead its motion (including banks), then use the safe route when close.
+        const distant = ballDistance > 180
         this.aiTarget = {
-          x: clearOfBall ? Math.min(puck.x + 90, RIGHT - striker.r) : Math.min(striker.x, puck.x - 85),
-          y: routeY,
+          x: distant ? clamp(future.x + 90, LEFT + striker.r, RIGHT - striker.r)
+            : clearOfBall ? Math.min(puck.x + 90, RIGHT - striker.r) : Math.min(striker.x, puck.x - 85),
+          y: distant ? clamp(future.y + this.aiRecoverySide * 100, TOP + striker.r, BOTTOM - striker.r) : routeY,
         }
       } else if (this.holder === 0) {
         // Press the carrier across the rink instead of waiting in our half.
@@ -593,7 +601,8 @@ export class AirHockeyGame extends BaseGame {
     if ((gentleTouch || this.aiRecovering) && distance > 3) {
       // Catch the ball with a small closing speed, then tap it again as drag slows it.
       // Braking and acceleration are inputs to the same physics used by humans.
-      const speed = this.aiRecovering ? Math.min(230, distance * 4) : clamp(-puck.vx + 60, 70, 250)
+      const recoverySpeed = puck.vx > 80 || ballDistance > 180 ? STRIKER_MOVE_SPEED : 230
+      const speed = this.aiRecovering ? Math.min(recoverySpeed, distance * 4) : clamp(-puck.vx + 60, 70, 250)
       moveX = dx / distance * speed - striker.vx
       moveY = dy / distance * speed - striker.vy
       if (Math.hypot(moveX, moveY) < STRIKER_ACCELERATION * dt / 2) { moveX = 0; moveY = 0 }
