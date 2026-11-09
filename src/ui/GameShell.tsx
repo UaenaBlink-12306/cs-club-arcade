@@ -45,7 +45,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const isHockey = runtime instanceof AirHockeyGame
   const isSoccerSkills = runtime instanceof SoccerSkillsGame
   const isShootout = runtime instanceof AirHockeyGame && hud.some((item) => item.label === 'PENALTY SHOOTOUT' || item.label === 'SUDDEN DEATH')
-  const soccerControls = soccerOpponent === 'human' ? 'P1 / P2 · CLICK + HOLD · AIM · RELEASE · H HEADER' : 'CLICK + HOLD · AIM · RELEASE · H HEADER'
+  const soccerControls = soccerOpponent === 'human' ? 'P1 · WASD + SHIFT · SPACE KICK  |  P2 · ARROWS + ENTER KICK  |  CLICK + DRAG AIM' : 'MOVE · WASD  |  SPRINT · SHIFT  |  KICK · HOLD + RELEASE SPACE  |  CLICK + DRAG AIM  |  H HEADER'
   const hockeyControls = isShootout
     ? (hockeyOpponent === 'ai' ? 'PENALTIES · W/S AIM OR MOVE KEEPER · SPACE SHOOT' : 'PENALTIES · P1: W/S · SPACE | P2: ↑/↓ · ENTER · AIM OR MOVE KEEPER')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
@@ -221,7 +221,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''} ${isSoccerSkills ? 'soccer-skills-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isSoccerSkills ? 'Choose from the 48-team 2026 World Cup field, then lead your nation from the Round of 32 through the Round of 16, quarter-finals, semi-final and final. Play 11-a-side matches with passing, headers, throw-ins, corners, fouls, penalties and goalkeeper saves. Solo and local two-player modes are available.' : isClassicHockey ? 'Play a full match or jump straight into a penalty shootout. Choose your game format, then pick your opponent. Penalties: five shots each, followed by sudden death. Defend with W/S (P1) or ↑/↓ (P2). Hold keys to position your keeper before the fast shot.' : meta.description}</p>
+              <p>{isSoccerSkills ? 'A cinematic 11-a-side match with a live broadcast camera, human-style 3D players, responsive dribbling, tackles, charged shots, goalkeeper saves and real goal scoring. Move with WASD, sprint with Shift, then hold and release Space to strike.' : isClassicHockey ? 'Play a full match or jump straight into a penalty shootout. Choose your game format, then pick your opponent. Penalties: five shots each, followed by sudden death. Defend with W/S (P1) or ↑/↓ (P2). Hold keys to position your keeper before the fast shot.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isSoccerSkills && (
                 <>
