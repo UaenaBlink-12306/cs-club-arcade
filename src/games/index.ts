@@ -1,6 +1,6 @@
 import type { GameId, GameMeta, GameRuntime } from '../core/types'
 import { AirHockeyGame } from './airHockey'
-import { FootballGame } from './football'
+import { SoccerSkillsGame } from './soccerSkills'
 import { BossRushGame } from './bossRush'
 import { DodgeHellGame } from './dodgeHell'
 import { GravityFlipGame } from './gravityFlip'
@@ -15,7 +15,7 @@ const seconds = (value: number) => `${value.toFixed(2)}s`
 
 export const games: GameMeta[] = [
   { id: 'air-hockey', title: 'AIR HOCKEY CLASSIC', shortTitle: 'HOCKEY', description: 'Play a full match or choose Penalty shootout only to start shooting immediately. A small automatic goalie guards each goal during the match. 90 game minutes plus stoppage time for face-offs. If tied after 90 minutes plus stoppage, choose 30 minutes of extra time or go straight to a penalty shootout: five shots each, followed by sudden death. P1: W/S aim or move your goalkeeper, Space shoot. P2: Up/Down aim or move your goalkeeper, Enter shoot. Hold keys to position your keeper before the fast shot; a short ready period gives the defender time to prepare. Match and penalty scores stay separate. Each game minute lasts 2 seconds.', players: 2, controls: ['P1 · WASD', 'P2 · ARROWS'], accent: '#18d8f2', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
-  { id: 'air-hockey-football', title: 'SIX-A-SIDE FOOTBALL', shortTitle: 'FOOTBALL', description: 'Build attacks, pass, and aim your shots. 90 football minutes, plus stoppage time. Each minute lasts 2 seconds.', players: 2, controls: ['P1 · WASD · Q/E AIM · SPACE SHOOT', 'P2 · ARROWS · ,/. AIM · ENTER SHOOT'], accent: '#b9f20b', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
+  { id: 'air-hockey-football', title: 'SOCCER SKILLS 2 WORLD CUP', shortTitle: 'SKILLS', description: 'Lead your national team through a fast World Cup run. Click and hold to aim, then release to pass or shoot.', players: 1, controls: ['CLICK + HOLD · AIM', 'RELEASE · PASS / SHOOT'], accent: '#b9f20b', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
   { id: 'tank-duel', title: 'TANK DUEL', shortTitle: 'TANK', description: 'Bank the shot. Blast first.', players: 2, controls: ['P1 · WASD + SPACE', 'P2 · ARROWS + ENTER'], accent: '#b9f20b', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
   { id: 'dodge-hell', title: 'DODGE HELL', shortTitle: 'DODGE', description: 'Dodge everything. Survive longer.', players: 1, controls: ['MOVE · WASD / ARROWS', 'DASH · SPACE'], accent: '#ff5b55', recordLabel: 'BEST', recordStrategy: 'high', formatRecord: seconds },
   { id: 'platform-panic', title: 'PLATFORM PANIC', shortTitle: 'PANIC', description: 'Red tiles fall after the countdown. Stay on blue.', players: 2, controls: ['P1 · WASD', 'P2 · ARROW KEYS'], accent: '#a45cff', recordLabel: 'WINS', recordStrategy: 'count', formatRecord: (score) => `${score} WINS` },
@@ -33,7 +33,7 @@ export function createGame(id: GameId): GameRuntime {
   const meta = getGameMeta(id)
   switch (id) {
     case 'air-hockey': return new AirHockeyGame(meta, 'classic')
-    case 'air-hockey-football': return new FootballGame(meta)
+    case 'air-hockey-football': return new SoccerSkillsGame(meta)
     case 'tank-duel': return new TankDuelGame(meta)
     case 'dodge-hell': return new DodgeHellGame(meta)
     case 'platform-panic': return new PlatformPanicGame(meta)
