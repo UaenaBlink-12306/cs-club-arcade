@@ -2,17 +2,17 @@
 
 final result: passed
 
-Reference evidence came from the Soccer Skills 2 World Cup preview: angled broadcast camera, striped green pitch, stadium stands, blue/white teams, yellow keepers, and click-hold drag-release play.
+Reference evidence came from the Soccer Skills 2 World Cup preview: angled broadcast camera, striped green pitch, stadium stands, blue/white teams, yellow keepers, ad boards, and drag-release play.
 
-Prototype verification used Playwright fallback because the cloud browser could not read the local preview requirements for `terminal.local` or `localhost`.
+The local implementation now covers the full 2026 tournament loop and its match presentation:
 
-Checks passed:
+- 48 qualified nations grouped by confederation with FIFA codes, qualification metadata, and home/away kit palettes.
+- Round of 32 → Round of 16 → quarter-final → semi-final → World Cup final progression.
+- 11 players per side, projected broadcast camera, stadium seating, goals, nets, pitch markings, corner flags, and ad boards.
+- Drag-release passing/shooting, ball height arcs, keyboard headers, goalkeeper assist/manual control, saves, throw-ins, corners, goal kicks, free kicks, fouls, penalties, shootouts, and local two-player possession.
+- Recent-frame replay playback and fullscreen control.
+- Desktop and 390x844 mobile checks with no console errors.
 
-- Desktop menu and Soccer Skills card render.
-- Ready state shows the new title, description, and drag-release controls.
-- Match canvas renders the stadium, pitch, players, keepers, goals, score HUD, and round state.
-- Dragging from the active blue carrier and releasing increments shots and changes possession.
-- 390x844 mobile viewport keeps the canvas and controls visible without console errors.
-- `npm run build`, `npm test`, `npm run lint`, and `git diff --check` pass.
+`npm run build`, `npm test`, `npm run lint`, and `git diff --check` pass.
 
-Intentional deviation: the local game uses a 2D canvas approximation of the source game's 3D assets and does not hotlink the reference game's media.
+The visual field is rendered locally with Canvas projection and original vector-style artwork; it does not hotlink the reference game's media.
