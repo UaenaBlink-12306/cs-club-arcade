@@ -223,7 +223,7 @@ button:focus-visible, input:focus-visible {
 .game-back { justify-self: start; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 13px; border-color: transparent; background: transparent; font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .game-back:hover { color: var(--cyan); transform: translateX(-2px); }
 .game-back svg { width: 22px; }
-.game-header-actions { justify-self: end; }
+.game-header-actions { justify-self: end; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
 .game-header .action-button { min-height: 42px; font-size: 16px; }
 .soccer-header-actions { gap: 6px; }
 .soccer-header-actions .action-button { min-height: 38px; padding-inline: 9px; font-size: 13px; }
@@ -286,6 +286,15 @@ button:focus-visible, input:focus-visible {
 .soccer-kit-preview strong { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; letter-spacing: .08em; }
 .soccer-kit-preview small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .soccer-kit-swatch { display: inline-block; width: 30px; height: 22px; border: 2px solid; border-radius: 4px; box-shadow: inset 0 -5px rgba(0,0,0,.16); }
+.tutorial-card, .group-preview, .pause-controls { width: min(100%, 460px); display: grid; gap: 5px; margin: 8px 0 12px; padding: 9px 12px; border: 1px solid rgba(185,242,11,.55); background: rgba(185,242,11,.08); color: #e8f4ce; text-align: left; }
+.tutorial-card strong, .group-preview strong { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .08em; }
+.tutorial-card span, .group-preview span, .pause-controls span { color: #c8d1dc; font-size: 12px; line-height: 1.3; }
+.group-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 104px; overflow: auto; margin-top: 0; border-color: rgba(24,216,242,.5); background: rgba(24,216,242,.07); }
+.group-preview strong { grid-column: 1 / -1; }
+.group-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-preview strong { color: var(--cyan); }
+.pause-controls { border-color: rgba(24,216,242,.55); background: rgba(24,216,242,.08); }
+.pause-controls strong { color: var(--cyan); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; }
 .overlay-primary { min-width: 180px; }
 .ready-overlay small { margin-top: 14px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .07em; text-transform: uppercase; }
 .countdown-overlay { background: rgba(3, 9, 22, .48); }
@@ -330,6 +339,12 @@ button:focus-visible, input:focus-visible {
   .game-card { min-height: 205px; }
   .game-thumb-art { height: 92px; }
   .game-card-body { height: calc(100% - 92px); }
+}
+
+@media (max-width: 1280px) and (min-width: 721px) {
+  .game-header { grid-template-columns: auto minmax(150px, 1fr) auto; gap: 8px; }
+  .soccer-header-actions .action-button { min-width: 40px; padding: 0 8px; font-size: 0; }
+  .soccer-header-actions .action-button svg { margin: 0; }
 }
 
 @media (max-width: 720px) {

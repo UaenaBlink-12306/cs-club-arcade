@@ -1,11 +1,11 @@
 import { BaseGame } from '../core/BaseGame'
 import { clamp } from '../core/math'
 import type { GameMeta, HudItem, InputFrame } from '../core/types'
-import { WORLD_CUP_2026_BY_NAME } from '../data/worldCup2026'
+import { WORLD_CUP_2026_BY_NAME, WORLD_CUP_2026_TEAMS } from '../data/worldCup2026'
 
 type Team = 0 | 1
-type MatchPhase = 'kickoff' | 'open' | 'throw-in' | 'corner' | 'goal-kick' | 'free-kick' | 'penalty' | 'full-time'
-const STAGES = ['ROUND OF 32', 'ROUND OF 16', 'QUARTER FINAL', 'SEMI FINAL', 'WORLD CUP FINAL'] as const
+type MatchPhase = 'kickoff' | 'open' | 'throw-in' | 'corner' | 'goal-kick' | 'free-kick' | 'penalty' | 'halftime' | 'full-time'
+const STAGES = ['QUARTER FINAL', 'SEMI FINAL', 'NORTHSTAR CUP FINAL'] as const
 const BLUE_KEEPER = 0
 const BLUE_FIRST = 1
 const WHITE_KEEPER = 12
@@ -35,6 +35,9 @@ interface Ball {
   vz: number
 }
 
+interface GroupMatchSummary { home: string; away: string; homeScore: number; awayScore: number; winner: string | 'DRAW' }
+interface GroupTeamSummary { name: string; played: number; points: number; goalDifference: number; goalsFor: number; rank: number; qualified: boolean }
+
 export interface SoccerReplayEvent {
   time: number
   label: string
@@ -58,18 +61,14 @@ interface SoccerReplayFrame {
   matchClock: number
   fouls: [number, number]
   lastTouch: Team
-  cameraX: number
-  cameraY: number
 }
 
 const FIELD = { left: 58, right: 1142, top: 112, bottom: 532 }
 const GOAL = { top: 238, bottom: 366 }
 const WIN_SCORE = 3
-const STADIUM_BG = typeof Image === 'undefined' ? null : new Image()
-if (STADIUM_BG) STADIUM_BG.src = '/assets/stadium-bg.png'
 
 /**
- * A compact, single-player interpretation of Soccer Skills 2 World Cup.
+ * A compact, original Aurora Cup interpretation of drag football.
  * The match uses the same core gesture as the original: press and hold on the
  * active player, drag to aim, then release to pass or shoot.
  */
@@ -80,8 +79,12 @@ export class SoccerSkillsGame extends BaseGame {
   private selected = 0
   private scores: [number, number] = [0, 0]
   private round = 1
-  private phaseNotice = 'ROUND OF 32 · BLUE ATTACKS →'
+  private phaseNotice = 'QUARTER FINAL · BLUE ATTACKS →'
   private charging = false
+  // The same press-drag gesture steers the selected player while our team is
+  // away from the ball. Keeping this separate from `charging` means the
+  // gesture stays continuous without accidentally kicking on release.
+  private draggingMovement = false
   private aimX = 0
   private aimY = 0
   private charge = 0
@@ -89,6 +92,11 @@ export class SoccerSkillsGame extends BaseGame {
   private kickoffDelay = 0.8
   private aiKickTimer = 0.7
   private matchClock = 75
+  private halftimeTimer = 0
+  private halftimeTriggered = false
+  private sidesSwitched = false
+  private cameraX = 0
+  private cameraY = 0
   private attempts = 0
   private saves = 0
   private stageIndex = 0
@@ -103,17 +111,19 @@ export class SoccerSkillsGame extends BaseGame {
   private penaltyTurn: Team = 0
   private penaltyAimY = 315
   private opponent: 'ai' | 'human' = 'ai'
-  private nationalTeam = 'Brazil'
-  private opponentNationalTeam = 'France'
+  private nationalTeam = 'Aurora Isles'
+  private opponentNationalTeam = 'Brighthaven'
   private penaltyShootout = false
+  private practiceMode = false
+  private pendingTournamentContinue = false
+  private groupMatches: GroupMatchSummary[] = []
+  private groupTable: GroupTeamSummary[] = []
+  private groupName = 'A'
+  private groupOpponentNames: string[] = []
+  private knockoutOpponents: string[] = []
+  private bracketSummary: string[] = []
   private penaltyShotTimer = 0
   private keeperMode: 'assist' | 'manual' = 'assist'
-  /** Soft broadcast camera target. The camera follows the action instead of
-   * locking the whole pitch to the viewport, while keeping enough of the
-   * touchline visible for spatial context. */
-  private cameraX = 600
-  private cameraY = 320
-  private keyboardCharge = 0
   private replayFrames: SoccerReplayFrame[] = []
   private replayEvents: SoccerReplayEvent[] = []
   private replayAccumulator = 0
@@ -124,20 +134,15 @@ export class SoccerSkillsGame extends BaseGame {
   private projectPoint(x: number, y: number) {
     const depth = clamp((y - FIELD.top) / (FIELD.bottom - FIELD.top), 0, 1)
     const scale = 0.84 + depth * 0.24
-    // Pan the broadcast frame subtly with the selected player/ball. Keeping
-    // the offset below 1:1 preserves a readable full-pitch composition while
-    // still making the camera movement obvious during attacks.
-    const panX = (this.cameraX - 600) * 0.62
-    const panY = (this.cameraY - 320) * 0.42
-    return { x: 600 + (x - 600 - panX) * scale, y: 118 + depth * 420 - panY, scale }
+    return { x: 600 + (x - 600) * scale - this.cameraX, y: 118 + depth * 420 - this.cameraY, scale }
   }
 
   private unprojectPoint(x: number, y: number) {
-    const panY = (this.cameraY - 320) * 0.42
-    const depth = clamp((y - 118 + panY) / 420, 0, 1)
+    const screenX = x - this.cameraX
+    const screenY = y - this.cameraY
+    const depth = clamp((screenY - 118) / 420, 0, 1)
     const scale = 0.84 + depth * 0.24
-    const panX = (this.cameraX - 600) * 0.62
-    return { x: 600 + (x - 600) / scale + panX, y: FIELD.top + depth * (FIELD.bottom - FIELD.top) }
+    return { x: 600 + (screenX - 600) / scale, y: FIELD.top + depth * (FIELD.bottom - FIELD.top) }
   }
 
   private worldPointer(pointer: InputFrame['pointer']) {
@@ -152,6 +157,16 @@ export class SoccerSkillsGame extends BaseGame {
     if (this.ball.z <= 0) { this.ball.z = 0; this.ball.vz = 0 }
   }
 
+  private updateCamera(dt: number) {
+    // Keep the broadcast view centered on the active ball without losing the
+    // full-pitch read. The same offset is applied to input unprojection.
+    const targetX = clamp((600 - this.ball.x) * 0.08, -46, 46)
+    const targetY = clamp((326 - this.ball.y) * 0.035, -14, 14)
+    const follow = 1 - Math.exp(-dt * 7)
+    this.cameraX += (targetX - this.cameraX) * follow
+    this.cameraY += (targetY - this.cameraY) * follow
+  }
+
   constructor(meta: GameMeta) {
     super(meta)
     this.reset()
@@ -163,8 +178,99 @@ export class SoccerSkillsGame extends BaseGame {
   }
 
   setNationalTeam(team: string) {
+    if (!WORLD_CUP_2026_BY_NAME[team]) return
     this.nationalTeam = team
-    this.opponentNationalTeam = team === 'France' ? 'Brazil' : 'France'
+    this.simulateGroupStage()
+  }
+
+  setPracticeMode(mode: boolean) {
+    this.practiceMode = mode
+    this.reset()
+  }
+
+  isPracticeMode() { return this.practiceMode }
+
+  getGroupStageSummary() {
+    return { group: this.groupName, matches: this.groupMatches.slice(), table: this.groupTable.slice(), opponents: this.groupOpponentNames.slice(), bracket: this.bracketSummary.slice() }
+  }
+
+  hasPendingTournamentContinue() { return this.pendingTournamentContinue }
+
+  continueTournament() {
+    if (!this.pendingTournamentContinue) return false
+    this.pendingTournamentContinue = false
+    this.result = null
+    this.replayFrames = []
+    this.replayEvents = []
+    this.resetKickoff(0, `${STAGES[this.stageIndex]} · ${this.nationalTeam.toUpperCase()} KICK OFF`)
+    return true
+  }
+
+  private simulateGroupStage() {
+    const teams = [...WORLD_CUP_2026_TEAMS]
+    this.groupMatches = []
+    const groupTables: GroupTeamSummary[][] = []
+    for (let groupIndex = 0; groupIndex < 12; groupIndex++) {
+      const group = teams.slice(groupIndex * 4, groupIndex * 4 + 4)
+      const rows = group.map((team) => ({ name: team.name, played: 0, points: 0, goalDifference: 0, goalsFor: 0, rank: 0, qualified: false }))
+      const update = (name: string, gf: number, ga: number, points: number) => {
+        const row = rows.find((item) => item.name === name)!
+        row.played++
+        row.goalsFor += gf
+        row.goalDifference += gf - ga
+        row.points += points
+      }
+      for (let homeIndex = 0; homeIndex < group.length; homeIndex++) for (let awayIndex = homeIndex + 1; awayIndex < group.length; awayIndex++) {
+        const home = group[homeIndex], away = group[awayIndex]
+        const probability = 1 / (1 + Math.exp(-(home.rating - away.rating) / 8))
+        const homeGoals = Math.max(0, Math.min(4, Math.floor(Math.random() * 2.2 + (probability > 0.52 ? 0.8 : 0))))
+        const awayGoals = Math.max(0, Math.min(4, Math.floor(Math.random() * 2.2 + (probability < 0.48 ? 0.8 : 0))))
+        const winner = homeGoals === awayGoals ? 'DRAW' : homeGoals > awayGoals ? home.name : away.name
+        this.groupMatches.push({ home: home.name, away: away.name, homeScore: homeGoals, awayScore: awayGoals, winner })
+        update(home.name, homeGoals, awayGoals, homeGoals === awayGoals ? 1 : homeGoals > awayGoals ? 3 : 0)
+        update(away.name, awayGoals, homeGoals, homeGoals === awayGoals ? 1 : awayGoals > homeGoals ? 3 : 0)
+      }
+      rows.sort((a, b) => b.points - a.points || b.goalDifference - a.goalDifference || b.goalsFor - a.goalsFor)
+      rows.forEach((row, index) => { row.rank = index + 1; row.qualified = index < 2 })
+      groupTables.push(rows)
+    }
+    const thirdPlace = groupTables.flat().filter((row) => row.rank === 3).sort((a, b) => b.points - a.points || b.goalDifference - a.goalDifference).slice(0, 8)
+    thirdPlace.forEach((row) => { row.qualified = true })
+    const selectedGroupIndex = teams.findIndex((team) => team.name === this.nationalTeam) >> 2
+    const selectedTable = groupTables[selectedGroupIndex] ?? groupTables[0]
+    this.groupName = String.fromCharCode(65 + selectedGroupIndex)
+    this.groupTable = selectedTable
+    this.groupOpponentNames = selectedTable.filter((row) => row.name !== this.nationalTeam).map((row) => row.name)
+    const selectedRow = groupTables.flat().find((row) => row.name === this.nationalTeam)
+    if (selectedRow) selectedRow.qualified = true
+    let qualifiedNames = groupTables.flat().filter((row) => row.qualified).map((row) => row.name)
+    while (qualifiedNames.length > 32) {
+      const removable = qualifiedNames.find((name) => name !== this.nationalTeam)
+      if (!removable) break
+      qualifiedNames = qualifiedNames.filter((name) => name !== removable)
+    }
+    const byName = new Map(teams.map((team) => [team.name, team]))
+    const simulateKnockoutRound = (names: string[], label: string) => {
+      const shuffled = names.slice().sort(() => Math.random() - 0.5)
+      const winners: string[] = []
+      for (let i = 0; i < shuffled.length; i += 2) {
+        const home = byName.get(shuffled[i])!, away = byName.get(shuffled[i + 1])!
+        const probability = 1 / (1 + Math.exp(-(home.rating - away.rating) / 8))
+        const winner = Math.random() < probability ? home.name : away.name
+        winners.push(winner)
+        this.bracketSummary.push(`${label} · ${home.name} v ${away.name} → ${winner}`)
+      }
+      return winners
+    }
+    this.bracketSummary = []
+    const roundOf16 = simulateKnockoutRound(qualifiedNames, 'ROUND OF 32')
+    const quarterFinalists = simulateKnockoutRound(roundOf16, 'ROUND OF 16')
+    if (!quarterFinalists.includes(this.nationalTeam)) {
+      quarterFinalists[Math.floor(Math.random() * quarterFinalists.length)] = this.nationalTeam
+      this.bracketSummary.push(`QUALIFIER · ${this.nationalTeam} advances to the quarter-final`)
+    }
+    this.knockoutOpponents = quarterFinalists.filter((name) => name !== this.nationalTeam).sort(() => Math.random() - 0.5)
+    this.opponentNationalTeam = this.knockoutOpponents[0] ?? teams.find((team) => team.name !== this.nationalTeam)?.name ?? 'Brighthaven'
   }
 
   private makeBall(x: number, y: number, vx = 0, vy = 0): Ball {
@@ -208,6 +314,7 @@ export class SoccerSkillsGame extends BaseGame {
     this.matchPhase = 'open'
     this.attempts++
     this.charging = false
+    this.draggingMovement = false
     this.charge = 0
     this.phaseNotice = 'HEADER · BLUE ATTACK'
     this.particles.burst(p.x, p.y, '#ffcf3b', 12, 145)
@@ -229,6 +336,7 @@ export class SoccerSkillsGame extends BaseGame {
 
   reset() {
     this.result = null
+    this.pendingTournamentContinue = false
     this.elapsed = 0
     this.scores = [0, 0]
     this.round = 1
@@ -242,23 +350,26 @@ export class SoccerSkillsGame extends BaseGame {
     this.penaltyTurn = 0
     this.penaltyAimY = 315
     this.penaltyShootout = false
+    this.halftimeTimer = 0
+    this.halftimeTriggered = false
+    this.sidesSwitched = false
     this.penaltyShotTimer = 0
     this.keeperMode = 'assist'
     this.replayFrames = []
     this.replayEvents = []
     this.replayAccumulator = 0
-    this.cameraX = 600
-    this.cameraY = 320
-    this.keyboardCharge = 0
+    this.cameraX = 0
+    this.cameraY = 0
     this.attempts = 0
     this.saves = 0
     this.kickoffDelay = 0.8
     this.aiKickTimer = 0.7
-    this.matchClock = 75
-    this.phaseNotice = `${STAGES[this.stageIndex]} · BLUE ATTACKS →`
+    this.matchClock = this.practiceMode ? 300 : 75
+    this.simulateGroupStage()
+    this.phaseNotice = this.practiceMode ? 'PRACTICE PITCH · BLUE ATTACKS →' : `${STAGES[this.stageIndex]} · ${this.nationalTeam.toUpperCase()} ATTACKS →`
     this.charging = false
+    this.draggingMovement = false
     this.charge = 0
-    this.keyboardCharge = 0
     this.createPlayers()
     this.holder = BLUE_FIRST
     this.selected = BLUE_FIRST
@@ -301,8 +412,8 @@ export class SoccerSkillsGame extends BaseGame {
     this.kickoffDelay = 0.8
     this.aiKickTimer = 0.7
     this.charging = false
+    this.draggingMovement = false
     this.charge = 0
-    this.keyboardCharge = 0
     this.selected = team === 0 ? BLUE_FIRST : WHITE_FIRST
     this.holder = this.selected
     const p = this.players[this.holder]
@@ -320,15 +431,12 @@ export class SoccerSkillsGame extends BaseGame {
     this.setPieceTimer = 0.55
     this.kickoffDelay = 0.55
     this.charging = false
+    this.draggingMovement = false
     this.charge = 0
-    this.keyboardCharge = 0
     this.phaseNotice = message
     this.holder = team === 0 ? this.nearestPlayer(0, this.setPieceX, this.setPieceY) : this.nearestPlayer(1, this.setPieceX, this.setPieceY)
     if (this.holder < 0) this.holder = team === 0 ? BLUE_FIRST : WHITE_FIRST
     const p = this.players[this.holder]
-    // Put the keyboard cursor on the taker for human set pieces; otherwise a
-    // free kick after a turnover would require an extra rescue click.
-    if (team === 0 || this.opponent === 'human') this.selected = this.holder
     p.x = this.setPieceX
     p.y = this.setPieceY
     p.angle = team === 0 ? 0 : Math.PI
@@ -345,6 +453,7 @@ export class SoccerSkillsGame extends BaseGame {
     this.kickoffDelay = 0.55
     this.penaltyShotTimer = 0
     this.charging = false
+    this.draggingMovement = false
     this.charge = 0
     this.holder = team === 0 ? this.nearestPlayer(0, x, y) : this.nearestPlayer(1, x, y)
     if (this.holder < 0) this.holder = team === 0 ? BLUE_FIRST : WHITE_FIRST
@@ -357,19 +466,29 @@ export class SoccerSkillsGame extends BaseGame {
   }
 
   private advanceStage() {
-    if (this.stageIndex >= STAGES.length - 1) {
-      this.matchPhase = 'full-time'
-      this.finish({ headline: 'WORLD CUP CHAMPIONS', detail: `${STAGES[this.stageIndex]} · FINAL ${this.scores[0]}–${this.scores[1]} · ${this.attempts} SHOTS`, score: this.scores[0], winnerName: 'BLUE', recordEligible: true })
+    if (this.practiceMode) {
+      this.scores = [0, 0]
+      this.resetKickoff(0, 'PRACTICE · BLUE KICK OFF')
       return
     }
+    if (this.stageIndex >= STAGES.length - 1) {
+      this.matchPhase = 'full-time'
+      this.finish({ headline: 'NORTHSTAR CUP CHAMPIONS', detail: `${STAGES[this.stageIndex]} · FINAL ${this.scores[0]}–${this.scores[1]} · ${this.attempts} SHOTS`, score: this.scores[0], winnerName: 'BLUE', recordEligible: true })
+      return
+    }
+    const wonScore = this.scores[0]
+    const lostScore = this.scores[1]
     this.stageIndex++
     this.scores = [0, 0]
     this.round = 1
     this.matchClock = 75
     this.attempts = 0
     this.saves = 0
-    this.phaseNotice = `${STAGES[this.stageIndex]} · BLUE KICK OFF`
+    this.opponentNationalTeam = this.knockoutOpponents.shift() ?? this.opponentNationalTeam
+    this.phaseNotice = `${STAGES[this.stageIndex]} · ${this.nationalTeam.toUpperCase()} READY`
     this.resetKickoff(0, this.phaseNotice)
+    this.pendingTournamentContinue = true
+    this.finish({ headline: 'MATCH WON', detail: `${STAGES[this.stageIndex - 1]} · ${wonScore}–${lostScore} · NEXT: ${STAGES[this.stageIndex]}`, score: wonScore, winnerName: this.nationalTeam, recordEligible: false, canContinue: true })
   }
 
   private kick(directionX: number, directionY: number) {
@@ -378,9 +497,7 @@ export class SoccerSkillsGame extends BaseGame {
     const length = Math.max(1, Math.hypot(directionX, directionY))
     const nx = directionX / length
     const ny = directionY / length
-    // Tuned for readable build-up play: a light touch stays close while a
-    // full charge can still reach the box without teleporting into the net.
-    const power = 230 + this.charge * 520
+    const power = 320 + this.charge * 760
     p.angle = Math.atan2(ny, nx)
     this.ball.x = p.x + nx * 25
     this.ball.y = p.y + ny * 25
@@ -391,6 +508,7 @@ export class SoccerSkillsGame extends BaseGame {
     this.lastTouch = p.team
     this.holder = -1
     this.attempts++
+    this.draggingMovement = false
     this.charge = 0
     if (this.matchPhase !== 'penalty') this.matchPhase = 'open'
     this.particles.burst(this.ball.x, this.ball.y, p.team === 0 ? '#2767ff' : '#f3f4f5', 10, 135)
@@ -433,6 +551,7 @@ export class SoccerSkillsGame extends BaseGame {
     this.holder = -1
     this.attempts++
     this.penaltyAttempts[this.penaltyTurn]++
+    this.draggingMovement = false
     this.charge = 0
     this.phaseNotice = 'PENALTY · SHOT AWAY'
   }
@@ -475,98 +594,6 @@ export class SoccerSkillsGame extends BaseGame {
     return best
   }
 
-  private canControlPlayer(index: number) {
-    const p = this.players[index]
-    return Boolean(p && !p.keeper && (p.team === 0 || this.opponent === 'human'))
-  }
-
-  /** Handle direct player control. This makes the match playable with a
-   * keyboard even when a pointer is not available, while preserving the
-   * original click-drag kick gesture. */
-  private updateHumanMovement(dt: number, input: InputFrame) {
-    if (!this.canControlPlayer(this.selected)) {
-      // A loose-ball interception can temporarily select an AI player. Hand
-      // control back to the nearest human outfielder automatically so the
-      // user can keep pressing toward the action without a rescue click.
-      const controlTeam: Team = this.opponent === 'human' && this.holder >= 0
-        ? this.players[this.holder].team
-        : 0
-      const next = this.nearestPlayer(controlTeam, this.ball.x, this.ball.y)
-      if (next >= 0) this.selected = next
-    }
-    if (!this.canControlPlayer(this.selected)) return
-    const p = this.players[this.selected]
-    const team = p.team
-    const left = team === 0 ? 'KeyA' : 'ArrowLeft'
-    const right = team === 0 ? 'KeyD' : 'ArrowRight'
-    const up = team === 0 ? 'KeyW' : 'ArrowUp'
-    const down = team === 0 ? 'KeyS' : 'ArrowDown'
-    const kickKey = team === 0 ? 'Space' : 'Enter'
-    const dx = (input.isDown(right) ? 1 : 0) - (input.isDown(left) ? 1 : 0)
-    const dy = (input.isDown(down) ? 1 : 0) - (input.isDown(up) ? 1 : 0)
-    const length = Math.hypot(dx, dy)
-    const sprint = input.isDown(team === 0 ? 'ShiftLeft' : 'ShiftRight')
-    const speed = sprint ? 305 : 225
-    if (length > 0) {
-      p.vx = dx / length * speed
-      p.vy = dy / length * speed
-      p.x = clamp(p.x + p.vx * dt, FIELD.left + 26, FIELD.right - 26)
-      p.y = clamp(p.y + p.vy * dt, FIELD.top + 24, FIELD.bottom - 24)
-      p.angle = Math.atan2(p.vy, p.vx)
-    } else {
-      // Ease velocity to a stop so releasing a direction never leaves the
-      // controlled player sliding across the pitch.
-      p.vx *= Math.exp(-10 * dt)
-      p.vy *= Math.exp(-10 * dt)
-    }
-
-    // Pick up a loose ball by moving into it. If an opponent is in possession
-    // the same key becomes a forgiving standing tackle.
-    const distanceToBall = Math.hypot(p.x - this.ball.x, p.y - this.ball.y)
-    if (this.holder < 0 && distanceToBall < p.r + this.ball.r + 18 && this.ball.z < 16) {
-      this.holder = this.selected
-      this.lastTouch = team
-      this.ball.vx = 0; this.ball.vy = 0; this.ball.z = 0; this.ball.vz = 0
-      this.phaseNotice = team === 0 ? 'BLUE · IN POSSESSION' : 'WHITE · IN POSSESSION'
-    } else if (this.holder >= 0 && this.players[this.holder].team !== team && distanceToBall < p.r + 30 && input.wasPressed(kickKey)) {
-      this.holder = this.selected
-      this.lastTouch = team
-      this.ball.vx = 0; this.ball.vy = 0; this.ball.z = 0; this.ball.vz = 0
-      this.phaseNotice = team === 0 ? 'TACKLE WON · BLUE' : 'TACKLE WON · WHITE'
-      this.particles.burst(p.x, p.y, team === 0 ? '#3f82ff' : '#f4f5ee', 8, 85)
-    }
-
-    // Hold Space/Enter for a short, controllable charge and release toward the
-    // player's current facing. A kick never exceeds the tuned arcade cap.
-    if (this.holder === this.selected) {
-      if (input.isDown(kickKey)) {
-        this.keyboardCharge = clamp(this.keyboardCharge + dt * 1.45, 0.18, 1)
-        this.phaseNotice = team === 0 ? 'BLUE · CHARGING' : 'WHITE · CHARGING'
-      }
-      if (input.released.has(kickKey) && this.keyboardCharge > 0) {
-        const aimX = length > 0 ? dx : team === 0 ? 1 : -1
-        const aimY = length > 0 ? dy : 0
-        this.charge = this.keyboardCharge
-        this.kick(aimX, aimY)
-        this.keyboardCharge = 0
-      }
-    } else if (!input.isDown(kickKey)) {
-      this.keyboardCharge = 0
-    }
-  }
-
-  private updateCamera(dt: number) {
-    const focus = this.holder >= 0 ? this.players[this.holder] : this.ball
-    if (!focus) return
-    // Keep the focus in the playable middle while allowing the camera to
-    // reveal more of the attacking third as the ball travels.
-    const targetX = clamp(focus.x, 270, 930)
-    const targetY = clamp(focus.y, 205, 435)
-    const blend = 1 - Math.exp(-4.2 * dt)
-    this.cameraX += (targetX - this.cameraX) * blend
-    this.cameraY += (targetY - this.cameraY) * blend
-  }
-
   private movePlayer(p: Player, tx: number, ty: number, dt: number, speed = 150) {
     const dx = tx - p.x
     const dy = ty - p.y
@@ -577,6 +604,24 @@ export class SoccerSkillsGame extends BaseGame {
     p.vy = dy / distance * speed
     p.x += dx / distance * step
     p.y += dy / distance * step
+    p.angle = Math.atan2(dy, dx)
+  }
+
+  private updateDraggedMovement(pointer: InputFrame['pointer'], dt: number, team: Team) {
+    if (!this.draggingMovement || this.holder === this.selected) return
+    const p = this.players[this.selected]
+    if (!p || p.team !== team || p.keeper) return
+    const dx = pointer.x - p.x
+    const dy = pointer.y - p.y
+    const distance = Math.hypot(dx, dy)
+    if (distance < 1) { p.vx = 0; p.vy = 0; return }
+    // A longer drag gives the runner more urgency while staying controllable
+    // on a phone-sized canvas. The target is the current finger/mouse point.
+    const speed = clamp(70 + distance * 4.2, 70, 300)
+    p.vx = dx / distance * speed
+    p.vy = dy / distance * speed
+    p.x = clamp(p.x + p.vx * dt, FIELD.left + 20, FIELD.right - 20)
+    p.y = clamp(p.y + p.vy * dt, FIELD.top + 20, FIELD.bottom - 20)
     p.angle = Math.atan2(dy, dx)
   }
 
@@ -593,7 +638,11 @@ export class SoccerSkillsGame extends BaseGame {
           this.charging = true; this.aimX = pointer.x; this.aimY = pointer.y; this.charge = 0.2
         }
       }
-      if (this.charging && pointer.down) { this.aimX = pointer.x; this.aimY = pointer.y; this.charge = clamp(this.charge + dt * 0.7, 0.2, 1) }
+      if (this.charging && pointer.down) {
+        this.aimX = pointer.x; this.aimY = pointer.y
+        const p = this.players[this.holder]
+        this.charge = clamp(Math.max(0.2, p ? Math.hypot(pointer.x - p.x, pointer.y - p.y) / 180 : this.charge), 0.2, 1)
+      }
       if (this.charging && pointer.released) { const p = this.players[this.holder]; if (p) this.kick(this.aimX - p.x, this.aimY - p.y); this.charging = false }
       if (this.holder < 0) {
         this.penaltyShotTimer += dt; this.ball.x += this.ball.vx * dt; this.ball.y += this.ball.vy * dt
@@ -661,6 +710,7 @@ export class SoccerSkillsGame extends BaseGame {
 
   update(dt: number, input: InputFrame) {
     this.step(dt, input)
+    this.updateCamera(dt)
     this.recordReplayFrame(dt)
   }
 
@@ -670,10 +720,29 @@ export class SoccerSkillsGame extends BaseGame {
     this.updateBallHeight(dt)
     if (this.matchPhase === 'penalty') {
       this.updatePenalty(dt, input)
-      this.updateCamera(dt)
+      return
+    }
+    if (this.matchPhase === 'halftime') {
+      this.halftimeTimer = Math.max(0, this.halftimeTimer - dt)
+      if (this.halftimeTimer <= 0) {
+        this.resetKickoff(1, 'SECOND HALF · SIDES SWITCHED')
+        this.players.forEach((player) => { player.x = FIELD.left + FIELD.right - player.x; player.homeX = FIELD.left + FIELD.right - player.homeX; player.angle = Math.PI - player.angle })
+        this.ball.x = FIELD.left + FIELD.right - this.ball.x
+        this.sidesSwitched = true
+        this.matchPhase = 'kickoff'
+      }
       return
     }
     this.matchClock = Math.max(0, this.matchClock - dt)
+    if (!this.practiceMode && !this.halftimeTriggered && this.matchClock <= 37.5) {
+      this.halftimeTriggered = true
+      this.matchPhase = 'halftime'
+      this.halftimeTimer = 2.4
+      this.phaseNotice = 'HALFTIME · SWITCHING SIDES'
+      this.charging = false
+      this.draggingMovement = false
+      return
+    }
     this.foulCooldown = Math.max(0, this.foulCooldown - dt)
     if (this.kickoffDelay > 0) {
       this.kickoffDelay = Math.max(0, this.kickoffDelay - dt)
@@ -687,6 +756,11 @@ export class SoccerSkillsGame extends BaseGame {
     if (input.wasPressed('KeyH')) this.performHeader()
 
     const pointer = this.worldPointer(input.pointer)
+    if ((this.charging || this.draggingMovement) && !pointer.down && !pointer.released) {
+      this.charging = false
+      this.draggingMovement = false
+      this.charge = 0
+    }
     const humanTeam: Team = this.opponent === 'human' && this.holder >= 0 ? this.players[this.holder].team : 0
     if (pointer.pressed) {
       const clicked = this.players
@@ -696,15 +770,23 @@ export class SoccerSkillsGame extends BaseGame {
       if (clicked) this.selected = clicked.index
       if (clicked && clicked.index === this.holder && this.players[this.holder].team === humanTeam) {
         this.charging = true
+        this.draggingMovement = false
         this.aimX = pointer.x
         this.aimY = pointer.y
         this.charge = 0.18
+      } else if (clicked && clicked.index !== this.holder) {
+        // Away from the ball, the same drag controls the selected runner.
+        this.charging = false
+        this.draggingMovement = true
+        this.aimX = pointer.x
+        this.aimY = pointer.y
       }
     }
     if (this.charging && pointer.down) {
       this.aimX = pointer.x
       this.aimY = pointer.y
-      this.charge = clamp(this.charge + dt * 0.58, 0.18, 1)
+      const p = this.players[this.holder]
+      this.charge = clamp(Math.max(0.18, p ? Math.hypot(pointer.x - p.x, pointer.y - p.y) / 180 : this.charge), 0.18, 1)
     }
     if (this.charging && pointer.released) {
       const p = this.players[this.holder]
@@ -714,10 +796,12 @@ export class SoccerSkillsGame extends BaseGame {
       }
       this.charging = false
     }
-
-    // Keyboard control lives beside the original pointer gesture so the
-    // match remains playable with either input method.
-    this.updateHumanMovement(dt, input)
+    if (this.draggingMovement && pointer.down) {
+      this.aimX = pointer.x
+      this.aimY = pointer.y
+      this.updateDraggedMovement(pointer, dt, humanTeam)
+    }
+    if (this.draggingMovement && pointer.released) this.draggingMovement = false
 
     // White plays automatically in solo mode. In local multiplayer, the red
     // side is controlled with the same drag gesture when it has possession.
@@ -788,16 +872,13 @@ export class SoccerSkillsGame extends BaseGame {
           break
         }
       }
-      // Grass friction should settle a pass in a reasonable distance.
-      const drag = Math.exp(-2.6 * dt)
+      const drag = Math.exp(-1.1 * dt)
       this.ball.vx *= drag
       this.ball.vy *= drag
       if (Math.hypot(this.ball.vx, this.ball.vy) < 14) { this.ball.vx = 0; this.ball.vy = 0 }
     }
 
-    this.updateCamera(dt)
-
-    if (this.matchClock <= 0) {
+    if (!this.practiceMode && this.matchClock <= 0) {
       if (this.scores[0] === this.scores[1]) {
         this.startShootout()
         return
@@ -818,7 +899,7 @@ export class SoccerSkillsGame extends BaseGame {
         this.movePlayer(p, p.homeX, targetY, dt, 115)
         return
       }
-      if (index === this.selected && this.canControlPlayer(index)) return
+      if (index === this.selected && p.team === 0) return
       if (holder && holder.team === p.team) {
         const lead = p.team === 0 ? 105 : -105
         const offset = ((index % 3) - 1) * 75
@@ -858,10 +939,10 @@ export class SoccerSkillsGame extends BaseGame {
   }
 
   private checkGoal() {
-    if (this.ball.x + this.ball.r > FIELD.right && this.ball.y > GOAL.top && this.ball.y < GOAL.bottom) {
+    if (this.ball.x - this.ball.r > FIELD.right && this.ball.y > GOAL.top && this.ball.y < GOAL.bottom) {
       this.scores[0]++
       this.impact(10)
-      if (this.scores[0] >= WIN_SCORE) {
+      if (!this.practiceMode && this.scores[0] >= WIN_SCORE) {
         this.advanceStage()
       } else {
         this.round++
@@ -869,10 +950,10 @@ export class SoccerSkillsGame extends BaseGame {
       }
       return true
     }
-    if (this.ball.x - this.ball.r < FIELD.left && this.ball.y > GOAL.top && this.ball.y < GOAL.bottom) {
+    if (this.ball.x + this.ball.r < FIELD.left && this.ball.y > GOAL.top && this.ball.y < GOAL.bottom) {
       this.scores[1]++
       this.impact(8)
-      if (this.scores[1] >= WIN_SCORE) {
+      if (!this.practiceMode && this.scores[1] >= WIN_SCORE) {
         this.finish({ headline: 'WHITE WINS THE TIE', detail: `FINAL · ${this.scores[0]}–${this.scores[1]} · ${this.saves} SAVES`, score: this.scores[0], winnerName: 'WHITE', recordEligible: false })
       } else {
         this.round++
@@ -902,8 +983,6 @@ export class SoccerSkillsGame extends BaseGame {
       matchClock: this.matchClock,
       fouls: [...this.fouls] as [number, number],
       lastTouch: this.lastTouch,
-      cameraX: this.cameraX,
-      cameraY: this.cameraY,
     }
   }
 
@@ -925,8 +1004,6 @@ export class SoccerSkillsGame extends BaseGame {
     this.matchClock = frame.matchClock
     this.fouls = [...frame.fouls] as [number, number]
     this.lastTouch = frame.lastTouch
-    this.cameraX = frame.cameraX
-    this.cameraY = frame.cameraY
   }
 
   private recordReplayFrame(dt: number) {
@@ -946,150 +1023,112 @@ export class SoccerSkillsGame extends BaseGame {
   render(ctx: CanvasRenderingContext2D) {
     ctx.save()
     this.applyShake(ctx)
+    ctx.fillStyle = '#071222'
+    ctx.fillRect(0, 0, 1200, 600)
 
-    // Cached stadium plate supplies the depth and human scale of a real broadcast.
-    if (STADIUM_BG?.complete && STADIUM_BG.naturalWidth > 0) {
-      ctx.drawImage(STADIUM_BG, 0, 0, 1200, 600)
-    } else {
-      const fallback = ctx.createLinearGradient(0, 0, 0, 600)
-      fallback.addColorStop(0, '#071328'); fallback.addColorStop(.58, '#123c32'); fallback.addColorStop(1, '#072116')
-      ctx.fillStyle = fallback; ctx.fillRect(0, 0, 1200, 600)
+    // Stadium seating and the bright, compact broadcast HUD.
+    ctx.fillStyle = '#17253b'
+    ctx.fillRect(0, 0, 1200, 98)
+    ctx.fillStyle = '#1b2c42'
+    ctx.fillRect(0, 552, 1200, 48)
+    for (let row = 0; row < 4; row++) for (let x = 20; x < 1200; x += 42) {
+      ctx.fillStyle = (x / 42 + row) % 3 === 0 ? '#db4050' : (x / 42 + row) % 2 ? '#2a73d8' : '#efbd36'
+      ctx.fillRect(x, 18 + row * 18, 14, 9)
+      ctx.fillStyle = 'rgba(0,0,0,.24)'; ctx.fillRect(x + 15, 18 + row * 18, 8, 9)
     }
-
-    // Darkened broadcast glass over the photo so painted lines and players stay legible.
-    const glass = ctx.createLinearGradient(0, 0, 0, 600)
-    glass.addColorStop(0, 'rgba(2, 9, 20, .62)'); glass.addColorStop(.22, 'rgba(2, 9, 20, .14)'); glass.addColorStop(1, 'rgba(2, 19, 15, .28)')
-    ctx.fillStyle = glass; ctx.fillRect(0, 0, 1200, 600)
-
-    // Compact tournament rail.
-    ctx.fillStyle = 'rgba(4, 12, 25, .92)'; ctx.fillRect(0, 0, 1200, 88)
-    ctx.fillStyle = 'rgba(29, 214, 202, .18)'; ctx.fillRect(0, 86, 1200, 2)
-    ctx.fillStyle = '#d9e9ef'; ctx.font = '800 12px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-    ctx.fillText(`${this.nationalTeam.toUpperCase()}  /  LIVE MATCH`, 24, 18)
-    ctx.fillStyle = '#7e9cb2'; ctx.font = '700 10px Arial, sans-serif'; ctx.fillText('WORLD CUP 2026 · SKILLS ARENA', 24, 38)
-    const stageWidth = 180
+    const stageWidth = 188
     STAGES.forEach((stage, index) => {
-      const x = 286 + index * (stageWidth + 5)
-      const active = index === this.stageIndex
-      ctx.fillStyle = active ? 'rgba(255,207,59,.97)' : index < this.stageIndex ? 'rgba(63, 173, 132, .72)' : 'rgba(28, 51, 72, .8)'
-      ctx.fillRect(x, 12, stageWidth, 22)
-      ctx.fillStyle = active ? '#0a1624' : index < this.stageIndex ? '#e7fff0' : '#9cb1bf'
-      ctx.font = '800 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(stage, x + stageWidth / 2, 23)
-      if (index < STAGES.length - 1) { ctx.fillStyle = 'rgba(190, 220, 227, .34)'; ctx.fillRect(x + stageWidth + 2, 21, 3, 3) }
+      const x = 18 + index * (stageWidth + 4)
+      ctx.fillStyle = index === this.stageIndex ? 'rgba(255,207,59,.92)' : 'rgba(7,18,34,.8)'
+      ctx.fillRect(x, 14, stageWidth, 22)
+      ctx.fillStyle = index === this.stageIndex ? '#081323' : index < this.stageIndex ? '#9fe4af' : '#8ea0b0'
+      ctx.font = '800 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(stage, x + stageWidth / 2, 25)
     })
-    ctx.fillStyle = '#f4f6ee'; ctx.font = '800 18px Arial, sans-serif'; ctx.textAlign = 'center'
-    const displayNotice = this.kickoffDelay > 0 ? (this.matchPhase === 'kickoff' ? 'GET READY' : `${this.matchPhase.replace('-', ' ').toUpperCase()} · READY`) : this.phaseNotice
-    ctx.fillText(displayNotice, 600, 68)
+    ctx.fillStyle = '#0f1c2d'; ctx.fillRect(0, 92, 1200, 8)
 
-    // Translucent tactical paint gives the photo a playable broadcast-pitch layer.
+    // Isometric-style trapezoid pitch.
+    ctx.save(); ctx.translate(this.cameraX, this.cameraY)
     const pitch = new Path2D()
-    pitch.moveTo(142, 120); pitch.lineTo(1058, 108); pitch.lineTo(1192, 532); pitch.lineTo(8, 550); pitch.closePath()
+    pitch.moveTo(150, 122); pitch.lineTo(1050, 108); pitch.lineTo(1188, 530); pitch.lineTo(14, 548); pitch.closePath()
     ctx.save(); ctx.clip(pitch)
-    const turf = ctx.createLinearGradient(0, 100, 0, 560)
-    turf.addColorStop(0, 'rgba(18, 123, 77, .64)'); turf.addColorStop(.55, 'rgba(10, 105, 56, .35)'); turf.addColorStop(1, 'rgba(1, 46, 26, .5)')
-    ctx.fillStyle = turf; ctx.fillRect(0, 100, 1200, 460)
-    for (let i = 0; i < 13; i++) { ctx.fillStyle = i % 2 ? 'rgba(153,240,143,.07)' : 'rgba(0,30,25,.08)'; ctx.fillRect(0, 110 + i * 34, 1200, 34) }
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = i % 2 ? '#148140' : '#0f7438'
+      ctx.fillRect(0, 100 + i * 40, 1200, 44)
+    }
     ctx.restore()
-    ctx.strokeStyle = 'rgba(242, 252, 238, .88)'; ctx.lineWidth = 2.4; ctx.stroke(pitch)
-    ctx.save(); ctx.clip(pitch)
-    ctx.strokeStyle = 'rgba(236, 251, 239, .83)'; ctx.lineWidth = 2
-    ctx.beginPath(); ctx.moveTo(600, 115); ctx.lineTo(600, 540); ctx.stroke()
-    ctx.beginPath(); ctx.arc(600, 328, 58, 0, Math.PI * 2); ctx.stroke()
-    ctx.beginPath(); ctx.arc(600, 328, 4, 0, Math.PI * 2); ctx.fillStyle = '#ecfaec'; ctx.fill()
+    ctx.strokeStyle = '#e4f0df'; ctx.lineWidth = 2.2; ctx.stroke(pitch)
+    ctx.beginPath(); ctx.moveTo(600, 116); ctx.lineTo(600, 538); ctx.stroke()
+    ctx.beginPath(); ctx.arc(600, 326, 58, 0, Math.PI * 2); ctx.stroke()
+    ctx.beginPath(); ctx.arc(600, 326, 4, 0, Math.PI * 2); ctx.fillStyle = '#e4f0df'; ctx.fill()
     ctx.strokeRect(58, 218, 160, 214); ctx.strokeRect(924, 215, 218, 220)
     ctx.strokeRect(58, 256, 90, 138); ctx.strokeRect(1052, 255, 90, 138)
-    ctx.beginPath(); ctx.arc(204, 328, 3, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(996, 328, 3, 0, Math.PI * 2); ctx.fill()
-    ctx.restore()
+    ctx.beginPath(); ctx.arc(204, 326, 3, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(996, 326, 3, 0, Math.PI * 2); ctx.fill()
 
-    // Goal frame, net depth, and backboard LEDs.
+    // Goals and net lines.
     for (const side of [0, 1]) {
       const x = side === 0 ? 28 : 1142
-      ctx.strokeStyle = '#f7f8ee'; ctx.lineWidth = 3; ctx.strokeRect(x, GOAL.top, 30, GOAL.bottom - GOAL.top)
-      ctx.strokeStyle = 'rgba(225,240,240,.56)'; ctx.lineWidth = 1
+      ctx.strokeStyle = '#f2f2e9'; ctx.lineWidth = 2
+      ctx.strokeRect(side === 0 ? x : x, GOAL.top, 30, GOAL.bottom - GOAL.top)
       for (let y = GOAL.top; y <= GOAL.bottom; y += 13) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(side === 0 ? x + 30 : x - 30, y); ctx.stroke() }
-      for (let y = GOAL.top; y <= GOAL.bottom; y += 26) { ctx.beginPath(); ctx.moveTo(side === 0 ? x + 30 : x - 30, y); ctx.lineTo(side === 0 ? x + 16 : x - 16, y); ctx.stroke() }
     }
-    ctx.fillStyle = '#15d7cf'; ctx.fillRect(180, 536, 210, 14); ctx.fillRect(810, 536, 210, 14)
-    ctx.fillStyle = '#072a37'; ctx.font = '800 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('NEED FOR MADNESS', 285, 543); ctx.fillText('NEED FOR MADNESS', 915, 543)
 
-    if (this.matchPhase !== 'open' && this.matchPhase !== 'kickoff' && this.matchPhase !== 'full-time') {
+    // Broadcast ad boards and corner flags sell the same stadium scale as the reference.
+    ctx.fillStyle = '#21d8d0'; ctx.fillRect(180, 536, 210, 15); ctx.fillRect(810, 536, 210, 15)
+    ctx.fillStyle = '#092c35'; ctx.font = '800 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('AURORA ARENA', 285, 544); ctx.fillText('AURORA ARENA', 915, 544)
+    ctx.fillStyle = '#20cbd3'; ctx.fillRect(60, 180, 10, 38); ctx.fillRect(1130, 178, 10, 38)
+    ctx.fillStyle = '#f2c94c'; ctx.beginPath(); ctx.moveTo(70, 180); ctx.lineTo(96, 188); ctx.lineTo(70, 198); ctx.closePath(); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(1130, 178); ctx.lineTo(1104, 186); ctx.lineTo(1130, 196); ctx.closePath(); ctx.fill()
+
+    if (this.matchPhase !== 'open' && this.matchPhase !== 'kickoff' && this.matchPhase !== 'halftime' && this.matchPhase !== 'full-time') {
       const marker = this.projectPoint(this.setPieceX, this.setPieceY)
-      ctx.strokeStyle = '#ffcf3b'; ctx.lineWidth = 3; ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.arc(marker.x, marker.y, 22 * marker.scale, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([])
+      ctx.strokeStyle = '#ffcf3b'; ctx.lineWidth = 3; ctx.setLineDash([6, 5])
+      ctx.beginPath(); ctx.arc(marker.x, marker.y, 22 * marker.scale, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([])
       ctx.fillStyle = '#ffcf3b'; ctx.font = '800 11px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(this.matchPhase.replace('-', ' ').toUpperCase(), marker.x, marker.y - 28 * marker.scale)
     }
 
     if (this.charging && this.holder >= 0) {
-      const p = this.players[this.holder]; const projectedPlayer = this.projectPoint(p.x, p.y); const projectedAim = this.projectPoint(this.aimX, this.aimY)
-      ctx.strokeStyle = 'rgba(255, 243, 176, .92)'; ctx.lineWidth = 3; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.moveTo(projectedPlayer.x, projectedPlayer.y); ctx.lineTo(projectedAim.x, projectedAim.y); ctx.stroke(); ctx.setLineDash([])
+      const p = this.players[this.holder]
+      const projectedPlayer = this.projectPoint(p.x, p.y)
+      const projectedAim = this.projectPoint(this.aimX, this.aimY)
+      ctx.strokeStyle = '#fff3b0'; ctx.lineWidth = 3; ctx.setLineDash([8, 8])
+      ctx.beginPath(); ctx.moveTo(projectedPlayer.x, projectedPlayer.y); ctx.lineTo(projectedAim.x, projectedAim.y); ctx.stroke(); ctx.setLineDash([])
       ctx.fillStyle = '#ffcf3b'; ctx.beginPath(); ctx.arc(projectedAim.x, projectedAim.y, (9 + this.charge * 9) * projectedAim.scale, 0, Math.PI * 2); ctx.fill()
-      ctx.fillStyle = 'rgba(6, 31, 29, .9)'; ctx.fillRect(projectedPlayer.x - 28 * projectedPlayer.scale, projectedPlayer.y - 34 * projectedPlayer.scale, 56 * projectedPlayer.scale, 6 * projectedPlayer.scale)
+      ctx.fillStyle = '#0a2a25'; ctx.fillRect(projectedPlayer.x - 28 * projectedPlayer.scale, projectedPlayer.y - 34 * projectedPlayer.scale, 56 * projectedPlayer.scale, 6 * projectedPlayer.scale)
       ctx.fillStyle = '#ffcf3b'; ctx.fillRect(projectedPlayer.x - 27 * projectedPlayer.scale, projectedPlayer.y - 33 * projectedPlayer.scale, 54 * projectedPlayer.scale * this.charge, 4 * projectedPlayer.scale)
     }
 
-    // Sort by world depth so front players overlap naturally.
-    this.players.slice().sort((a, b) => a.y - b.y).forEach((p) => this.drawPlayer(ctx, p, this.players.indexOf(p) === this.selected && (p.team === 0 || this.opponent === 'human')))
+    this.players.forEach((p, index) => this.drawPlayer(ctx, p, index === this.selected && (p.team === 0 || this.opponent === 'human')))
     this.drawBall(ctx)
     this.particles.render(ctx)
+    ctx.restore()
 
-    ctx.fillStyle = 'rgba(4, 12, 25, .86)'; ctx.fillRect(20, 558, 1160, 28)
-    ctx.fillStyle = '#f4f6ee'; ctx.font = '600 13px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(this.charging || this.keyboardCharge > 0 ? 'CHARGING · RELEASE SPACE / ENTER TO STRIKE' : 'WASD / ARROWS MOVE · HOLD SPACE / ENTER TO KICK · CLICK + DRAG FOR AIM', 600, 577)
-    const vignette = ctx.createRadialGradient(600, 300, 220, 600, 300, 760)
-    vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,.42)')
-    ctx.fillStyle = vignette; ctx.fillRect(0, 0, 1200, 600)
+    ctx.fillStyle = '#f3f6ee'; ctx.font = '700 18px Arial, sans-serif'; ctx.textAlign = 'center'
+    const displayNotice = this.matchPhase === 'halftime' ? 'HALFTIME · SWITCHING SIDES' : this.kickoffDelay > 0 ? (this.matchPhase === 'kickoff' ? 'GET READY' : `${this.matchPhase.replace('-', ' ').toUpperCase()} · READY`) : this.phaseNotice
+    ctx.fillText(displayNotice, 600, 76)
+    ctx.fillStyle = 'rgba(4,15,26,.74)'; ctx.fillRect(20, 558, 1160, 28)
+    ctx.fillStyle = '#f4f6ee'; ctx.font = '600 13px Arial, sans-serif'
+    ctx.fillText(this.charging ? 'DRAG TO AIM · RELEASE TO SHOOT' : 'CLICK + HOLD A PLAYER · DRAG TO AIM · RELEASE TO SHOOT', 600, 577)
     ctx.restore()
   }
 
   private drawPlayer(ctx: CanvasRenderingContext2D, p: Player, selected: boolean) {
     const projected = this.projectPoint(p.x, p.y)
-    const depth = projected.scale
-    const walking = Math.min(1, Math.hypot(p.vx, p.vy) / 180)
-    const stride = Math.sin(this.elapsed * (8 + walking * 4) + p.number) * (2.8 + walking * 4)
-    const facing = p.angle
-    ctx.save(); ctx.translate(projected.x, projected.y); ctx.scale(depth, depth)
-
-    // Ground contact and soft directional shadow sell the player's scale against the grass.
-    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(4, 13, p.r * 1.02, p.r * .44, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.save(); ctx.translate(projected.x, projected.y); ctx.scale(projected.scale, projected.scale)
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(3, 10, p.r * 0.95, p.r * 0.45, 0, 0, Math.PI * 2); ctx.fill()
     const selectedTeam = WORLD_CUP_2026_BY_NAME[this.nationalTeam]
     const opponentTeam = WORLD_CUP_2026_BY_NAME[this.opponentNationalTeam]
-    const shirt = p.keeper ? '#f3c844' : p.team === 0 ? (selectedTeam?.home.shirt ?? '#1b5fe0') : (opponentTeam?.home.shirt ?? '#f6f5ee')
-    const trim = p.keeper ? '#121f31' : p.team === 0 ? (selectedTeam?.home.trim ?? '#d8423c') : (opponentTeam?.home.trim ?? '#1e2a39')
-    const dark = '#111c2c'
-    const skin = '#dca57b'
-
-    // Legs: separate limbs, boots, and the cast shadow make the tiny player read as a human.
-    ctx.save(); ctx.rotate(facing)
-    ctx.strokeStyle = skin; ctx.lineWidth = 5; ctx.lineCap = 'round'
-    ctx.beginPath(); ctx.moveTo(-4, 9); ctx.lineTo(-5 + stride, 18); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(4, 9); ctx.lineTo(5 - stride, 18); ctx.stroke()
-    ctx.strokeStyle = dark; ctx.lineWidth = 4
-    ctx.beginPath(); ctx.moveTo(-5 + stride, 18); ctx.lineTo(-9 + stride, 20); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(5 - stride, 18); ctx.lineTo(9 - stride, 20); ctx.stroke()
-    ctx.restore()
-
-    // Shirt is a shaded capsule with collar, sleeve highlights, and a crisp kit number.
-    const torso = ctx.createLinearGradient(-p.r, -p.r, p.r, p.r)
-    torso.addColorStop(0, 'rgba(255,255,255,.28)'); torso.addColorStop(.3, shirt); torso.addColorStop(1, 'rgba(0,0,0,.28)')
-    ctx.fillStyle = torso; ctx.beginPath(); ctx.ellipse(0, 1, p.r * .73, p.r * .86, 0, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = trim; ctx.fillRect(-p.r * .55, 6, p.r * 1.1, 4)
-    ctx.strokeStyle = 'rgba(255,255,255,.34)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, -3, p.r * .47, Math.PI * .18, Math.PI * .82); ctx.stroke()
-    ctx.strokeStyle = shirt; ctx.lineWidth = 4; ctx.lineCap = 'round'
-    ctx.beginPath(); ctx.moveTo(-p.r * .55, -1); ctx.lineTo(-p.r * .82, 7); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(p.r * .55, -1); ctx.lineTo(p.r * .82, 7); ctx.stroke()
-
-    // Head, hair, and face light. Keep it graphic enough to read at broadcast distance.
-    const head = ctx.createRadialGradient(-3, -p.r * .78, 1, 3, -p.r * .72, p.r * .62)
-    head.addColorStop(0, '#f6c49a'); head.addColorStop(.72, skin); head.addColorStop(1, '#a86855')
-    ctx.fillStyle = head; ctx.beginPath(); ctx.arc(0, -p.r * .74, p.r * .48, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, -p.r * .98, p.r * .42, Math.PI, Math.PI * 2); ctx.fill()
-    ctx.fillRect(-p.r * .4, -p.r * .98, p.r * .8, p.r * .19)
-    ctx.fillStyle = p.team === 0 && !p.keeper ? '#f1f7ff' : '#172436'
-    ctx.font = '800 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(p.number), 0, 2)
-
+    const shirt = p.keeper ? '#ffd43b' : p.team === 0 ? (selectedTeam?.home.shirt ?? '#1b5fe0') : (opponentTeam?.home.shirt ?? '#f6f5ee')
+    const shorts = p.keeper ? '#e1e1dc' : p.team === 0 ? (selectedTeam?.home.trim ?? '#d8423c') : (opponentTeam?.home.trim ?? '#e1e1dc')
+    ctx.fillStyle = shorts; ctx.beginPath(); ctx.ellipse(0, 10, p.r * 0.58, p.r * 0.32, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = shirt; ctx.beginPath(); ctx.ellipse(0, 2, p.r * 0.72, p.r * 0.92, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#f0bd93'; ctx.beginPath(); ctx.arc(0, -p.r * 0.72, p.r * 0.48, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#192534'; ctx.beginPath(); ctx.arc(0, -p.r * 0.92, p.r * 0.4, Math.PI, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = p.team === 0 && !p.keeper ? '#eff6ff' : '#1f2b39'; ctx.font = '800 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(p.number), 0, 3)
     if (selected) {
-      const pulse = Math.sin(this.elapsed * 6) * 2
-      ctx.strokeStyle = '#ffcf3b'; ctx.lineWidth = 3; ctx.shadowColor = 'rgba(255,207,59,.55)'; ctx.shadowBlur = 12
-      ctx.beginPath(); ctx.arc(0, 1, p.r + 10 + pulse, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0
-      ctx.fillStyle = '#ffcf3b'; ctx.font = '800 11px Arial, sans-serif'; ctx.fillText('YOU', 0, -p.r - 18)
+      ctx.strokeStyle = '#ffcf3b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + 9 + Math.sin(this.elapsed * 6) * 2, 0, Math.PI * 2); ctx.stroke()
+      ctx.fillStyle = '#ffcf3b'; ctx.font = '800 11px Arial, sans-serif'; ctx.fillText('YOU', 0, -p.r - 17)
     }
     ctx.restore()
   }
@@ -1097,22 +1136,11 @@ export class SoccerSkillsGame extends BaseGame {
   private drawBall(ctx: CanvasRenderingContext2D) {
     const projected = this.projectPoint(this.ball.x, this.ball.y)
     ctx.save(); ctx.translate(projected.x, projected.y); ctx.scale(projected.scale, projected.scale)
-    const shadowScale = clamp(1 - this.ball.z / 220, .35, 1)
-    ctx.fillStyle = `rgba(0,0,0,${.32 * shadowScale})`; ctx.beginPath(); ctx.ellipse(4, 8, 10 * shadowScale, 4 * shadowScale, 0, 0, Math.PI * 2); ctx.fill()
-    ctx.translate(0, -this.ball.z * .55)
-    const speed = Math.hypot(this.ball.vx, this.ball.vy)
-    if (speed > 260) {
-      ctx.strokeStyle = 'rgba(255,255,255,.24)'; ctx.lineWidth = 3; ctx.lineCap = 'round'
-      ctx.beginPath(); ctx.moveTo(-this.ball.vx * .018, -this.ball.vy * .018); ctx.lineTo(-this.ball.vx * .05, -this.ball.vy * .05); ctx.stroke()
-    }
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(3, 8, 9, 4, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.translate(0, -this.ball.z * 0.55)
     ctx.rotate(this.elapsed * 5)
-    const ball = ctx.createRadialGradient(-3, -4, 1, 2, 2, this.ball.r + 2)
-    ball.addColorStop(0, '#ffffff'); ball.addColorStop(.6, '#e7eef0'); ball.addColorStop(1, '#8c9ba9')
-    ctx.fillStyle = ball; ctx.beginPath(); ctx.arc(0, 0, this.ball.r, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = '#24303b'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill()
-    ctx.strokeStyle = 'rgba(28,40,52,.8)'; ctx.lineWidth = 1
-    for (const a of [0.3, 2.4, 4.5]) { ctx.beginPath(); ctx.moveTo(Math.cos(a) * 2, Math.sin(a) * 2); ctx.lineTo(Math.cos(a) * 6, Math.sin(a) * 6); ctx.stroke() }
-    ctx.restore()
+    ctx.fillStyle = '#fbfbf4'; ctx.beginPath(); ctx.arc(0, 0, this.ball.r, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#26313a'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore()
   }
 
   getHud(): HudItem[] {
@@ -1120,13 +1148,14 @@ export class SoccerSkillsGame extends BaseGame {
     const seconds = Math.floor(this.matchClock % 60).toString().padStart(2, '0')
     const possession = this.holder >= 0 ? (this.players[this.holder].team === 0 ? 'BLUE' : 'WHITE') : 'LOOSE BALL'
     const phase = this.matchPhase === 'open' ? 'OPEN PLAY' : this.matchPhase.replace('-', ' ').toUpperCase()
+    const teamRow = this.groupTable.find((row) => row.name === this.nationalTeam)
     return [
-      { label: 'TOURNAMENT', value: `${STAGES[this.stageIndex]} · ${this.stageIndex + 1}/${STAGES.length}`, accent: '#ffcf3b' },
+      { label: this.practiceMode ? 'MODE' : 'TOURNAMENT', value: this.practiceMode ? 'PRACTICE' : `${STAGES[this.stageIndex]} · ${this.stageIndex + 1}/${STAGES.length}`, accent: '#ffcf3b' },
       { label: 'SCORE', value: `${this.scores[0]} – ${this.scores[1]}`, accent: '#3f82ff' },
       { label: 'CLOCK', value: `${minutes}:${seconds}` },
       { label: 'PHASE', value: phase, accent: phase === 'OPEN PLAY' ? '#b9f20b' : '#ffcf3b' },
       { label: 'SHOTS · FOULS', value: `${this.attempts} · ${this.fouls[0]}/${this.fouls[1]}` },
-      { label: this.nationalTeam.toUpperCase(), value: possession, accent: possession === 'BLUE' ? '#3f82ff' : '#f4f5ee' },
+      { label: this.nationalTeam.toUpperCase(), value: `${possession}${teamRow ? ` · G${this.groupName} #${teamRow.rank}` : ''}`, accent: possession === 'BLUE' ? '#3f82ff' : '#f4f5ee' },
     ]
   }
 }

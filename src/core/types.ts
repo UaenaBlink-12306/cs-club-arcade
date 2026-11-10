@@ -58,6 +58,7 @@ export interface GameResult {
   score: number
   winnerName?: string
   recordEligible?: boolean
+  canContinue?: boolean
 }
 
 export interface GameRuntime {

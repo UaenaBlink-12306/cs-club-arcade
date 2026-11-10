@@ -30,9 +30,10 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [hockeyOpponent, setHockeyOpponent] = useState<HockeyOpponent>('ai')
   const [hockeyFormat, setHockeyFormat] = useState<HockeyMatchFormat>('extra-time')
-  const [soccerOpponent, setSoccerOpponent] = useState<SoccerOpponent>('ai')
-  const [soccerTeam, setSoccerTeam] = useState<string>('Brazil')
+  const [soccerTeam, setSoccerTeam] = useState<string>('Cloudmere')
   const [keeperMode, setKeeperMode] = useState<'assist' | 'manual'>('assist')
+  const [tutorialSeen, setTutorialSeen] = useState(() => window.localStorage.getItem('northstar-cup-tutorial') === '1')
+  const [pauseControls, setPauseControls] = useState(false)
   const [replayActive, setReplayActive] = useState(false)
   const [replayReady, setReplayReady] = useState(false)
   const [replayProgress, setReplayProgress] = useState(0)
@@ -45,7 +46,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   const isHockey = runtime instanceof AirHockeyGame
   const isSoccerSkills = runtime instanceof SoccerSkillsGame
   const isShootout = runtime instanceof AirHockeyGame && hud.some((item) => item.label === 'PENALTY SHOOTOUT' || item.label === 'SUDDEN DEATH')
-  const soccerControls = soccerOpponent === 'human' ? 'P1 · WASD + SHIFT · SPACE KICK  |  P2 · ARROWS + ENTER KICK  |  CLICK + DRAG AIM' : 'MOVE · WASD  |  SPRINT · SHIFT  |  KICK · HOLD + RELEASE SPACE  |  CLICK + DRAG AIM  |  H HEADER'
+  const soccerControls = 'CLICK + HOLD · DRAG · RELEASE · H HEADER'
   const hockeyControls = isShootout
     ? (hockeyOpponent === 'ai' ? 'PENALTIES · W/S AIM OR MOVE KEEPER · SPACE SHOOT' : 'PENALTIES · P1: W/S · SPACE | P2: ↑/↓ · ENTER · AIM OR MOVE KEEPER')
     : (hockeyOpponent === 'ai' ? 'WASD MOVE · STRIKE THE PUCK' : 'P1 · WASD  ·  P2 · ARROWS  ·  STRIKE THE PUCK')
@@ -94,7 +95,8 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
       }
       if (phaseRef.current === 'playing' && runtime.result && !recordedRef.current) {
         recordedRef.current = true
-        const recordUpdate = recordResult(meta, runtime.result)
+        const tournamentContinue = runtime instanceof SoccerSkillsGame && runtime.hasPendingTournamentContinue()
+        const recordUpdate = tournamentContinue ? { isNewBest: false } : recordResult(meta, runtime.result)
         setNewBest(recordUpdate.isNewBest)
         if (recordUpdate.isNewBest) onRecordsChanged()
         arcadeAudio.play(runtime.result.headline.includes('CRASHED') || runtime.result.winnerName === 'AI' ? 'lose' : 'win')
@@ -151,7 +153,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
     return () => timers.forEach(window.clearTimeout)
   }, [phase])
 
-  const start = (opponent?: HockeyOpponent | SoccerOpponent) => {
+  const start = (opponent?: HockeyOpponent | SoccerOpponent, soccerMode: 'cup' | 'practice' = 'cup') => {
     if (runtime instanceof AirHockeyGame) {
       const selected: HockeyOpponent = opponent === 'human' ? 'human' : 'ai'
       runtime.setMatchFormat(hockeyFormat)
@@ -161,16 +163,31 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
     } else if (runtime instanceof SoccerSkillsGame) {
       const selected: SoccerOpponent = opponent === 'human' ? 'human' : 'ai'
       runtime.setOpponent?.(selected)
+      runtime.setPracticeMode?.(soccerMode === 'practice')
       runtime.setNationalTeam?.(soccerTeam)
       runtime.setKeeperMode(keeperMode)
-      setSoccerOpponent(selected)
       setReplayReady(false)
       setReplayProgress(0)
       setHud(runtime.getHud())
+      if (!tutorialSeen) {
+        window.localStorage.setItem('northstar-cup-tutorial', '1')
+        setTutorialSeen(true)
+      }
     }
     arcadeAudio.play('ui'); setCountdown('3'); setPhase(isClassicHockey && hockeyFormat === 'shootout-only' ? 'playing' : 'countdown')
   }
   const restart = () => { replayActiveRef.current = false; setReplayActive(false); setReplayReady(false); setReplayProgress(0); runtime.reset(); recordedRef.current = false; setResult(null); setNewBest(false); setHud(runtime.getHud()); setCountdown('3'); setPhase(isClassicHockey && hockeyFormat === 'shootout-only' ? 'playing' : 'countdown') }
+  const continueCup = () => {
+    if (!(runtime instanceof SoccerSkillsGame) || !runtime.continueTournament()) return
+    recordedRef.current = false
+    setResult(null)
+    setNewBest(false)
+    setReplayReady(false)
+    setReplayProgress(0)
+    setHud(runtime.getHud())
+    setCountdown('3')
+    setPhase('countdown')
+  }
   const toggleSound = () => { arcadeAudio.toggle(); setAudioVersion((value) => value + 1) }
   const toggleFullscreen = async () => {
     if (document.fullscreenElement) await document.exitFullscreen?.()
@@ -179,7 +196,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   }
   const startReplay = () => {
     if (!isSoccerSkills || !replayReady || replayActiveRef.current) return
-    replayPhaseRef.current = phaseRef.current === 'playing' ? 'playing' : 'paused'
+    replayPhaseRef.current = phaseRef.current === 'playing' ? 'playing' : phaseRef.current
     replayClockRef.current = 0
     replayIndexRef.current = 0
     replayActiveRef.current = true
@@ -195,6 +212,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
   }
   const best = getBest(meta.id)
   const selectedSoccerTeam = WORLD_CUP_2026_TEAMS.find((team) => team.name === soccerTeam) ?? WORLD_CUP_2026_TEAMS[0]
+  const groupSummary = isSoccerSkills ? runtime.getGroupStageSummary() : null
 
   return (
     <main className="game-screen" style={{ '--game-accent': meta.accent } as React.CSSProperties} data-audio-version={audioVersion}>
@@ -221,13 +239,13 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
             <div className={`game-overlay ready-overlay ${isHockey ? 'hockey-ready-overlay' : ''} ${isSoccerSkills ? 'soccer-skills-ready-overlay' : ''}`}>
               <span className="overlay-rule" />
               <h2>{meta.title}</h2>
-              <p>{isSoccerSkills ? 'A cinematic 11-a-side match with a live broadcast camera, human-style 3D players, responsive dribbling, tackles, charged shots, goalkeeper saves and real goal scoring. Move with WASD, sprint with Shift, then hold and release Space to strike.' : isClassicHockey ? 'Play a full match or jump straight into a penalty shootout. Choose your game format, then pick your opponent. Penalties: five shots each, followed by sudden death. Defend with W/S (P1) or ↑/↓ (P2). Hold keys to position your keeper before the fast shot.' : meta.description}</p>
+              <p>{isSoccerSkills ? 'Pick one of 48 original Aurora Cup teams. Twelve groups of four play three simulated matches each; the Round of 32 and Round of 16 are simulated bracket rounds, then you play the quarter-final, semi-final and final.' : isClassicHockey ? 'Play a full match or jump straight into a penalty shootout. Choose your game format, then pick your opponent. Penalties: five shots each, followed by sudden death. Defend with W/S (P1) or ↑/↓ (P2). Hold keys to position your keeper before the fast shot.' : meta.description}</p>
               <div className="controls-list">{meta.controls.map((control) => <kbd key={control}>{control}</kbd>)}</div>
               {isSoccerSkills && (
                 <>
                   <label className="hockey-draw-rule soccer-team-select">
-                    <span>2026 World Cup team · 48 qualified nations</span>
-                    <select value={soccerTeam} onChange={(event) => setSoccerTeam(event.target.value)}>
+                    <span>Aurora Cup team · 48 original teams</span>
+                    <select value={soccerTeam} onChange={(event) => { setSoccerTeam(event.target.value); runtime.setNationalTeam?.(event.target.value); setHud(runtime.getHud()) }}>
                       {Object.entries(SOCCER_TEAM_GROUPS).map(([confederation, teams]) => (
                         <optgroup key={confederation} label={confederation}>
                           {teams.map((team) => <option key={team.code} value={team.name}>{team.name} · {team.code}</option>)}
@@ -240,9 +258,11 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
                     <strong>{selectedSoccerTeam.code}</strong>
                     <small>{selectedSoccerTeam.name} · {selectedSoccerTeam.confederation}</small>
                   </div>
+                  {groupSummary && <div className="group-preview"><strong>GROUP {groupSummary.group} · 3 MATCHES · R32/R16 SIMULATED</strong>{groupSummary.matches.filter((match) => match.home === soccerTeam || match.away === soccerTeam).map((match) => <span key={`${match.home}-${match.away}`}>{match.home} {match.homeScore}–{match.awayScore} {match.away}</span>)}</div>}
+                  {!tutorialSeen && <div className="tutorial-card"><strong>FIRST MATCH TUTORIAL</strong><span>Press and hold your active player, drag to steer or aim, and release to move, pass or shoot. A longer drag adds power. Touch works the same way.</span></div>}
                   <div className="hockey-mode-actions soccer-mode-actions">
-                    <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start('ai')}>Play solo</button>
-                    <button className="action-button overlay-primary" onClick={() => start('human')}>Two players</button>
+                    <button className="action-button action-primary overlay-primary" autoFocus onClick={() => start('ai', 'cup')}>Play cup</button>
+                    <button className="action-button overlay-primary" onClick={() => start('ai', 'practice')}>Practice</button>
                   </div>
                 </>
               )}
@@ -267,7 +287,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
           )}
           {phase === 'countdown' && <div className="game-overlay countdown-overlay" aria-live="assertive"><strong>{countdown}</strong></div>}
           {phase === 'paused' && !replayActive && (
-            <div className="game-overlay pause-overlay"><h2>Paused</h2><p>Take a breath. The arena is frozen.</p><button className="action-button action-primary overlay-primary" onClick={() => setPhase('playing')}><Play />Resume</button><button className="text-button" onClick={onExit}>Return to arcade</button></div>
+            <div className="game-overlay pause-overlay"><h2>Paused</h2><p>Take a breath. The arena is frozen.</p><button className="action-button action-primary overlay-primary" onClick={() => setPhase('playing')}><Play />Resume</button><button className="action-button" onClick={() => setPauseControls((value) => !value)}>Controls</button>{pauseControls && <div className="pause-controls"><strong>{isSoccerSkills ? 'Hold a player · drag · release' : meta.controls.join(' · ')}</strong><span>{isSoccerSkills ? 'Longer drags add power. Press H for a header.' : 'Use the controls shown below the arena.'}</span></div>}<button className="action-button" onClick={restart}><RotateCcw />Restart match</button><button className="text-button" onClick={onExit}>Exit match</button></div>
           )}
           {replayActive && (
             <div className="replay-overlay" aria-live="polite">
@@ -283,7 +303,7 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
               <h2>{result.headline}</h2>
               <p>{result.detail}</p>
               {newBest && <div className="new-best-banner"><Trophy aria-hidden="true" />New device best · {meta.formatRecord(result.score)}</div>}
-              <div className="result-actions"><button className="action-button action-primary overlay-primary" autoFocus onClick={restart}><RotateCcw />Replay</button><button className="action-button" onClick={onExit}>Arcade menu</button></div>
+              <div className="result-actions">{result.canContinue && <button className="action-button action-primary overlay-primary" autoFocus onClick={continueCup}>Continue cup</button>}{replayReady && <button className="action-button" onClick={startReplay}><Film />View replay</button>}<button className="action-button" onClick={restart}><RotateCcw />Replay match</button><button className="action-button" onClick={onExit}>Arcade menu</button></div>
             </div>
           )}
         </div>

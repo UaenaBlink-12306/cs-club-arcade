@@ -1,18 +1,11 @@
 # Design QA
 
-final result: passed
+status: in progress
 
-Reference evidence came from the Soccer Skills 2 World Cup preview: angled broadcast camera, striped green pitch, stadium stands, blue/white teams, yellow keepers, ad boards, and drag-release play.
+The reference Poki page was not playable in the cloud browser: `poki.com` and its former `games.poki.com` iframe returned `ERR_CONNECTION_REFUSED`, and the iframe HTML says the game has moved. Public Poki copy was used only to validate the high-level drag-release interaction and tournament shape; no reference assets are reused.
 
-The local implementation now covers the full 2026 tournament loop and its match presentation:
+The local Aurora Cup implementation uses 48 fictional teams with original short codes, colors, and kit patterns. It renders an angled broadcast camera, striped pitch, stadium seating, goals, nets, markings, corner flags, ad boards, 11 players per side, and original Canvas artwork.
 
-- 48 qualified nations grouped by confederation with FIFA codes, qualification metadata, and home/away kit palettes.
-- Round of 32 → Round of 16 → quarter-final → semi-final → World Cup final progression.
-- 11 players per side, projected broadcast camera, stadium seating, goals, nets, pitch markings, corner flags, and ad boards.
-- Drag-release passing/shooting, ball height arcs, keyboard headers, goalkeeper assist/manual control, saves, throw-ins, corners, goal kicks, free kicks, fouls, penalties, shootouts, and local two-player possession.
-- Recent-frame replay playback and fullscreen control.
-- Desktop and 390x844 mobile checks with no console errors.
+Implemented gameplay includes drag-release movement, passing and shooting, charge feedback, ball height arcs, headers, goalkeeper assist/manual control, saves, throw-ins, corners, goal kicks, free kicks, fouls, penalties, replay frames, and a single-player AI opponent. The cup simulates twelve groups of four with three fixtures per team plus Round of 32 and Round of 16 bracket outcomes, then the player plays quarter-final, semi-final, and final progression. Practice, tutorial memory, pause controls, and continue-cup overlays are in the shell.
 
-`npm run build`, `npm test`, `npm run lint`, and `git diff --check` pass.
-
-The visual field is rendered locally with Canvas projection and original vector-style artwork; it does not hotlink the reference game's media.
+`npm run build`, `npm test`, and `git diff --check` should be rerun after the final UI and deployment pass. Desktop and narrow mobile smoke checks remain part of the release checklist.

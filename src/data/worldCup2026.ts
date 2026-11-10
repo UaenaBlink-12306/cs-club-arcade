@@ -1,17 +1,11 @@
 /**
- * 2026 FIFA World Cup finalists and display kit palettes.
+ * Original Aurora Cup teams.
  *
- * Qualification status is a snapshot for 2026-11-09 (all 48 places are set).
- * Kit colours are the primary shirt colours used for a compact arcade render;
- * they are not intended to reproduce every trim, pattern, or goalkeeper kit.
- *
- * Sources:
- * - FIFA tournament/team hub: https://www.fifa.com/en/tournaments/mens/worldcup/canada-mexico-usa-2026
- * - Qualification table (host berths, dates, and confederation paths):
- *   https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_qualification
+ * These fictional nations, badges and kit palettes are intentionally original
+ * so the arcade game does not imply an affiliation with real-world football
+ * federations or copy protected tournament branding.
  */
-
-export type WorldCupConfederation = 'AFC' | 'CAF' | 'CONCACAF' | 'CONMEBOL' | 'OFC' | 'UEFA'
+export type WorldCupConfederation = 'AURORA' | 'EMBER' | 'TIDELANDS' | 'SKYLANDS' | 'VERDANT' | 'STARFALL'
 
 export interface KitPalette {
   shirt: string
@@ -20,71 +14,91 @@ export interface KitPalette {
 }
 
 export interface WorldCup2026Team {
-  /** Stable FIFA three-letter code (FIFA convention where available). */
+  /** Original short code used only by the local team picker. */
   code: string
   name: string
   confederation: WorldCupConfederation
-  /** ISO date on which the berth was secured (hosts use the FIFA Council date). */
   qualifiedDate: string
   qualification: string
+  rating: number
   home: KitPalette
   away: KitPalette
 }
 
-const kit = (shirt: string, trim: string, pattern = 'solid'): KitPalette => ({ shirt, trim, pattern })
+const kit = (shirt: string, trim: string, pattern: string): KitPalette => ({ shirt, trim, pattern })
+const invite = (code: string, name: string, confederation: WorldCupConfederation, home: KitPalette, away: KitPalette): WorldCup2026Team => ({
+  code,
+  name,
+  confederation,
+  qualifiedDate: 'ORIGINAL CUP INVITE',
+  qualification: 'Aurora Cup field',
+  rating: 68 + ((code.charCodeAt(0) + code.charCodeAt(1) * 3 + code.charCodeAt(2) * 5) % 25),
+  home,
+  away,
+})
 
-/** Final 48-team field, ordered by qualification date then table order. */
+/** 48 fictional teams grouped into twelve four-team pools for the cup hub. */
 export const WORLD_CUP_2026_TEAMS: readonly WorldCup2026Team[] = [
-  // Hosts (automatic berths confirmed 2023-02-14).
-  { code: 'CAN', name: 'Canada', confederation: 'CONCACAF', qualifiedDate: '2023-02-14', qualification: 'Hosts', home: kit('#D80621', '#FFFFFF', 'red with maple-leaf trim'), away: kit('#FFFFFF', '#D80621', 'white with red trim') },
-  { code: 'MEX', name: 'Mexico', confederation: 'CONCACAF', qualifiedDate: '2023-02-14', qualification: 'Hosts', home: kit('#006847', '#CE1126', 'green with red trim'), away: kit('#FFFFFF', '#006847', 'white with green-red trim') },
-  { code: 'USA', name: 'United States', confederation: 'CONCACAF', qualifiedDate: '2023-02-14', qualification: 'Hosts', home: kit('#0B1F3A', '#D71920', 'navy with red-white trim'), away: kit('#FFFFFF', '#D71920', 'white with navy-red trim') },
+  invite('AUR', 'Aurora Isles', 'AURORA', kit('#35d0ff', '#062a50', 'sunburst'), kit('#062a50', '#35d0ff', 'wave trim')),
+  invite('BRI', 'Brighthaven', 'AURORA', kit('#ffbe3b', '#642b7d', 'gold chevrons'), kit('#642b7d', '#ffbe3b', 'violet bands')),
+  invite('CIN', 'Cinder Coast', 'AURORA', kit('#f45d48', '#ffe57e', 'ember stripes'), kit('#ffe57e', '#f45d48', 'coral sash')),
+  invite('DUS', 'Duskfall', 'AURORA', kit('#6f6cf6', '#f6f0ff', 'night dots'), kit('#f6f0ff', '#6f6cf6', 'indigo trim')),
 
-  { code: 'JPN', name: 'Japan', confederation: 'AFC', qualifiedDate: '2025-03-20', qualification: 'AFC third round Group C winners', home: kit('#003DA5', '#FFFFFF', 'blue with red-white trim'), away: kit('#FFFFFF', '#003DA5', 'white with blue trim') },
-  { code: 'NZL', name: 'New Zealand', confederation: 'OFC', qualifiedDate: '2025-03-24', qualification: 'OFC third round winners', home: kit('#111111', '#FFFFFF', 'black with white trim'), away: kit('#FFFFFF', '#111111', 'white with black trim') },
-  { code: 'IRN', name: 'Iran', confederation: 'AFC', qualifiedDate: '2025-03-25', qualification: 'AFC third round Group A winners', home: kit('#FFFFFF', '#CE1126', 'white with red-green trim'), away: kit('#CE1126', '#FFFFFF', 'red with white trim') },
-  { code: 'ARG', name: 'Argentina', confederation: 'CONMEBOL', qualifiedDate: '2025-03-25', qualification: 'CONMEBOL winners', home: kit('#74ACDF', '#FFFFFF', 'sky-blue and white stripes'), away: kit('#111111', '#74ACDF', 'black with sky-blue trim') },
-  { code: 'UZB', name: 'Uzbekistan', confederation: 'AFC', qualifiedDate: '2025-06-05', qualification: 'AFC third round Group A runners-up', home: kit('#FFFFFF', '#1EB7E8', 'white with sky-blue trim'), away: kit('#1EB7E8', '#FFFFFF', 'sky blue with white trim') },
-  { code: 'JOR', name: 'Jordan', confederation: 'AFC', qualifiedDate: '2025-06-05', qualification: 'AFC third round Group B runners-up', home: kit('#CE1126', '#FFFFFF', 'red with white trim'), away: kit('#FFFFFF', '#CE1126', 'white with red trim') },
-  { code: 'KOR', name: 'South Korea', confederation: 'AFC', qualifiedDate: '2025-06-05', qualification: 'AFC third round Group B winners', home: kit('#CD2E3A', '#111111', 'red with black trim'), away: kit('#FFFFFF', '#CD2E3A', 'white with red trim') },
-  { code: 'AUS', name: 'Australia', confederation: 'AFC', qualifiedDate: '2025-06-10', qualification: 'AFC third round Group C runners-up', home: kit('#FFCD00', '#00843D', 'gold with green trim'), away: kit('#00843D', '#FFCD00', 'green with gold trim') },
-  { code: 'BRA', name: 'Brazil', confederation: 'CONMEBOL', qualifiedDate: '2025-06-10', qualification: 'CONMEBOL fifth place', home: kit('#FFDF00', '#009C3B', 'yellow with green trim'), away: kit('#1E3A8A', '#FFDF00', 'royal blue with yellow trim') },
-  { code: 'ECU', name: 'Ecuador', confederation: 'CONMEBOL', qualifiedDate: '2025-06-10', qualification: 'CONMEBOL runners-up', home: kit('#FFD100', '#003DA5', 'yellow with blue-red trim'), away: kit('#003DA5', '#FFD100', 'blue with yellow trim') },
-  { code: 'PAR', name: 'Paraguay', confederation: 'CONMEBOL', qualifiedDate: '2025-09-04', qualification: 'CONMEBOL sixth place', home: kit('#D52B1E', '#FFFFFF', 'red and white stripes'), away: kit('#FFFFFF', '#D52B1E', 'white with red-blue trim') },
-  { code: 'URU', name: 'Uruguay', confederation: 'CONMEBOL', qualifiedDate: '2025-09-04', qualification: 'CONMEBOL fourth place', home: kit('#5CBFEB', '#FFFFFF', 'sky blue with white trim'), away: kit('#111111', '#5CBFEB', 'black with sky-blue trim') },
-  { code: 'COL', name: 'Colombia', confederation: 'CONMEBOL', qualifiedDate: '2025-09-04', qualification: 'CONMEBOL third place', home: kit('#FCD116', '#003DA5', 'yellow with blue-red trim'), away: kit('#003DA5', '#FCD116', 'blue with yellow trim') },
-  { code: 'MAR', name: 'Morocco', confederation: 'CAF', qualifiedDate: '2025-09-05', qualification: 'CAF Group E winners', home: kit('#C1272D', '#006233', 'red with green trim'), away: kit('#FFFFFF', '#C1272D', 'white with red-green trim') },
-  { code: 'TUN', name: 'Tunisia', confederation: 'CAF', qualifiedDate: '2025-09-08', qualification: 'CAF Group H winners', home: kit('#E70013', '#FFFFFF', 'red with white crest'), away: kit('#FFFFFF', '#E70013', 'white with red trim') },
-  { code: 'EGY', name: 'Egypt', confederation: 'CAF', qualifiedDate: '2025-10-08', qualification: 'CAF Group A winners', home: kit('#CE1126', '#FFFFFF', 'red with black-white trim'), away: kit('#FFFFFF', '#CE1126', 'white with red trim') },
-  { code: 'ALG', name: 'Algeria', confederation: 'CAF', qualifiedDate: '2025-10-09', qualification: 'CAF Group G winners', home: kit('#FFFFFF', '#006233', 'white with green trim'), away: kit('#006233', '#FFFFFF', 'green with white trim') },
-  { code: 'GHA', name: 'Ghana', confederation: 'CAF', qualifiedDate: '2025-10-12', qualification: 'CAF Group I winners', home: kit('#FFFFFF', '#CE1126', 'white with red-yellow-green trim'), away: kit('#CE1126', '#FCD116', 'red with gold-green trim') },
-  { code: 'CPV', name: 'Cape Verde', confederation: 'CAF', qualifiedDate: '2025-10-13', qualification: 'CAF Group D winners', home: kit('#003893', '#FFFFFF', 'blue with red-white trim'), away: kit('#FFFFFF', '#003893', 'white with blue-red trim') },
-  { code: 'QAT', name: 'Qatar', confederation: 'AFC', qualifiedDate: '2025-10-14', qualification: 'AFC fourth round Group A winners', home: kit('#8A1538', '#FFFFFF', 'maroon with white trim'), away: kit('#FFFFFF', '#8A1538', 'white with maroon trim') },
-  { code: 'KSA', name: 'Saudi Arabia', confederation: 'AFC', qualifiedDate: '2025-10-14', qualification: 'AFC fourth round Group B winners', home: kit('#006C35', '#FFFFFF', 'green with white trim'), away: kit('#FFFFFF', '#006C35', 'white with green trim') },
-  { code: 'SEN', name: 'Senegal', confederation: 'CAF', qualifiedDate: '2025-10-14', qualification: 'CAF Group B winners', home: kit('#FFFFFF', '#00853F', 'white with green-yellow-red trim'), away: kit('#00853F', '#FCD116', 'green with gold trim') },
-  { code: 'RSA', name: 'South Africa', confederation: 'CAF', qualifiedDate: '2025-10-14', qualification: 'CAF Group C winners', home: kit('#FFB81C', '#007A33', 'gold with green trim'), away: kit('#007A33', '#FFB81C', 'green with gold trim') },
-  { code: 'CIV', name: 'Ivory Coast', confederation: 'CAF', qualifiedDate: '2025-10-14', qualification: 'CAF Group F winners', home: kit('#F77F00', '#FFFFFF', 'orange with white-green trim'), away: kit('#FFFFFF', '#F77F00', 'white with orange-green trim') },
-  { code: 'ENG', name: 'England', confederation: 'UEFA', qualifiedDate: '2025-10-14', qualification: 'UEFA Group K winners', home: kit('#FFFFFF', '#1F3A93', 'white with navy trim'), away: kit('#1F3A93', '#FFFFFF', 'navy with white trim') },
-  { code: 'FRA', name: 'France', confederation: 'UEFA', qualifiedDate: '2025-11-13', qualification: 'UEFA Group D winners', home: kit('#1E3A8A', '#EF4135', 'blue with red-white trim'), away: kit('#FFFFFF', '#1E3A8A', 'white with blue trim') },
-  { code: 'CRO', name: 'Croatia', confederation: 'UEFA', qualifiedDate: '2025-11-14', qualification: 'UEFA Group L winners', home: kit('#FF0000', '#FFFFFF', 'red-white checkerboard'), away: kit('#FFFFFF', '#FF0000', 'white with red checker trim') },
-  { code: 'POR', name: 'Portugal', confederation: 'UEFA', qualifiedDate: '2025-11-16', qualification: 'UEFA Group F winners', home: kit('#C8102E', '#006600', 'red with green trim'), away: kit('#FFFFFF', '#C8102E', 'white with red-green trim') },
-  { code: 'NOR', name: 'Norway', confederation: 'UEFA', qualifiedDate: '2025-11-16', qualification: 'UEFA Group I winners', home: kit('#BA0C2F', '#00205B', 'red with navy trim'), away: kit('#FFFFFF', '#BA0C2F', 'white with red-blue trim') },
-  { code: 'GER', name: 'Germany', confederation: 'UEFA', qualifiedDate: '2025-11-17', qualification: 'UEFA Group A winners', home: kit('#FFFFFF', '#111111', 'white with black trim'), away: kit('#111111', '#FFFFFF', 'black with white trim') },
-  { code: 'NED', name: 'Netherlands', confederation: 'UEFA', qualifiedDate: '2025-11-17', qualification: 'UEFA Group G winners', home: kit('#F36C21', '#FFFFFF', 'orange with white trim'), away: kit('#111111', '#F36C21', 'black with orange trim') },
-  { code: 'SUI', name: 'Switzerland', confederation: 'UEFA', qualifiedDate: '2025-11-18', qualification: 'UEFA Group B winners', home: kit('#D52B1E', '#FFFFFF', 'red with white trim'), away: kit('#FFFFFF', '#D52B1E', 'white with red trim') },
-  { code: 'SCO', name: 'Scotland', confederation: 'UEFA', qualifiedDate: '2025-11-18', qualification: 'UEFA Group C winners', home: kit('#005EB8', '#FFFFFF', 'navy with white trim'), away: kit('#FFFFFF', '#005EB8', 'white with navy trim') },
-  { code: 'ESP', name: 'Spain', confederation: 'UEFA', qualifiedDate: '2025-11-18', qualification: 'UEFA Group E winners', home: kit('#AA151B', '#F1BF00', 'red with gold trim'), away: kit('#F1BF00', '#AA151B', 'gold with red trim') },
-  { code: 'AUT', name: 'Austria', confederation: 'UEFA', qualifiedDate: '2025-11-18', qualification: 'UEFA Group H winners', home: kit('#ED2939', '#FFFFFF', 'red with white trim'), away: kit('#FFFFFF', '#ED2939', 'white with red trim') },
-  { code: 'BEL', name: 'Belgium', confederation: 'UEFA', qualifiedDate: '2025-11-18', qualification: 'UEFA Group J winners', home: kit('#111111', '#ED2939', 'black with red-gold trim'), away: kit('#ED2939', '#111111', 'red with black trim') },
-  { code: 'PAN', name: 'Panama', confederation: 'CONCACAF', qualifiedDate: '2025-11-18', qualification: 'CONCACAF third round Group A winners', home: kit('#D50032', '#FFFFFF', 'red with white-blue trim'), away: kit('#FFFFFF', '#D50032', 'white with red-blue trim') },
-  { code: 'CUW', name: 'Curaçao', confederation: 'CONCACAF', qualifiedDate: '2025-11-18', qualification: 'CONCACAF third round Group B winners', home: kit('#0057B8', '#FCD116', 'blue with yellow trim'), away: kit('#FFFFFF', '#0057B8', 'white with blue-yellow trim') },
-  { code: 'HAI', name: 'Haiti', confederation: 'CONCACAF', qualifiedDate: '2025-11-18', qualification: 'CONCACAF third round Group C winners', home: kit('#00209F', '#D21034', 'blue with red trim'), away: kit('#D21034', '#FFFFFF', 'red with blue trim') },
-  { code: 'BIH', name: 'Bosnia and Herzegovina', confederation: 'UEFA', qualifiedDate: '2026-03-31', qualification: 'UEFA play-offs Path A winners', home: kit('#1E6BA8', '#F7D117', 'blue with gold trim'), away: kit('#FFFFFF', '#1E6BA8', 'white with blue trim') },
-  { code: 'SWE', name: 'Sweden', confederation: 'UEFA', qualifiedDate: '2026-03-31', qualification: 'UEFA play-offs Path B winners', home: kit('#FECC00', '#005B99', 'yellow with blue trim'), away: kit('#005B99', '#FECC00', 'blue with yellow trim') },
-  { code: 'TUR', name: 'Turkey', confederation: 'UEFA', qualifiedDate: '2026-03-31', qualification: 'UEFA play-offs Path C winners', home: kit('#E30A17', '#FFFFFF', 'red with white crescent'), away: kit('#FFFFFF', '#E30A17', 'white with red trim') },
-  { code: 'CZE', name: 'Czech Republic', confederation: 'UEFA', qualifiedDate: '2026-03-31', qualification: 'UEFA play-offs Path D winners', home: kit('#D7141A', '#11457E', 'red with blue trim'), away: kit('#FFFFFF', '#D7141A', 'white with red-blue trim') },
-  { code: 'COD', name: 'DR Congo', confederation: 'CAF', qualifiedDate: '2026-03-31', qualification: 'Inter-confederation Pathway 1 play-off winners', home: kit('#007FFF', '#F7D117', 'sky blue with red-yellow sash'), away: kit('#FFFFFF', '#007FFF', 'white with sky-blue trim') },
-  { code: 'IRQ', name: 'Iraq', confederation: 'AFC', qualifiedDate: '2026-03-31', qualification: 'Inter-confederation Pathway 2 play-off winners', home: kit('#009E60', '#FFFFFF', 'green with white trim'), away: kit('#FFFFFF', '#009E60', 'white with green trim') },
+  invite('EMB', 'Ember Union', 'EMBER', kit('#ff5b6e', '#2e174d', 'flame blocks'), kit('#2e174d', '#ff5b6e', 'red pinstripes')),
+  invite('FRO', 'Frostholm', 'EMBER', kit('#dff8ff', '#2877b8', 'ice facets'), kit('#2877b8', '#dff8ff', 'blue facets')),
+  invite('GOL', 'Golden Steppe', 'EMBER', kit('#f5d547', '#163b59', 'sun bands'), kit('#163b59', '#f5d547', 'gold piping')),
+  invite('HAR', 'Harbor Republic', 'EMBER', kit('#29b6a8', '#073b57', 'harbor waves'), kit('#073b57', '#29b6a8', 'teal sash')),
+
+  invite('IRW', 'Ironwood', 'TIDELANDS', kit('#4b5563', '#c5f36a', 'forest blocks'), kit('#c5f36a', '#4b5563', 'lime trim')),
+  invite('JAD', 'Jade Dominion', 'TIDELANDS', kit('#2ecf83', '#0d4b40', 'jade diamonds'), kit('#0d4b40', '#2ecf83', 'green sash')),
+  invite('KES', 'Kestrel Reach', 'TIDELANDS', kit('#f08b45', '#173c75', 'wing stripes'), kit('#173c75', '#f08b45', 'orange trim')),
+  invite('LUM', 'Lumen Valley', 'TIDELANDS', kit('#eaf5ff', '#f26bce', 'lumen rays'), kit('#f26bce', '#eaf5ff', 'pink piping')),
+
+  invite('MOO', 'Mooncrest', 'SKYLANDS', kit('#8aa4ff', '#151d4d', 'crescent bands'), kit('#151d4d', '#8aa4ff', 'blue crescent')),
+  invite('NEO', 'Neon Bay', 'SKYLANDS', kit('#9dfc5e', '#122c46', 'neon grid'), kit('#122c46', '#9dfc5e', 'lime grid')),
+  invite('OPA', 'Opal Federation', 'SKYLANDS', kit('#ff8db1', '#38246b', 'opalescent blocks'), kit('#38246b', '#ff8db1', 'rose trim')),
+  invite('PRI', 'Prism Isles', 'SKYLANDS', kit('#ff7a4d', '#ffe56b', 'prism hoops'), kit('#ffe56b', '#ff7a4d', 'sunset sash')),
+
+  invite('QUA', 'Quartz Union', 'VERDANT', kit('#d9e6f2', '#204968', 'quartz facets'), kit('#204968', '#d9e6f2', 'silver trim')),
+  invite('RED', 'Redwind', 'VERDANT', kit('#e63946', '#f7f2df', 'wind chevrons'), kit('#f7f2df', '#e63946', 'red bands')),
+  invite('SOL', 'Solara', 'VERDANT', kit('#ffca3a', '#b34f21', 'solar rays'), kit('#b34f21', '#ffca3a', 'amber trim')),
+  invite('TID', 'Tidewatch', 'VERDANT', kit('#26a6d1', '#0d415d', 'tidal stripes'), kit('#0d415d', '#26a6d1', 'aqua trim')),
+
+  invite('UMB', 'Umber Coast', 'STARFALL', kit('#9b6a4b', '#f6d98a', 'coast blocks'), kit('#f6d98a', '#9b6a4b', 'umber bands')),
+  invite('VER', 'Verdantia', 'STARFALL', kit('#59c36a', '#183f32', 'leaf mosaic'), kit('#183f32', '#59c36a', 'green piping')),
+  invite('WES', 'Westreach', 'STARFALL', kit('#5975e8', '#f6f6ff', 'horizon stripes'), kit('#f6f6ff', '#5975e8', 'blue trim')),
+  invite('YAR', 'Yarrow Fields', 'STARFALL', kit('#e0b547', '#374151', 'field checks'), kit('#374151', '#e0b547', 'gold trim')),
+
+  invite('ZEP', 'Zephyr State', 'AURORA', kit('#b6f0ff', '#214d73', 'cloud arcs'), kit('#214d73', '#b6f0ff', 'sky trim')),
+  invite('BLW', 'Brightwood', 'AURORA', kit('#f7f3ce', '#4b8f8c', 'woodgrain'), kit('#4b8f8c', '#f7f3ce', 'mint bands')),
+  invite('CLM', 'Cloudmere', 'AURORA', kit('#c5b8ff', '#403075', 'cloud layers'), kit('#403075', '#c5b8ff', 'lavender trim')),
+  invite('DRI', 'Driftmark', 'AURORA', kit('#ff9d66', '#6b2744', 'drift chevrons'), kit('#6b2744', '#ff9d66', 'orange trim')),
+
+  invite('EVD', 'Everdawn', 'EMBER', kit('#f6df63', '#884d2a', 'dawn rays'), kit('#884d2a', '#f6df63', 'gold bands')),
+  invite('FLI', 'Flintara', 'EMBER', kit('#a9b6c8', '#22354d', 'flint facets'), kit('#22354d', '#a9b6c8', 'steel trim')),
+  invite('GAL', 'Galeward', 'EMBER', kit('#62c8d3', '#19405e', 'gale arcs'), kit('#19405e', '#62c8d3', 'aqua piping')),
+  invite('HIG', 'Highmere', 'EMBER', kit('#f66d9b', '#52205c', 'highland bands'), kit('#52205c', '#f66d9b', 'pink trim')),
+
+  invite('IVO', 'Ivory Plains', 'TIDELANDS', kit('#fff4dc', '#a65d37', 'plain waves'), kit('#a65d37', '#fff4dc', 'cream trim')),
+  invite('JUN', 'Juniper Republic', 'TIDELANDS', kit('#4aa36b', '#132f38', 'juniper sprigs'), kit('#132f38', '#4aa36b', 'green piping')),
+  invite('KIN', 'Kindledale', 'TIDELANDS', kit('#ff745c', '#683d55', 'kindle blocks'), kit('#683d55', '#ff745c', 'coral trim')),
+  invite('LON', 'Longshore', 'TIDELANDS', kit('#3e97d1', '#102e52', 'shore stripes'), kit('#102e52', '#3e97d1', 'blue trim')),
+
+  invite('MIS', 'Mistvale', 'SKYLANDS', kit('#d3d8ff', '#48528a', 'mist bands'), kit('#48528a', '#d3d8ff', 'silver trim')),
+  invite('NOR', 'Northglen', 'SKYLANDS', kit('#9de2bd', '#164b45', 'glen facets'), kit('#164b45', '#9de2bd', 'green trim')),
+  invite('OXB', 'Oxbow', 'SKYLANDS', kit('#c98c66', '#493448', 'oxbow loops'), kit('#493448', '#c98c66', 'clay trim')),
+  invite('PIN', 'Pinecrest', 'SKYLANDS', kit('#2aa56a', '#ebf5b8', 'pine stripes'), kit('#ebf5b8', '#2aa56a', 'lime trim')),
+
+  invite('RAI', 'Rainshadow', 'VERDANT', kit('#6887ac', '#17253b', 'rain ticks'), kit('#17253b', '#6887ac', 'blue trim')),
+  invite('STA', 'Starfall', 'VERDANT', kit('#9c7cff', '#f7ce65', 'star sparks'), kit('#f7ce65', '#9c7cff', 'gold trim')),
+  invite('THU', 'Thunder Ridge', 'VERDANT', kit('#4a5ce0', '#f5dd67', 'thunder bolts'), kit('#f5dd67', '#4a5ce0', 'yellow trim')),
+  invite('UNI', 'Unity Isles', 'VERDANT', kit('#ff657d', '#f1f5f9', 'unity hoops'), kit('#f1f5f9', '#ff657d', 'rose trim')),
+
+  invite('VIV', 'Vividora', 'STARFALL', kit('#ff6f61', '#4b2d73', 'vivid pixels'), kit('#4b2d73', '#ff6f61', 'coral trim')),
+  invite('WIL', 'Wildcrest', 'STARFALL', kit('#79d65b', '#284e37', 'wild zigzags'), kit('#284e37', '#79d65b', 'lime trim')),
+  invite('XEN', 'Xenora', 'STARFALL', kit('#e56af1', '#243253', 'xeno waves'), kit('#243253', '#e56af1', 'violet trim')),
+  invite('YEL', 'Yellowcrest', 'STARFALL', kit('#f6da44', '#754b23', 'crest stripes'), kit('#754b23', '#f6da44', 'gold trim')),
+  invite('ZAF', 'Zaffre Coast', 'STARFALL', kit('#2764c4', '#e7f0ff', 'zaffre tide'), kit('#e7f0ff', '#2764c4', 'blue trim')),
 ]
 
 export const WORLD_CUP_2026_BY_CODE: Readonly<Record<string, WorldCup2026Team>> = Object.fromEntries(
