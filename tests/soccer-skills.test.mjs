@@ -235,3 +235,30 @@ test('six seeded matches finish without nonfinite coordinates or repeated-goal l
   assert.ok(m.tackles>0);assert.ok(m.passes[0]+m.passes[1]>0);
  }
 });
+
+test('shootout labels wait for both fifth kicks and stay in sudden death during its reply kick',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ const m=h.app.match;m.finish();m.random=()=>0;h.app.syncMatch();
+ for(let kick=0;kick<9;kick++){
+  assert.equal(h.elements.get('penaltyPrompt').textContent,
+   'Round '+(Math.floor(kick/2)+1)+' · '+(kick%2===0?'Choose where to shoot':'Choose where to dive'));
+  h.penalties[1].onclick();
+ }
+ assert.deepEqual(m.penalties.taken,[5,4]);
+ assert.equal(h.elements.get('penaltyPrompt').textContent,'Round 5 · Choose where to dive');
+ h.penalties[1].onclick();
+ assert.deepEqual(m.penalties.taken,[5,5]);assert.deepEqual(m.penalties.score,[5,5]);
+ assert.equal(h.elements.get('penaltyPrompt').textContent,'Sudden death · Choose where to shoot');
+ h.penalties[1].onclick();
+ assert.deepEqual(m.penalties.score,[6,5]);
+ assert.equal(h.elements.get('penaltyPrompt').textContent,'Sudden death · Choose where to dive');
+ h.penalties[0].onclick();assert.equal(h.app.view,'full');assert.equal(m.winner(),0);
+
+ const regulation=uiHarness(html);regulation.chooseMode('cup');regulation.click('toTrophy');regulation.click('startMatch');regulation.flush();
+ regulation.app.match.finish();regulation.app.match.random=()=>0;regulation.app.syncMatch();
+ for(let kick=0;kick<9;kick++)regulation.penalties[1].onclick();
+ assert.equal(regulation.elements.get('penaltyPrompt').textContent,'Round 5 · Choose where to dive');
+ regulation.penalties[0].onclick();
+ assert.deepEqual(regulation.app.match.penalties.taken,[5,5]);
+ assert.equal(regulation.app.view,'full');assert.ok(regulation.elements.get('penalties').classList.contains('hidden'));
+});

@@ -429,7 +429,7 @@ function syncMatch(){
   if(match.phase==='penalties'){
     const p=match.penalties;
     $('#penaltyScore').textContent=match.home.code+' '+p.score[0]+' - '+p.score[1]+' '+match.away.code;
-    $('#penaltyPrompt').textContent=(p.taken[0]>=5?'Sudden death · ':'Round '+(Math.min(p.taken[0],p.taken[1])+1)+' · ')+(p.turn===0?'Choose where to shoot':'Choose where to dive');
+    $('#penaltyPrompt').textContent=(p.taken[0]>=5&&p.taken[1]>=5?'Sudden death · ':'Round '+(Math.min(p.taken[0],p.taken[1])+1)+' · ')+(p.turn===0?'Choose where to shoot':'Choose where to dive');
     $('#penaltyLast').textContent=match.event;
   }
   if(match.event!==lastEvent){lastEvent=match.event;if(match.phase==='playing'&&lastEvent)toast(lastEvent);}
