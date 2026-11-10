@@ -1,15 +1,74 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#061225" />
-    <meta name="description" content="Ten fast, polished mini-games built for the CS Club fair." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>CS Club Arcade</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Soccer Skills 2D</title>
+<style>
+:root{--cyan:#22d5db;--ink:#132339;--yellow:#f8d34d;--blue:#214f9a;--green:#2d9e63}
+*{box-sizing:border-box} body{margin:0;background:#2bd4d1;color:white;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+#app{position:relative;width:100vw;height:100vh;min-height:520px;display:grid;place-items:center;background:linear-gradient(145deg,#38dede,#16b7c1)}
+#stage{position:relative;width:min(1100px,96vw);aspect-ratio:16/9;max-height:92vh;border-radius:22px;overflow:hidden;box-shadow:0 20px 70px #087f8b66;background:#135d83}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:absolute;inset:0;pointer-events:none}
+.panel{pointer-events:auto;position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:linear-gradient(180deg,#0b4872d9,#0e6f80e6)}
+.panel.hidden{display:none}.card{width:min(86%,620px);background:#f3fbf8;color:#17304d;border-radius:20px;padding:26px 30px;box-shadow:0 18px 60px #063e5999;text-align:center}
+h1{font-size:clamp(28px,5vw,62px);margin:0 0 4px;letter-spacing:-2px}h2{margin:0 0 8px;font-size:clamp(22px,3vw,36px)}p{margin:8px 0 18px;color:#527080}
+.logo{font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#fff;font-size:clamp(14px,2vw,22px);margin-bottom:18px}
+button{border:0;border-radius:12px;padding:13px 18px;font-weight:800;letter-spacing:.03em;cursor:pointer;transition:.15s transform,.15s filter;background:#e4eff2;color:#17304d;margin:6px;box-shadow:0 4px 0 #b5c8cd}
+button:hover{filter:brightness(1.05);transform:translateY(-1px)}button:active{transform:translateY(2px);box-shadow:0 2px 0 #b5c8cd}
+button.primary{background:#28c4d0;color:#073c54;box-shadow:0 4px 0 #119aa8}button.yellow{background:var(--yellow);color:#4e3d00;box-shadow:0 4px 0 #cbab2f}button.green{background:#63cb79;color:#0c4c29;box-shadow:0 4px 0 #30984a}
+.row{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px}.teams{display:flex;align-items:center;justify-content:center;gap:16px;margin:18px 0 8px}.teamBadge{min-width:120px;padding:15px;border-radius:14px;background:#e6f6f8}.flag{font-size:38px}.teamName{font-weight:900;margin-top:4px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0}.stat{padding:12px;border-radius:10px;background:#e8f2f3}.stat b{display:block;font-size:20px}
+#hud{position:absolute;left:14px;right:14px;top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}.score{pointer-events:auto;background:#073c54de;border:1px solid #7feaf0aa;border-radius:14px;padding:9px 15px;display:flex;gap:12px;align-items:center;font-weight:900}.clock{font-variant-numeric:tabular-nums;color:#baf9ff}.hamb{pointer-events:auto;background:#073c54de;color:white;box-shadow:none;padding:9px 12px;margin:0}
+#hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:#063c58c7;padding:8px 14px;border-radius:999px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;pointer-events:none}
+.big{font-size:clamp(34px,7vw,76px);font-weight:1000;letter-spacing:-2px;color:#fff;text-shadow:0 5px 0 #2b6b7c}.pill{display:inline-block;padding:7px 11px;border-radius:99px;background:#d9f4f3;color:#08727c;font-size:12px;font-weight:800;text-transform:uppercase}
+#toast{position:absolute;top:18%;left:50%;transform:translateX(-50%) scale(.9);opacity:0;transition:.25s;pointer-events:none;background:#f9fffe;color:#17465b;border-radius:16px;padding:12px 20px;font-weight:900;box-shadow:0 12px 34px #003e4a66}.toastOn{opacity:1!important;transform:translateX(-50%) scale(1)!important}
+@media(max-width:620px){.card{padding:20px 16px}.teamBadge{min-width:92px}.stats{gap:4px}.stat{padding:8px;font-size:12px}.stat b{font-size:16px}}
+</style>
+</head>
+<body>
+<div id="app"><div id="stage"><canvas id="game" width="1100" height="620"></canvas>
+<div id="ui">
+<div id="hud" class="hidden"><div class="score"><span id="homeFlag">🇦🇷</span><span id="homeName">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">CRO</span><span id="awayFlag">🇭🇷</span><span class="clock" id="clock">00:00</span></div><button id="menuBtn" class="hamb">☰</button></div>
+<div id="hint" class="hidden">Drag from the active player to pass or shoot • release to kick</div>
+<div id="toast"></div>
+<section class="panel" id="menu"><div class="card"><div class="logo">Soccer Skills 2D</div><h1>Street to Glory</h1><p>Fast, tactile overhead football with a bright arcade feel.</p><div class="row"><button class="primary" data-go="team">CHOOSE YOUR TEAM</button></div><div class="row"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi">MULTIPLAYER</button></div></div></section>
+<section class="panel hidden" id="team"><div class="card"><div class="pill">Choose your team</div><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div></div><button class="yellow" id="next">NEXT ›</button></div><div class="stats"><div class="stat"><b id="atk">74</b>ATTACK</div><div class="stat"><b id="mid">71</b>MIDFIELD</div><div class="stat"><b id="def">68</b>DEFENCE</div></div><div class="row"><button class="primary" id="toTrophy">CONTINUE</button><button data-go="menu">BACK</button></div></div></section>
+<section class="panel hidden" id="trophy"><div class="card"><div class="pill">Road to the final</div><h2>World Cup Challenge</h2><p>Quarterfinal • Semifinal • Final</p><div style="font-size:70px;margin:8px">🏆</div><div class="stats"><div class="stat"><b>QF</b>ROUND</div><div class="stat"><b>4</b>FORM</div><div class="stat"><b>2</b>RIVALS</div></div><button class="primary" id="startMatch">START MATCH</button><button data-go="team">CHANGE TEAM</button></div></section>
+<section class="panel hidden" id="loading"><div class="card"><div class="pill">Loading match</div><h2 id="loadingTitle">Argentina</h2><div style="font-size:80px;margin:14px">🇦🇷</div><div style="height:12px;border-radius:99px;background:#d6e9e8;overflow:hidden"><div id="loadBar" style="height:100%;width:0;background:#22c9d0;transition:width .2s"></div></div><p id="loadText">Preparing the pitch…</p></div></section>
+<section class="panel hidden" id="replay"><div class="card"><div class="pill">Highlight</div><div class="big">GOAL!</div><p>Instant replay • watch the winning finish</p><div class="row"><button class="yellow" id="skipReplay">SKIP</button><button class="primary" id="replayAgain">REPLAY</button></div></div></section>
+<section class="panel hidden" id="half"><div class="card"><div class="big">HALF TIME</div><p>Scoreboard locked. Take a breath, then get back out there.</p><button class="green" id="resume">RESUME GAME</button></div></section>
+<section class="panel hidden" id="corner"><div class="card"><div class="pill">Set piece</div><div class="big" style="font-size:clamp(30px,6vw,62px)">BALL OUT</div><h2>Corner Kick</h2><p>Drag from the cyan player to bend the cross into the box.</p><button class="primary" id="takeCorner">TAKE CORNER</button></div></section>
+<section class="panel hidden" id="full"><div class="card"><div class="pill">Full time</div><h2 id="resultScore">Argentina 4 - 1 Croatia</h2><p id="resultMsg">Congratulations, Argentina wins!</p><button class="green" id="continueCup">CONTINUE</button></div></section>
+<section class="panel hidden" id="pause"><div class="card"><h2>Match paused</h2><p>Take a moment, then continue your run.</p><button class="primary" id="resumePause">RESUME</button><button data-go="menu">QUIT TO MENU</button></div></section>
+</div></div></div>
+<script>
+const c=document.getElementById('game'),x=c.getContext('2d'),W=c.width,H=c.height;
+const panels=['menu','team','trophy','loading','replay','half','corner','full','pause'];
+let state='menu',teamIndex=0,score=[0,0],minute=0,period=1,loadTimer,raf,last=0,drag=null,shot=null,cornerReady=false;
+const teams=[['🇺🇿','Uzbekistan',74,71,68],['🇦🇷','Argentina',86,84,82],['🇭🇷','Croatia',82,80,79],['🇯🇵','Japan',78,79,76],['🇧🇷','Brazil',88,86,80],['🇲🇦','Morocco',79,77,81]];
+const qs=s=>document.querySelector(s), show=id=>{panels.forEach(p=>qs('#'+p).classList.toggle('hidden',p!==id));qs('#hud').classList.toggle('hidden',id!=='match');qs('#hint').classList.toggle('hidden',id!=='match')};
+function toast(t){const e=qs('#toast');e.textContent=t;e.classList.add('toastOn');setTimeout(()=>e.classList.remove('toastOn'),1400)}
+function drawText(t,px,py,size,fill='#fff',align='center'){x.fillStyle=fill;x.font='800 '+size+'px Inter,system-ui';x.textAlign=align;x.fillText(t,px,py)}
+function field(){x.fillStyle='#167890';x.fillRect(0,0,W,H);const l=48,t=74,w=W-96,h=H-126;x.fillStyle='#3cb96f';x.fillRect(l,t,w,h);for(let i=0;i<10;i++){x.fillStyle=i%2?'#39ad67':'#43bf73';x.fillRect(l+i*w/10,t,w/10,h)}x.strokeStyle='#eafff6';x.lineWidth=4;x.strokeRect(l,t,w,h);x.beginPath();x.moveTo(W/2,t);x.lineTo(W/2,t+h);x.stroke();x.beginPath();x.arc(W/2,t+h/2,82,0,Math.PI*2);x.stroke();x.fillStyle='#eafff6';x.beginPath();x.arc(W/2,t+h/2,5,0,Math.PI*2);x.fill();x.strokeRect(l,t+h*.29,116,h*.42);x.strokeRect(l+w-116,t+h*.29,116,h*.42);x.strokeRect(l-18,t+h*.41,18,h*.18);x.strokeRect(l+w,t+h*.41,18,h*.18);drawText('GOAL',l-29,t+h/2+6,10,'#eafff6');drawText('GOAL',l+w+29,t+h/2+6,10,'#eafff6')}
+let p={x:300,y:385,vx:0,vy:0};let b={x:335,y:385,vx:0,vy:0,owner:true};let foes=[{x:525,y:250},{x:650,y:420},{x:780,y:300},{x:480,y:470}];let mates=[{x:235,y:285},{x:260,y:480},{x:420,y:280}];
+function player(o,col,active=false){x.fillStyle='#15304c55';x.beginPath();x.ellipse(o.x,o.y+13,17,7,0,0,Math.PI*2);x.fill();x.fillStyle=col;x.beginPath();x.arc(o.x,o.y,14,0,Math.PI*2);x.fill();x.fillStyle='#f7d2ad';x.beginPath();x.arc(o.x,o.y-10,7,0,Math.PI*2);x.fill();if(active){x.strokeStyle='#6ff7ff';x.lineWidth=4;x.beginPath();x.moveTo(o.x,o.y-31);x.lineTo(o.x-9,o.y-45);x.lineTo(o.x+9,o.y-45);x.closePath();x.stroke();x.fillStyle='#6ff7ff';x.fill()}}
+function ball(){x.fillStyle='#082c3b55';x.beginPath();x.ellipse(b.x,b.y+8,9,4,0,0,Math.PI*2);x.fill();x.fillStyle='#fff';x.beginPath();x.arc(b.x,b.y,7,0,Math.PI*2);x.fill();x.strokeStyle='#3f5565';x.lineWidth=1;x.stroke()}
+function matchDraw(){field();if(drag){x.strokeStyle='#20efff';x.lineWidth=5;x.setLineDash([12,8]);x.beginPath();x.moveTo(p.x,p.y);x.lineTo(drag.x,drag.y);x.stroke();x.setLineDash([]);x.fillStyle='#20efff';x.beginPath();x.arc(drag.x,drag.y,9,0,Math.PI*2);x.fill()}mates.forEach(o=>player(o,'#f8fbff'));foes.forEach(o=>player(o,'#1e2e69'));player({x:920,y:385},'#f6cf31');player(p,'#f8fbff',true);ball();if(shot){x.strokeStyle='#22d5db';x.lineWidth=4;x.setLineDash([9,10]);x.beginPath();x.moveTo(b.x,b.y);x.lineTo(b.x+b.vx*12,b.y+b.vy*12);x.stroke();x.setLineDash([])}}
+function resetMatch(){score=[0,0];minute=0;period=1;p={x:300,y:385,vx:0,vy:0};b={x:335,y:385,vx:0,vy:0,owner:true};shot=null;cornerReady=false;qs('#scoreText').textContent='0 - 0';qs('#clock').textContent='00:00';}
+function beginMatch(){show('loading');let n=0;clearInterval(loadTimer);loadTimer=setInterval(()=>{n+=10;qs('#loadBar').style.width=n+'%';qs('#loadText').textContent=n<60?'Painting the stripes…':n<100?'Warming up the teams…':'Kickoff ready';if(n>=100){clearInterval(loadTimer);setTimeout(()=>{resetMatch();state='match';show('match');toast('Drag from the cyan arrow to play');},350)}},100)}
+function goal(){score[0]++;qs('#scoreText').textContent=score[0]+' - '+score[1];show('replay');toast('GOAL!');}
+function halftime(){show('half');}
+function fulltime(){qs('#resultScore').textContent=teams[teamIndex][1]+' '+score[0]+' - '+score[1]+' Croatia';qs('#resultMsg').textContent='Congratulations, '+teams[teamIndex][1]+' wins!';show('full')}
+function update(dt){if(state!=='match')return;minute+=dt*.002;qs('#clock').textContent=String(Math.floor(minute)).padStart(2,'0')+':'+String(Math.floor((minute%1)*60)).padStart(2,'0');b.x+=b.vx*dt;b.y+=b.vy*dt;b.vx*=.985;b.vy*=.985;if(Math.hypot(b.vx,b.vy)<.02){b.vx=0;b.vy=0;shot=null}if(b.x<90&&b.y>270&&b.y<480){goal();state='replay';return}if(b.x<50||b.x>1050||b.y<74||b.y>550){if(b.x<50||b.x>1050){cornerReady=true;show('corner');state='corner';return}b.x=Math.max(55,Math.min(1045,b.x));b.y=Math.max(80,Math.min(545,b.y));b.vy*=-.5}if(minute>45&&period===1){period=2;halftime();state='half';return}if(minute>90&&period===2){fulltime();state='full';return}}
+function loop(ts){const dt=Math.min(32,ts-last||16);last=ts;if(state==='match')matchDraw();update(dt);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function setTeam(){const t=teams[teamIndex];qs('#teamFlag').textContent=t[0];qs('#teamName').textContent=t[1];qs('#atk').textContent=t[2];qs('#mid').textContent=t[3];qs('#def').textContent=t[4]}
+document.querySelectorAll('[data-go]').forEach(btn=>btn.onclick=()=>{const to=btn.dataset.go;if(to==='practice'||to==='cup'||to==='multi'){teamIndex=to==='multi'?1:teamIndex;setTeam();show('team')}else show(to);state=to==='menu'?'menu':to});
+qs('#prev').onclick=()=>{teamIndex=(teamIndex+teams.length-1)%teams.length;setTeam()};qs('#next').onclick=()=>{teamIndex=(teamIndex+1)%teams.length;setTeam()};qs('#toTrophy').onclick=()=>{show('trophy');state='trophy'};qs('#startMatch').onclick=()=>{state='loading';beginMatch()};qs('#skipReplay').onclick=()=>{if(score[0]>=4){fulltime();state='full'}else{show('match');state='match';minute+=8}};qs('#replayAgain').onclick=()=>toast('Replay • 0:03');qs('#resume').onclick=()=>{show('match');state='match'};qs('#takeCorner').onclick=()=>{b={x:110,y:150,vx:2.6,vy:2.2,owner:false};show('match');state='match';toast('Corner in play')};qs('#continueCup').onclick=()=>{show('trophy');state='trophy';score=[0,0]};qs('#menuBtn').onclick=()=>{show('pause');state='pause'};qs('#resumePause').onclick=()=>{show('match');state='match'};
+function pos(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+c.addEventListener('pointerdown',e=>{if(state!=='match')return;const q=pos(e);if(Math.hypot(q.x-p.x,q.y-p.y)<65){drag=q;c.setPointerCapture(e.pointerId)}});
+c.addEventListener('pointermove',e=>{if(drag){drag=pos(e)}});
+c.addEventListener('pointerup',e=>{if(!drag||state!=='match')return;const q=pos(e),dx=q.x-p.x,dy=q.y-p.y,mag=Math.min(10,Math.hypot(dx,dy)/18);if(mag<1){drag=null;return}b={x:p.x+dx*.15,y:p.y+dy*.15,vx:dx/55*mag,vy:dy/55*mag,owner:false};shot=true;drag=null;toast(Math.abs(dx)>180?'Shot!':'Pass!');});
+setTeam();show('menu');
+</script>
+</body></html>
