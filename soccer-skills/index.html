@@ -377,7 +377,7 @@ class ActionCamera {
   constructor(){this.x=550;this.y=318;this.zoom=1.58;this.width=1100;this.height=620;this.ready=false;}
   resize(width,height){
     const rotated=height>width;
-    if(rotated!==(this.height>this.width))this.ready=false;
+    if(rotated!==(this.height>this.width)||Math.abs(height/width-this.height/this.width)>.01)this.ready=false;
     this.width=width;this.height=height;
   }
   get portrait(){return this.height>this.width;}
@@ -396,20 +396,31 @@ class ActionCamera {
     const p=this.project(origin.x,origin.y),q=this.unproject(p.x+dx,p.y+dy);
     return {x:q.x-origin.x,y:q.y-origin.y};
   }
+  portraitBounds(zoom){
+    // Keep the end lines near the viewport edges instead of centering a keeper
+    // on the screen and revealing half a screen of empty runoff behind them.
+    const visibleDepth=this.height/(zoom*.88);
+    const low=FIELD.left+visibleDepth*(.53-.14);
+    const high=FIELD.right-visibleDepth*(.90-.53);
+    return low<=high?[low,high]:[(FIELD.left+FIELD.right)/2,(FIELD.left+FIELD.right)/2];
+  }
   update(shot,dt,replay=false,snap=false){
     const b=shot.ball,active=shot.players.find(p=>p.id===shot.active)||b;
     const vx=Number.isFinite(b.vx)?b.vx:0,vy=Number.isFinite(b.vy)?b.vy:0;
     const leadX=clamp(vx*.22,-95,95),leadY=clamp(vy*.16,-48,48);
-    const tx=clamp(b.x*.88+active.x*.12+leadX,125,975);
+    let tx=clamp(b.x*.88+active.x*.12+leadX,125,975);
     const ty=clamp(b.y*.9+active.y*.1+leadY,155,490);
     const portrait=this.height>this.width;
     const base=portrait?clamp(this.height/850,1.85,2.8):1.58;
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
     const tz=clamp(base+(replay?.13:nearGoal?.10:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
+    if(portrait){const [low,high]=this.portraitBounds(tz);tx=clamp(tx,low,high);}
     const pan=1-Math.exp(-Math.max(0,dt)*5.5),zoom=1-Math.exp(-Math.max(0,dt)*2.8);
     if(!this.ready||snap){this.x=tx;this.y=ty;this.zoom=tz;this.ready=true;}
     else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=(tz-this.zoom)*zoom;}
+    // Re-clamp against the interpolated zoom too, including resize and replay.
+    if(portrait){const [low,high]=this.portraitBounds(this.zoom);this.x=clamp(this.x,low,high);}
   }
 }
 // END SOCCER CAMERA

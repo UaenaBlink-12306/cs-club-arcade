@@ -273,7 +273,7 @@ test('shootout labels wait for both fifth kicks and stay in sudden death during 
 
 test('camera ground projection round-trips at both ends and across landscape and portrait viewports',()=>{
  const cameraCode=html.split('// BEGIN SOCCER CAMERA')[1].split('// END SOCCER CAMERA')[0];
- const {ActionCamera}=new Function('clamp',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)));
+ const {ActionCamera}=new Function('clamp','FIELD',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)),FIELD);
  const c=new ActionCamera();
  for(const size of [[1100,620],[1100,2380],[1100,510]])for(const cx of [125,550,975])for(const zoom of [1.3,1.58,2.25]){
   c.resize(...size);c.x=cx;c.y=318;c.zoom=zoom;
@@ -379,4 +379,35 @@ test('touch guidance is selected before first input and landscape returns to hor
  assert.ok(c.zoom<1.8);
  const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.click('toTrophy');desktop.flush();
  assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
+});
+
+test('portrait keeps both end lines at the frame edges through keeper tracking, fast balls and replay zoom',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
+ for(const rect of [{width:500,height:739},{width:390,height:844}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});h.app.render(1/60);
+  for(const x of [FIELD.right-18,FIELD.left+18,550,FIELD.right-18]){
+   const shot=m.snapshot();shot.ball.x=x;shot.ball.y=318;shot.players[shot.active].x=x;shot.players[shot.active].y=318;
+   for(const speed of [0,600,0])for(let frame=0;frame<90;frame++){
+    shot.ball.vx=speed;c.update(shot,1/60,frame>45);
+    const top=c.project(FIELD.left,318).y/c.height,bottom=c.project(FIELD.right,318).y/c.height;
+    assert.ok(top<=.140001,'top runoff must not grow into a blank third');
+    assert.ok(bottom>=.899999,'bottom runoff must stay within ten percent');
+   }
+   const keeper=c.project(x,318);
+   assert.ok(keeper.y>c.height*.1&&keeper.y<c.height*.94,'keeper remains visible near either end');
+  }
+ }
+});
+test('portrait end-line clamp preserves touch aiming and leaves landscape tracking unchanged',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
+ const shot=m.snapshot();shot.ball.x=1014;shot.players[shot.active].x=1014;
+ for(let i=0;i<120;i++)c.update(shot,1/60);
+ const origin={x:1014,y:318},p=c.project(origin.x,origin.y),v=c.vector(origin,0,-120),q=c.project(origin.x+v.x,origin.y+v.y);
+ assert.ok(v.x<0);assert.ok(Math.abs(q.x-p.x)<.001);assert.ok(Math.abs(q.y-p.y+120)<.001);
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});h.app.render(1/60);
+ c.update(shot,0,false,true);
+ assert.equal(c.x,975);assert.equal(c.portrait,false);
 });
