@@ -349,3 +349,34 @@ test('restarts and halftime remain controllable under the new camera',()=>{
  m.phase='half';h.app.syncMatch();h.click('resume');h.app.render(1/60);
  assert.equal(m.direction(0),1);assert.equal(m.phase,'playing');assert.ok(Number.isFinite(h.app.camera.x));
 });
+
+test('portrait turns the long pitch axis upright and fills the 500 by 739 viewport',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const canvas=h.elements.get('game');
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});
+ h.app.render(1/60);
+ const c=h.app.camera,top=c.project(68,318),bottom=c.project(1032,318);
+ assert.ok(c.portrait);assert.ok(Math.abs(top.x-bottom.x)<.001);
+ assert.ok((bottom.y-top.y)/c.height>.85,'long axis should fill at least 85% of portrait height');
+ const m=h.app.match,p=m.owner,origin=c.project(p.x,p.y);
+ const event=(x,y)=>({clientX:x*500/1100,clientY:y*500/1100,pointerType:'touch',pointerId:8,preventDefault(){}});
+ canvas.handlers.pointerdown(event(origin.x,origin.y));
+ canvas.handlers.pointerup(event(origin.x,origin.y-120));
+ assert.ok(m.ball.vx<0,'upward portrait drag attacks the left world goal');
+ assert.ok(Math.abs(m.ball.vy)<.001);
+ assert.ok(h.elements.get('hint').textContent.includes('Release to pass or shoot'));
+ assert.ok(!h.elements.get('hint').textContent.includes('WASD'));
+});
+test('touch guidance is selected before first input and landscape returns to horizontal pitch',()=>{
+ const h=uiHarness(html);h.window.matchMedia=()=>({matches:true});
+ h.chooseMode('practice');h.click('toTrophy');h.flush();
+ assert.ok(!h.elements.get('hint').textContent.includes('WASD'));
+ const canvas=h.elements.get('game');
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});h.app.render(1/60);
+ const c=h.app.camera,a=c.project(68,318),b=c.project(1032,318);
+ assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<.001);assert.ok(b.x>a.x);
+ assert.ok(c.zoom<1.8);
+ const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.click('toTrophy');desktop.flush();
+ assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
+});

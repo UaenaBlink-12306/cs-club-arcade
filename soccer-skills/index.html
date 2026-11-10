@@ -375,15 +375,22 @@ class SoccerMatch {
 // Ground-plane projection is invertible; sprites stay upright above their feet.
 class ActionCamera {
   constructor(){this.x=550;this.y=318;this.zoom=1.58;this.width=1100;this.height=620;this.ready=false;}
-  resize(width,height){this.width=width;this.height=height;}
-  depth(y){return Math.max(.4,1+(y-this.y)*.00065);}
+  resize(width,height){
+    const rotated=height>width;
+    if(rotated!==(this.height>this.width))this.ready=false;
+    this.width=width;this.height=height;
+  }
+  get portrait(){return this.height>this.width;}
+  depth(x,y){return Math.max(.4,1+(this.portrait?x-this.x:y-this.y)*.00065);}
   project(x,y,z=0){
-    const scale=this.zoom*this.depth(y);
-    return {x:this.width*.5+(x-this.x)*scale,y:this.height*.53+(y-this.y)*this.zoom*.72-z*scale,scale};
+    const u=this.portrait?this.y-y:x-this.x,v=this.portrait?x-this.x:y-this.y;
+    const scale=this.zoom*this.depth(x,y),tilt=this.portrait?.88:.72;
+    return {x:this.width*.5+u*scale,y:this.height*.53+v*this.zoom*tilt-z*scale,scale};
   }
   unproject(x,y){
-    const wy=this.y+(y-this.height*.53)/(this.zoom*.72);
-    return {x:this.x+(x-this.width*.5)/(this.zoom*this.depth(wy)),y:wy};
+    const v=(y-this.height*.53)/(this.zoom*(this.portrait?.88:.72));
+    const u=(x-this.width*.5)/(this.zoom*Math.max(.4,1+v*.00065));
+    return this.portrait?{x:this.x+v,y:this.y-u}:{x:this.x+u,y:this.y+v};
   }
   vector(origin,dx,dy){
     const p=this.project(origin.x,origin.y),q=this.unproject(p.x+dx,p.y+dy);
@@ -396,10 +403,10 @@ class ActionCamera {
     const tx=clamp(b.x*.88+active.x*.12+leadX,125,975);
     const ty=clamp(b.y*.9+active.y*.1+leadY,155,490);
     const portrait=this.height>this.width;
-    const base=portrait?2.25:1.58;
+    const base=portrait?clamp(this.height/850,1.85,2.8):1.58;
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
-    const tz=clamp(base+(replay?.13:nearGoal?.10:0)-Math.min(.23,speed*.0004),1.3,2.5);
+    const tz=clamp(base+(replay?.13:nearGoal?.10:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
     const pan=1-Math.exp(-Math.max(0,dt)*5.5),zoom=1-Math.exp(-Math.max(0,dt)*2.8);
     if(!this.ready||snap){this.x=tx;this.y=ty;this.zoom=tz;this.ready=true;}
     else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=(tz-this.zoom)*zoom;}
@@ -414,7 +421,12 @@ const camera=new ActionCamera();
 const $=selector=>document.querySelector(selector);
 const panels=['menu','team','trophy','loading','replay','half','corner','full','pause','penalties'];
 let view='menu',selection=0,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0;
-let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0;
+let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0,touchControls=false;
+function updateControlHint(){
+  const touch=touchControls||!!window.matchMedia?.('(pointer: coarse)').matches||!!window.navigator?.maxTouchPoints;
+  $('#hint').textContent=touch?'Hold + drag to run · Release to pass or shoot · Tap a teammate to select':'Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
+}
+function attackHint(){return camera.portrait?(match.direction(0)<0?'↑ ATTACK':'ATTACK ↓'):(match.direction(0)<0?'← ATTACK':'ATTACK →');}
 const keys=new Set();
 const roundNames=['QUARTERFINAL','SEMIFINAL','FINAL'];
 function opponentFor(homeIndex,roundIndex){return [2,3,4,1,5,0].filter(i=>i!==homeIndex)[roundIndex];}
@@ -465,8 +477,8 @@ function startMatch(){
       match=new SoccerMatch(home,away,mode,23+selection*7+round*17);
       camera.ready=false;resizeView();camera.update(match.snapshot(),0,false,true);
       lastEvent='';accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
-      $('#hint').textContent='Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
-      toast(mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the left goal!');
+      updateControlHint();
+      toast(mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the '+(camera.portrait?'top':'left')+' goal!');
     }
   };loadTimer=setTimeout(advance,150);
 }
@@ -521,6 +533,7 @@ function point(event){
 }
 canvas.addEventListener('pointerdown',event=>{
   if(match?.phase!=='playing')return;event.preventDefault();
+  if(event.pointerType==='touch'||event.pointerType==='pen'){touchControls=true;updateControlHint();}
   canvas.focus({preventScroll:true});
   const screen=point(event),q=camera.unproject(screen.x,screen.y);
   if(match.owner?.team!==0){
@@ -588,7 +601,7 @@ $('#toTrophy').onclick=()=>{if(mode==='practice')startMatch();else{updateTrophy(
 $('#startMatch').onclick=startMatch;
 $('#skipReplay').onclick=()=>{match?.skipReplay();syncMatch();};
 $('#replayAgain').onclick=()=>{if(match){match.phase='replay';match.replayTime=0;syncMatch();}};
-$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();canvas.focus({preventScroll:true});toast('You now attack the right goal!');};
+$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();canvas.focus({preventScroll:true});toast('You now attack the '+(camera.portrait?'bottom':'right')+' goal!');};
 $('#takeCorner').onclick=()=>{match?.takeRestart();syncMatch();canvas.focus({preventScroll:true});};
 $('#continueCup').onclick=continueCup;
 $('#menuBtn').onclick=pause;$('#resumePause').onclick=resume;
@@ -607,7 +620,7 @@ function resizeView(){
   const pixelWidth=Math.round(r.width*ratio),pixelHeight=Math.round(r.height*ratio);
   if(canvas.width!==pixelWidth||canvas.height!==pixelHeight){canvas.width=pixelWidth;canvas.height=pixelHeight;}
   ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
-  camera.resize(W,H);
+  camera.resize(W,H);updateControlHint();
 }
 function groundPath(points,fill,stroke,width=2){
   ctx.beginPath();
@@ -751,15 +764,15 @@ function render(dt=0){
       ctx.strokeStyle='#a4ffff';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(target.x,target.y,7*target.scale,4*target.scale,0,0,Math.PI*2);ctx.stroke();
     }
   }
-  const entities=shot.players.map(p=>({y:p.y,player:p}));
-  entities.push({y:shot.ball.y+shot.ball.z*.2,ball:shot.ball});
+  const entities=shot.players.map(p=>({y:camera.project(p.x,p.y).y,player:p}));
+  entities.push({y:camera.project(shot.ball.x,shot.ball.y).y+shot.ball.z*.2,ball:shot.ball});
   entities.sort((a,b)=>a.y-b.y).forEach(e=>e.player?drawPlayer(e.player,e.player.id===shot.active):drawBall(e.ball));
   if(match.phase==='goal'){
     const at=camera.project(match.goalX(match.scorer),FIELD.cy,85);
     label('GOAL!',clamp(at.x,130,W-130),clamp(at.y,130,H-100),58,'#fff');
   }
   if(match.phase==='playing'||match.phase==='replay')radar(shot);
-  if(match.phase==='playing'&&!drag)label(match.direction(0)<0?'← ATTACK':'ATTACK →',W*.5,88,12,'#efffe9');
+  if(match.phase==='playing'&&!drag)label(attackHint(),W*.5,88,12,'#efffe9');
 }
 function frame(timestamp){
   const dt=lastFrame?Math.min((timestamp-lastFrame)/1000,.1):0;lastFrame=timestamp;
