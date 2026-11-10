@@ -47,6 +47,7 @@ export function ArcadeMenu({ onSelect, recordsVersion, audioVersion, onAudioChan
       <header className="menu-header">
         <h1 className="brand-title"><span>CS CLUB</span><em>ARCADE</em></h1>
         <div className="menu-actions">
+          <a className="action-button" href="/soccer-skills/index.html" style={{ textDecoration: 'none' }} onKeyDown={(event) => event.stopPropagation()}><span aria-hidden="true">⚽</span>Soccer Skills</a>
           <button className="action-button action-primary" onClick={randomGame}><Shuffle aria-hidden="true" />Random game</button>
           <button className={`action-button ${arcadeAudio.muted ? '' : 'sound-on'}`} onClick={toggleAudio}>{arcadeAudio.muted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}{arcadeAudio.muted ? 'Sound off' : 'Sound on'}</button>
         </div>
