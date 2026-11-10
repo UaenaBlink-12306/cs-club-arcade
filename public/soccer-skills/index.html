@@ -189,7 +189,7 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 .bracket-slot.selected{background:#b7ce7f;color:#193826;font-weight:900}
 .bracket-slot.pending{color:#74907a}
 .bracket-lane:first-child .bracket-match:after,.bracket-lane:nth-child(2) .bracket-match:after{content:"";position:absolute;top:50%;right:-11px;width:10px;height:1px;background:#83966b}
-.bracket-lane:last-child .bracket-match:before,.bracket-lane:nth-child(4) .bracket-match:before{content:"";position:absolute;top:50%;left:-11px;width:10px;height:1px;background:#83966b}
+.bracket-lane:nth-child(5) .bracket-match:before,.bracket-lane:nth-child(4) .bracket-match:before{content:"";position:absolute;top:50%;left:-11px;width:10px;height:1px;background:#83966b}
 .bracket-final b{font-size:9px;display:block;color:#ead18a}
 .bracket-trophy{font-size:36px;color:#e7c260;line-height:1.3;text-shadow:2px 3px #9d7421}
 #loading{background:linear-gradient(180deg,#102b2080,#102b20dc);justify-content:flex-end;padding-bottom:7vh}
@@ -277,6 +277,106 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
  #half .card,#full .card{padding:16px}.match-badges{margin:10px auto}.round-team-badge{width:60px;height:60px;font-size:30px}
  .board-goals{font-size:30px}.badge-team b{font-size:13px}#resultMsg{margin:8px auto}
 }
+
+/* Compact selector composition: flags and mode choices, without an avatar card. */
+#menu .card{width:min(92%,570px);padding:14px 10px;background:transparent;border:0;box-shadow:none}
+#menu #modeText{display:none}
+#menu .selection-title{font-size:clamp(24px,4vw,34px);font-style:normal;letter-spacing:.015em;margin:0}
+#menu .teams{margin:18px 0 14px;gap:24px;justify-content:space-between}
+#menu .teamBadge{background:transparent;box-shadow:none;padding:0;border:0;min-width:170px}
+#menu .flag{font-size:56px;line-height:1.1;margin-bottom:10px;filter:drop-shadow(0 3px 1px #087a8b44)}
+#menu .teamName{display:inline-block;background:#e8f4ee;color:#123f40;border-radius:2px;padding:5px 14px;font-size:22px;text-shadow:none;line-height:1.1}
+#menu .teams button{min-width:85px;padding:12px 10px;font-size:12px}
+#menu .stats{display:flex;max-width:380px;gap:0;padding:7px 8px;background:#e8f4ee;border-radius:2px;margin:0 auto 18px}
+#menu .stat{flex:1;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;padding:0 7px!important;background:transparent;border-radius:0;font-size:8px;color:#254d43;letter-spacing:.02em}
+#menu .stat+.stat{border-left:1px solid #b6cfc3}
+#menu .stat b{font-size:16px;line-height:1;color:#123f40}
+#menu .rating-track{display:none}
+#menu .selector-modes{max-width:470px;gap:9px}
+#menu .selector-modes button{font-size:11px;min-height:47px}
+/* Bracket cards expose team identities and round progression. */
+#trophy{background:linear-gradient(180deg,#0a241ce8,#16422be3)}
+#trophy .card{width:min(97%,1080px);padding:18px 24px;background:transparent;border:0;box-shadow:none}
+#trophy .pill{background:transparent;color:#c4d5a7;letter-spacing:.14em;padding:0}
+#trophy h2{font-size:clamp(25px,4vw,38px);margin:8px 0}
+#fixture{font-size:16px;margin:4px auto 18px;color:#f2edc7!important}
+.tournament-bracket{gap:14px;grid-template-columns:1.05fr .9fr 1.25fr .9fr 1.05fr;margin:12px 0 14px}
+.bracket-lane{min-height:240px;gap:28px;justify-content:center}
+.bracket-lane>small{position:absolute;left:0;right:0;top:0;font-size:9px;font-weight:800}
+.bracket-match{background:linear-gradient(110deg,#1b4031,#102a20);border:1px solid #a3b68780;box-shadow:0 4px 6px #061c1b44;margin:0}
+.bracket-slot{display:flex;align-items:center;gap:7px;padding:7px 6px;min-height:44px}
+.bracket-flag{display:flex;align-items:center;justify-content:center;width:25px;height:25px;flex-shrink:0;background:radial-gradient(circle at 30% 20%,#eef5dc,#829985);border:1px solid #c1cea6;border-radius:50%;font-size:17px}
+.bracket-country{display:block;min-width:0;font-size:12px;font-weight:800;letter-spacing:.04em}
+.bracket-country small{display:block;overflow:hidden;text-overflow:ellipsis;max-width:100%;font-size:8px;font-weight:500;letter-spacing:0;margin-top:2px}
+.bracket-slot.pending{justify-content:center;min-height:44px;font-size:10px}
+.bracket-slot.selected{background:linear-gradient(100deg,#cbdc94,#a4c16c);color:#1a3825}
+.bracket-lane:first-child:after,.bracket-lane:nth-child(5):after{content:"";position:absolute;right:-8px;top:60px;height:119px;border-right:1px solid #b6c99699}
+.bracket-lane:nth-child(5):after{right:auto;left:-8px}
+.bracket-final>small{font-size:11px;letter-spacing:.12em;color:#e5d79c}
+.bracket-final .bracket-match{margin:8px 0 0}
+.gold-cup{width:155px;height:182px}
+.bracket-final b{font-size:10px;letter-spacing:.08em}
+.cup-progress{grid-column:1/-1;display:flex;justify-content:center;gap:0;margin:8px auto 0;border-top:1px solid #89a36d55}
+.cup-progress span{font-size:10px;padding:9px 18px;letter-spacing:.03em;color:#728f78;border-top:2px solid transparent}
+.cup-progress .current{color:#f6e8ab;border-top-color:#e1bc57}
+.cup-progress .complete{color:#c5d69f;border-top-color:#92b26e}
+#trophy .stats{max-width:430px;margin:4px auto 12px}
+#trophy .stat{padding:6px 12px;background:#10291f88}
+#trophy .stat b{font-size:15px}
+/* Halftime and full time belong to the stadium scene, not a floating modal. */
+#half.football-scene,#full.football-scene{padding:0;background:linear-gradient(180deg,#071f1cca 0%,#102e2466 35%,#0a241d77 65%,#071d19dd 100%)}
+#half.football-scene .card,#full.football-scene .card{
+ display:flex;flex-direction:column;align-items:center;justify-content:center;
+ width:100%;height:100%;max-height:100%;padding:70px 20px 100px;
+ background:transparent;border:0;border-radius:0;box-shadow:none;isolation:auto;overflow:auto;
+}
+#half.football-scene .card:before,#full.football-scene .card:before{display:none}
+#half .big,#full .pill{position:absolute;top:10%;left:0;right:0;text-align:center;background:transparent;padding:0;margin:0;color:#eff4d7;letter-spacing:.13em}
+#half .big{font-size:46px;font-weight:900;text-shadow:0 3px 2px #0a2c22}
+#full .pill{font-size:22px;font-weight:900;text-shadow:0 2px #123b2b}
+.football-scene .match-badges{width:min(86%,840px);max-width:none;gap:40px;margin:20px auto 10px}
+.football-scene .round-team-badge{width:118px;height:118px;font-size:60px;border-width:3px;box-shadow:inset 0 0 0 5px #315b43,0 9px 16px #031b1a77}
+.football-scene .away-badge{box-shadow:inset 0 0 0 5px #31515e,0 9px 16px #031b1a77}
+.football-scene .badge-team b{font-size:23px;font-weight:800;text-shadow:0 2px #11362a}
+.football-scene .board-goals{font-size:72px;padding-bottom:35px;font-weight:900;color:#fff7cb;text-shadow:0 4px #123f2c}
+.football-scene .break-caption{font-size:13px;letter-spacing:.1em;margin:15px auto 0;color:#eff2ce!important}
+.football-scene .penalty-tally{background:#102c238c;border-color:#b5bf8655;font-size:17px;padding:6px 15px;margin:4px auto 10px!important}
+.football-scene #resultMsg{font-size:19px;max-width:650px;color:#eef4db;margin:10px auto 0;text-shadow:0 2px 3px #08251d}
+.scene-actions{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);display:flex;justify-content:center;gap:12px;width:max-content;max-width:92%}
+.scene-actions button{margin:0;min-width:190px;min-height:46px;padding:13px 24px;border-radius:3px}
+@media(max-width:620px){
+ #menu .teams{gap:8px}#menu .teamBadge{min-width:125px}#menu .teams button{min-width:61px;font-size:10px;padding:11px 6px}
+ #menu .flag{font-size:48px}#menu .teamName{font-size:19px;padding:5px 9px}
+ #menu .stats{max-width:310px}#menu .selector-modes{gap:6px}#menu .selector-modes button{font-size:10px}
+ #trophy .card{padding:12px 7px}.tournament-bracket{gap:6px;margin:8px 0}.bracket-lane{min-height:190px;gap:20px}
+ .bracket-slot{gap:3px;padding:5px 3px;min-height:36px}.bracket-slot.pending{min-height:36px}
+ .bracket-flag{width:19px;height:19px;font-size:13px}.bracket-country{font-size:9px}.bracket-country small{display:none}
+ .bracket-lane>small{font-size:6px}.bracket-lane:first-child:after,.bracket-lane:nth-child(5):after{top:48px;height:91px}
+ .gold-cup{width:105px;height:125px}.bracket-final>small{font-size:8px}
+ .cup-progress span{font-size:8px;padding:8px 10px}#fixture{font-size:12px;margin-bottom:10px}
+ #half.football-scene .card,#full.football-scene .card{padding:80px 10px 100px}
+ .football-scene .match-badges{width:94%;gap:10px;margin:15px auto}
+ .football-scene .round-team-badge{width:82px;height:82px;font-size:41px}
+ .football-scene .badge-team b{font-size:16px}.football-scene .board-goals{font-size:45px;padding-bottom:24px}
+ #half .big{font-size:32px}#full .pill{font-size:20px}.football-scene #resultMsg{font-size:15px;max-width:90%}
+ .football-scene .penalty-tally{font-size:14px}.scene-actions button{min-width:130px;padding:12px 14px}
+ .football-scene .break-caption{font-size:10px}
+}
+@media(max-height:520px) and (orientation:landscape){
+ #menu .card{padding:6px}#menu .teams{margin:10px 0}.selection-title{font-size:24px}
+ #menu .flag{font-size:38px;margin-bottom:5px}#menu .teamName{font-size:19px}
+ #menu .stats{margin-bottom:12px}#menu .selector-modes button{min-height:40px}
+ #trophy .card{padding:6px 14px}#trophy h2{font-size:23px}.bracket-lane{min-height:155px;gap:10px}.bracket-slot{min-height:29px;padding:3px 5px}
+ .bracket-slot.pending{min-height:29px}.bracket-flag{width:19px;height:19px;font-size:13px}.bracket-country small{display:none}
+ .gold-cup{width:85px;height:98px}.cup-progress{margin-top:0}.cup-progress span{padding:4px 12px}#trophy .stats{margin:0 auto 5px}
+ #half.football-scene .card,#full.football-scene .card{padding:45px 12px 65px}
+ #half .big,#full .pill{top:7%}#half .big{font-size:28px}#full .pill{font-size:17px}
+ .football-scene .match-badges{width:min(75%,650px);gap:30px;margin:10px auto 5px}
+ .football-scene .round-team-badge{width:64px;height:64px;font-size:32px}
+ .football-scene .badge-team b{font-size:14px}.football-scene .board-goals{font-size:42px;padding-bottom:18px}
+ .football-scene #resultMsg{font-size:13px;margin-top:5px}.football-scene .penalty-tally{font-size:12px;padding:4px 12px;margin:0 auto 3px!important}
+ .football-scene .break-caption{font-size:10px;margin:8px auto 0}.scene-actions{bottom:5%}.scene-actions button{min-height:38px;padding:9px 20px}
+}
 </style>
 </head>
 <body>
@@ -292,13 +392,13 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 <div class="local-player p2"><h3>PLAYER 2 <small>BLUE · ORANGE MARKER</small></h3><div class="local-team-row"><button id="localAwayPrev" aria-label="Previous player two team">‹</button><b id="localAway"></b><button id="localAwayNext" aria-label="Next player two team">›</button></div><p><kbd>↑ ← ↓ →</kbd> Move<br><kbd>K</kbd> Pass · <kbd>L</kbd> Shoot<br><kbd>O</kbd> Switch defender</p></div>
 </div><p class="local-note">Keyboard required. Movement follows the screen. Teammates support automatically; the ball carrier is yours to control. Switch to a defender near the ball. Escape pauses. Teams switch ends at halftime; a level final score is a draw.</p>
 <button class="primary" id="startLocal">START LOCAL MATCH</button><button data-go="menu">BACK</button></div></section>
-<section class="panel" id="menu"><div class="card"><div class="pill" id="modeText">INTERNATIONAL SOCCER</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div><svg class="team-art" viewBox="0 0 180 210" aria-hidden="true"><ellipse cx="90" cy="196" rx="61" ry="10" fill="#0b748a" opacity=".22"/><path d="m63 129-3 34 10 29h17l-5-32 6-30m9 0 3 33 1 28h18l-2-35-5-28" fill="#e5b68c"/><path d="m62 123-3 28 25 1 6-20 7 20h23l-6-29" fill="#e9f3f1"/><path d="m64 165 6 29h17l-4-28m17 0 1 28h18l-1-29" fill="#fafff8"/><path d="m69 189-9 7q-2 6 8 6h22l-4-13m16 0-3 13h30q4-8-13-13" fill="#24454e"/><path d="m57 69-15 36 3 35 11-2 1-31 12-24m53-14 17 37-2 32-11-1-3-31-10-22" fill="#e7b98e"/><path d="m72 60-21 10-8 23 20 7 6-14-6 45h54l-5-45 8 13 18-8-9-23-22-8z" fill="#fcfff6"/><path d="m103 63 11 8-2 15 5 45h-14z" fill="#b7d7dc"/><path d="M74 88h32v5H74z" fill="#3d9cae"/><path d="m79 52 1 12 11 7 11-8-2-12" fill="#d8a77c"/><path d="m78 63 13 8 12-8" fill="none" stroke="#318ba0" stroke-width="4"/><ellipse cx="90" cy="36" rx="21" ry="26" fill="#e8bb90"/><path d="M69 35Q61 9 90 8q27 0 23 29l-8-17-14 6-18-3z" fill="#3e342b"/><path d="M80 37h4m13 0h4m-14 14q5 3 10-1" fill="none" stroke="#654a38" stroke-width="2"/><path d="M73 47q0 12 18 16" fill="none" stroke="#ce966b" stroke-width="3"/></svg></div><button class="yellow" id="next">NEXT ›</button></div><div class="stats"><div class="stat"><b id="atk">74</b>ATTACK<div class="rating-track"><i id="atkBar"></i></div></div><div class="stat"><b id="mid">71</b>MIDFIELD<div class="rating-track"><i id="midBar"></i></div></div><div class="stat"><b id="def">68</b>DEFENCE<div class="rating-track"><i id="defBar"></i></div></div></div><div class="row selector-modes"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play"><span>MULTIPLAYER</span><small class="mode-note">LOCAL · TWO PLAYERS</small></button></div></div></section>
+<section class="panel" id="menu"><div class="card"><div class="pill" id="modeText">INTERNATIONAL SOCCER</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div></div><button class="yellow" id="next">NEXT ›</button></div><div class="stats"><div class="stat"><b id="atk">74</b>ATTACK<div class="rating-track"><i id="atkBar"></i></div></div><div class="stat"><b id="mid">71</b>MIDFIELD<div class="rating-track"><i id="midBar"></i></div></div><div class="stat"><b id="def">68</b>DEFENCE<div class="rating-track"><i id="defBar"></i></div></div></div><div class="row selector-modes"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play"><span>MULTIPLAYER</span><small class="mode-note">LOCAL · TWO PLAYERS</small></button></div></div></section>
 <section class="panel hidden" id="trophy"><div class="card"><div class="pill">Road to the final</div><h2 id="trophyTitle">International Cup</h2><p id="fixture"></p><div class="tournament-bracket" id="cupBracket" aria-label="Eight-team knockout bracket"></div><div class="stats"><div class="stat"><b id="roundName">QUARTERFINAL</b>ROUND</div><div class="stat"><b id="cupAttack"></b>ATTACK</div><div class="stat"><b id="cupDefence"></b>DEFENCE</div></div><button class="primary" id="startMatch">START MATCH</button><button data-go="team">CHANGE TEAM</button></div></section>
 <section class="panel hidden" id="loading"><div class="card"><div class="pill">Loading match</div><h2 id="loadingTitle"></h2><div class="loading-ring" id="loadingRing"><div><span id="loadingFlag"></span><small id="loadingPercent">0%</small></div></div><div style="height:12px;border-radius:99px;background:#d6e9e8;overflow:hidden"><div id="loadBar" style="height:100%;width:0;background:#22c9d0;transition:width .2s"></div></div><p id="loadText">Preparing the pitch…</p></div></section>
 <section class="panel hidden" id="replay"><div class="card"><div class="pill">Highlight</div><h2>INSTANT REPLAY</h2><p>The goal, played back in slow motion.</p><div class="row"><button class="yellow" id="skipReplay">SKIP</button><button class="primary" id="replayAgain">REPLAY</button></div></div></section>
-<section class="panel hidden" id="half"><div class="card"><div class="big">HALF TIME</div><p id="halfSummary" class="sr-only"></p><div class="match-badges" aria-hidden="true"><div class="badge-team"><div class="round-team-badge" id="halfHomeFlag"></div><b id="halfHomeName"></b></div><strong class="board-goals" id="halfGoals"></strong><div class="badge-team"><div class="round-team-badge away-badge" id="halfAwayFlag"></div><b id="halfAwayName"></b></div></div><p class="break-caption">Half-time break · Teams switch ends</p><button class="green" id="resume">RESUME GAME</button></div></section>
+<section class="panel hidden football-scene" id="half"><div class="card"><div class="big">HALF TIME</div><p id="halfSummary" class="sr-only"></p><div class="match-badges" aria-hidden="true"><div class="badge-team"><div class="round-team-badge" id="halfHomeFlag"></div><b id="halfHomeName"></b></div><strong class="board-goals" id="halfGoals"></strong><div class="badge-team"><div class="round-team-badge away-badge" id="halfAwayFlag"></div><b id="halfAwayName"></b></div></div><p class="break-caption">Half-time break · Teams switch ends</p><div class="scene-actions"><button class="green" id="resume">RESUME GAME</button></div></div></section>
 <section class="panel hidden" id="corner"><div class="card" id="restartCard"><div class="pill">Set piece</div><div class="big" style="font-size:clamp(30px,6vw,62px)">BALL OUT</div><h2 id="restartType">Corner Kick</h2><p id="restartHelp"></p><button class="primary sr-only" id="takeCorner">TAKE CORNER</button></div></section>
-<section class="panel hidden" id="full"><div class="card"><div class="pill">Full time</div><h2 id="resultScore" class="sr-only">Full time</h2><div class="match-badges" aria-hidden="true"><div class="badge-team"><div class="round-team-badge" id="resultHomeFlag"></div><b id="resultHomeName"></b></div><strong class="board-goals" id="resultGoals"></strong><div class="badge-team"><div class="round-team-badge away-badge" id="resultAwayFlag"></div><b id="resultAwayName"></b></div></div><p id="resultPenalties" class="penalty-tally hidden" aria-hidden="true"></p><p id="resultMsg"></p><button class="primary hidden" id="rematchLocal">REMATCH</button><button class="green" id="continueCup">CONTINUE</button></div></section>
+<section class="panel hidden football-scene" id="full"><div class="card"><div class="pill">Full time</div><h2 id="resultScore" class="sr-only">Full time</h2><div class="match-badges" aria-hidden="true"><div class="badge-team"><div class="round-team-badge" id="resultHomeFlag"></div><b id="resultHomeName"></b></div><strong class="board-goals" id="resultGoals"></strong><div class="badge-team"><div class="round-team-badge away-badge" id="resultAwayFlag"></div><b id="resultAwayName"></b></div></div><p id="resultPenalties" class="penalty-tally hidden" aria-hidden="true"></p><p id="resultMsg"></p><div class="scene-actions"><button class="primary hidden" id="rematchLocal">REMATCH</button><button class="green" id="continueCup">CONTINUE</button></div></div></section>
 <section class="panel hidden" id="pause"><div class="card"><h2>Match paused</h2><p id="soloPauseHelp"></p><p id="localPauseHelp" class="hidden">P1: WASD move · F pass · G shoot · Q switch<br>P2: Arrows move · K pass · L shoot · O switch<br>Shared keyboard · same-screen friendly match</p><p>Take a moment, then continue your run.</p><button class="primary" id="resumePause">RESUME</button><button id="restartMatch">RESTART MATCH</button><button id="finishPractice" class="hidden">FINISH PRACTICE</button><button data-go="menu">QUIT TO MENU</button></div></section>
 <section class="panel hidden" id="penalties"><div class="card"><div class="pill">Penalty shootout</div><h2 id="penaltyScore"></h2><p id="penaltyPrompt"></p><div class="row"><button class="yellow" data-penalty="0">LEFT</button><button class="yellow" data-penalty="1">CENTRE</button><button class="yellow" data-penalty="2">RIGHT</button></div><p id="penaltyLast" aria-live="polite"></p><small>Five kicks each. Sudden death if still level.</small></div></section>
 </div></div></div>
@@ -629,21 +729,23 @@ class ActionCamera {
   }
   update(shot,dt,replay=false,snap=false,preset='gameplay'){
     this.preset=replay?'replay':preset;
-    const targetYaw=this.preset==='intro'?-.24:this.preset==='replay'?.58:0;
-    const targetTilt=this.preset==='intro'?.49:this.preset==='replay'?.48:this.portrait?.88:.62;
+    const targetYaw=this.preset==='intro'?-.24:this.preset==='replay'?.58:this.preset==='presentation'?.12:0;
+    const targetTilt=this.preset==='intro'?.49:this.preset==='replay'?.48:this.preset==='presentation'?.54:this.portrait?.88:.62;
     const blend=1-Math.exp(-Math.max(0,dt)*4);
     if(snap||!this.ready){this.yaw=targetYaw;this.tilt=targetTilt;}else{this.yaw+=(targetYaw-this.yaw)*blend;this.tilt+=(targetTilt-this.tilt)*blend;}
     const b=shot.ball,active=shot.players.find(p=>p.id===shot.active)||b;
     const vx=Number.isFinite(b.vx)?b.vx:0,vy=Number.isFinite(b.vy)?b.vy:0;
-    const leadX=clamp(vx*.22,-95,95),leadY=clamp(vy*.16,-48,48);
+    const carrier=shot.players.find(p=>p.id===b.owner);
+    const runLead=carrier?Math.min(carrier.speed||0,150)*.18:0;
+    const leadX=clamp(vx*.22+(carrier?Math.cos(carrier.angle)*runLead:0),-95,95),leadY=clamp(vy*.16+(carrier?Math.sin(carrier.angle)*runLead:0),-48,48);
     let tx=clamp(b.x*.88+active.x*.12+leadX,125,975);
     let ty=clamp(b.y*.9+active.y*.1+leadY,155,490);
-    if(this.preset==='intro'){tx=550;ty=318;}
+    if(this.preset==='intro'||this.preset==='presentation'){tx=550;ty=318;}
     const portrait=this.height>this.width;
     const base=portrait?clamp(this.height/790,2.0,3.0):1.85;
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
-    const tz=this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?(portrait?base*1.16:2.4):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
+    const tz=this.preset==='presentation'?(portrait?1.95:1.12):this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?(portrait?base*1.16:2.4):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
     if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(tz);tx=clamp(tx,low,high);}
     const pan=1-Math.exp(-Math.max(0,dt)*5.5),zoom=1-Math.exp(-Math.max(0,dt)*2.8);
     if(!this.ready||snap){this.x=tx;this.y=ty;this.zoom=tz;this.ready=true;}
@@ -706,14 +808,15 @@ function setTeam(){
 function bracketMarkup(homeIndex,stage,won){
   const opponents=[0,1,2].map(r=>opponentFor(homeIndex,r));
   const rest=NATIONS.map((_,i)=>i).filter(i=>i!==homeIndex&&!opponents.includes(i));
-  const slot=i=>i===null?'<span class="bracket-slot pending">TBD</span>':'<span class="bracket-slot'+(i===homeIndex?' selected':'')+'" title="'+NATIONS[i].name+'">'+NATIONS[i].flag+' '+NATIONS[i].code+'</span>';
+  const slot=i=>i===null?'<span class="bracket-slot pending">TBD</span>':'<span class="bracket-slot'+(i===homeIndex?' selected':'')+'" title="'+NATIONS[i].name+'">'+'<span class="bracket-flag">'+NATIONS[i].flag+'</span><span class="bracket-country">'+NATIONS[i].code+'<small>'+NATIONS[i].name+'</small></span></span>';
   const pair=(a,b)=>'<div class="bracket-match">'+slot(a)+slot(b)+'</div>';
   const lane=(title,content)=>'<div class="bracket-lane"><small>'+title+'</small>'+content+'</div>';
   return lane('QUARTERFINALS',pair(homeIndex,opponents[0])+pair(opponents[1],rest[0]))+
     lane('SEMIFINAL',pair(stage>=1?homeIndex:null,stage>=1?opponents[1]:null))+
     '<div class="bracket-final"><small>FINAL</small>'+pair(stage>=2?homeIndex:null,stage>=2?opponents[2]:null)+'<div class="bracket-trophy"><svg class="gold-cup" viewBox="0 0 180 210" role="img" aria-label="International Cup trophy"><defs><linearGradient id="cupGold" x1="0" x2="1"><stop offset="0" stop-color="#af7216"/><stop offset=".25" stop-color="#f7ce60"/><stop offset=".48" stop-color="#fff0a1"/><stop offset=".66" stop-color="#dfab35"/><stop offset="1" stop-color="#8d5d13"/></linearGradient></defs><ellipse cx="90" cy="196" rx="59" ry="9" fill="#061b15" opacity=".45"/><path d="M51 34H23v30q0 35 42 40M129 34h28v30q0 35-42 40" fill="none" stroke="#b9892b" stroke-width="12"/><path d="M50 34H24v26q0 31 38 40M130 34h26v26q0 31-38 40" fill="none" stroke="#f3d16b" stroke-width="5"/><path d="M47 22h86l-8 63q-3 26-27 34v38l24 11v12H58v-12l24-11v-38q-24-8-27-34z" fill="url(#cupGold)" stroke="#b58d36" stroke-width="1.5"/><path d="M43 19h94v11H43z" fill="#ffe79a"/><path d="M61 35l6 46q2 19 15 25" fill="none" stroke="#fff7b9" stroke-width="4" opacity=".7"/><path d="M51 177h78v20H51z" fill="#213a32"/><path d="M64 182h52v10H64z" fill="#dfbc5e"/><path d="m90 47 5 11 13 2-9 9 2 13-11-6-11 6 2-13-9-9 13-2z" fill="#fff0a8" opacity=".8"/></svg></div><b>'+(won?NATIONS[homeIndex].code+' · CHAMPIONS':'INTERNATIONAL CUP')+'</b></div>'+
     lane('SEMIFINAL',pair(stage>=1?opponents[2]:null,stage>=1?rest[2]:null))+
-    lane('QUARTERFINALS',pair(opponents[2],rest[1])+pair(rest[2],rest[3]));
+    lane('QUARTERFINALS',pair(opponents[2],rest[1])+pair(rest[2],rest[3]))+
+    '<div class="cup-progress" aria-label="Tournament progress">'+['Quarterfinal','Semifinal','Final'].map((label,i)=>'<span class="'+(won||i<stage?'complete':i===stage?'current':'future')+'">'+(i+1)+' · '+label+'</span>').join('')+'</div>';
 }
 function updateTrophy(){
   const home=NATIONS[selection],away=NATIONS[opponentFor(selection,round)];
@@ -997,7 +1100,7 @@ function stadium(){
         const seed=((Math.floor(t/11)*73856093)^(row*19349663)^(s*83492791))>>>0;
         const x=p.x+((seed%5)-2)*p.scale*.4,y=p.y,scale=p.scale;
         const tall=7+(seed%4)*.7,body=2.3+(seed%3)*.25,skin=['#dfb18c','#8f5f42','#c18b63','#edc3a1'][seed%4];
-        const colour=shirts[(seed>>>4)%shirts.length],cheer=seed%9===0;
+        const colour=shirts[(seed>>>4)%shirts.length],cheer=seed%9===0||(match?.phase==='goal'&&seed%4===0);
         ctx.fillStyle='#182e3940';ctx.beginPath();ctx.ellipse(x+scale,y+scale,4*scale,1.6*scale,0,0,Math.PI*2);ctx.fill();
         ctx.fillStyle='#22313c';ctx.fillRect(x-2.8*scale,y-3*scale,5.6*scale,4*scale);
         ctx.fillStyle=colour;ctx.beginPath();ctx.moveTo(x-body*scale,y-tall*scale);ctx.lineTo(x+body*scale,y-tall*scale);
@@ -1076,7 +1179,7 @@ function field(){
   // Field and runoff cover the view; cyan lives on the low perimeter boards.
   groundRect(f.left-100,f.top-100,w+200,h+200,'#52645b');
   stadium();
-  for(let i=0;i<12;i++)groundRect(f.left+i*w/12,f.top,w/12,h,i%2?'#277441':'#2d7e46');
+  for(let i=0;i<12;i++)groundRect(f.left+i*w/12,f.top,w/12,h,i%2?'#16783e':'#208a48');
   pitchTexture();
   groundRect(f.left-5,f.top-5,w+10,h+10,null,'#407e4c55');
   groundRect(f.left,f.top,w,h,null,'#d5e2c6');
@@ -1125,6 +1228,7 @@ function drawPlayer(p,active,ball){
   const shirt=p.keeper?'#f5d43a':p.team===0?'#fcfff7':'#315aa4';
   const shade=p.keeper?'#c49d22':p.team===0?'#bed2d5':'#1b3470';
   const shorts=p.keeper?'#384742':p.team===0?'#eff7f0':'#203d78';
+  const torsoWidth=4.2+Math.abs(fy)*2.3,sidePlane=fx*2.2;
   function limb(points,color,width){
     ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
     points.forEach((v,i)=>{if(i)ctx.lineTo(v[0],v[1]);else ctx.moveTo(v[0],v[1]);});ctx.stroke();
@@ -1143,15 +1247,15 @@ function drawPlayer(p,active,ball){
   for(const side of [-1,1]){
     const swing=-stride*side*running*3.5;
     const hand=[side*(8.5+ready*2)+fx*swing+reach*save*8,-17+fy*swing-kick*3-ready*3-save*8];
-    limb([[side*5.8,-29],[side*8.4+fx*swing*.6,-23-ready*2],hand],skin,3.2);
-    limb([[side*5,-29],[side*7.3,-25]],shirt,5.3);
+    limb([[side*(torsoWidth-.7),-29],[side*8.4+fx*swing*.6,-23-ready*2],hand],skin,3.2);
+    limb([[side*(torsoWidth-1.5),-29],[side*7.3,-25]],shirt,5.3);
     if(p.keeper){limb([[hand[0],hand[1]],[hand[0]+side*1.5,hand[1]-1]],'#faf4d9',4.6);
       limb([[hand[0],hand[1]+2],[hand[0]+side,hand[1]+1]],'#506469',1.4);}
   }
-  ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-6.5,-30);ctx.lineTo(6.5,-30);ctx.lineTo(4.5,-16);ctx.lineTo(-4.7,-16);ctx.closePath();ctx.fill();
+  ctx.fillStyle=shade;ctx.beginPath();ctx.moveTo(-torsoWidth,-30);ctx.lineTo(torsoWidth,-30);ctx.lineTo(4.5,-16);ctx.lineTo(-4.7,-16);ctx.closePath();ctx.fill();
   const fabric=ctx.createLinearGradient(-6,-29,6,-18);
   fabric.addColorStop(0,shade);fabric.addColorStop(.28,shirt);fabric.addColorStop(.62,shirt);fabric.addColorStop(1,shade);
-  ctx.fillStyle=fabric;ctx.beginPath();ctx.moveTo(-5.3,-30);ctx.lineTo(4.2,-30);ctx.lineTo(2.8,-17);ctx.lineTo(-4.7,-17);ctx.closePath();ctx.fill();
+  ctx.fillStyle=fabric;ctx.beginPath();ctx.moveTo(-torsoWidth+1.2+sidePlane,-30);ctx.lineTo(torsoWidth-1.2+sidePlane,-30);ctx.lineTo(3.5+sidePlane*.3,-17);ctx.lineTo(-3.5+sidePlane*.3,-17);ctx.closePath();ctx.fill();
   ctx.fillStyle='#102d3d28';ctx.beginPath();ctx.moveTo(-4.7,-18);ctx.lineTo(3.3,-20);ctx.lineTo(2.8,-17);ctx.lineTo(-4.7,-17);ctx.closePath();ctx.fill();
   limb([[-5,-27],[-4,-18]],p.team===0?'#ffffff':'#507bc1',.8);
   ctx.fillStyle=skin;ctx.fillRect(-2,-33,4,4);
@@ -1208,7 +1312,7 @@ function render(dt=0){
     const t=clamp(match.replayTime/4,0,.999);
     shot=replaySample(match.replayFrames,t);
   }
-  if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':'gameplay');
+  if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
   if(match?.phase==='restart'){
@@ -1227,7 +1331,7 @@ function render(dt=0){
   entities.push({y:camera.project(shot.ball.x,shot.ball.y).y+shot.ball.z*.2,ball:shot.ball});
   entities.sort((a,b)=>a.y-b.y).forEach(e=>e.player?drawPlayer(e.player,e.player.id===shot.active||(mode==='local'&&e.player.id===shot.activeAway),shot.ball):drawBall(e.ball));
   const light=ctx.createLinearGradient(0,0,W,H);
-  light.addColorStop(0,'#fff9cd08');light.addColorStop(.5,'#fff9cd00');light.addColorStop(1,'#173a4b0c');
+  light.addColorStop(0,'#d4f5cf05');light.addColorStop(.5,'#fff9cd00');light.addColorStop(1,'#173a4b0c');
   ctx.fillStyle=light;ctx.fillRect(0,0,W,H);
   if(match?.phase==='goal'){
     const at=camera.project(match.goalX(match.scorer),FIELD.cy,85);

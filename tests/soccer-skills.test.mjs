@@ -787,3 +787,42 @@ test('bracket includes an original cup graphic and result layouts keep penalty t
  assert.ok(/#skipReplay\{[^}]*right:[^}]*bottom:/.test(html));
  assert.ok(/#replay h2\{[^}]*left:[^}]*top:/.test(html));
 });
+
+test('stadium presentation camera is used at halftime and full time without changing match state',()=>{
+ const h=localHarness(),m=h.app.match;
+ m.score=[2,1];m.phase='half';h.app.syncMatch();
+ const before=m.snapshot();
+ for(let i=0;i<45;i++){h.app.render(1/30);h.draws.length=0;}
+ assert.equal(h.app.camera.preset,'presentation');
+ assert.ok(h.app.camera.zoom<1.3);assert.ok(h.app.camera.yaw>.08);
+ assert.deepEqual(m.snapshot(),before);
+ h.click('resume');h.app.render(1/60);
+ assert.equal(m.phase,'playing');assert.equal(h.app.camera.preset,'gameplay');
+ h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowDown'));
+ const input=h.app.input();
+ for(const team of [0,1]){
+  const p=m.players[m.activeFor(team)],v=input.teams[team],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x+v.dx,p.y+v.dy);
+  assert.ok(Math.abs(b.x-a.x)<.02);assert.ok(team===0?b.y<a.y:b.y>a.y);
+ }
+ m.finish();h.app.syncMatch();h.app.render(1/60);
+ assert.equal(h.app.camera.preset,'presentation');assert.equal(h.elements.get('resultGoals').textContent,'2 – 1');
+});
+test('camera anticipates the ball carrier run without changing projection inversion',()=>{
+ const h=localHarness(),m=h.app.match,c=h.app.camera,shot=m.snapshot();
+ const p=shot.players.find(p=>p.id===shot.ball.owner);
+ p.speed=0;c.update(shot,0,false,true);const still=c.x;
+ p.speed=140;p.angle=Math.PI;c.update(shot,0,false,true);assert.ok(c.x<still-15);
+ const at=c.project(p.x,p.y),world=c.unproject(at.x,at.y);assert.ok(distance(world,p)<.00001);
+});
+test('compact selector and bracket progression retain team selection and local-mode access',()=>{
+ const h=uiHarness(html);
+ assert.ok(!html.includes('<svg class="team-art"'));
+ h.click('next');h.chooseMode('cup');
+ const qf=h.elements.get('cupBracket').innerHTML;
+ assert.ok(qf.includes('bracket-flag'));assert.ok(qf.includes('bracket-country'));
+ assert.ok(qf.includes('class="current">1 · Quarterfinal'));
+ h.click('startMatch');h.flush();h.app.match.score=[1,0];h.app.match.finish();h.app.syncMatch();h.click('continueCup');
+ const sf=h.elements.get('cupBracket').innerHTML;
+ assert.ok(sf.includes('class="complete">1 · Quarterfinal'));assert.ok(sf.includes('class="current">2 · Semifinal'));
+ h.chooseMode('menu');h.chooseMode('multi');assert.equal(h.app.view,'local');
+});
