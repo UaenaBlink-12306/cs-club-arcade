@@ -706,7 +706,7 @@ test('intro, gameplay and replay presets have different viewpoints with invertib
  const normalZoom=c.zoom;
  const m=h.app.match;m.phase='replay';m.replayFrames=[m.snapshot()];m.replayTime=1;
  for(let i=0;i<90;i++)h.app.render(1/60);
- assert.equal(c.preset,'replay');assert.ok(c.yaw>.45);assert.ok(c.tilt<.52);assert.ok(c.zoom>normalZoom+.3);
+ assert.equal(c.preset,'replay');assert.ok(Math.abs(c.yaw)>1.2);assert.ok(c.tilt<.52);assert.ok(c.zoom>normalZoom+.3);
  for(const p of [{x:200,y:150},{x:550,y:318},{x:920,y:480}]){
   const s=c.project(p.x,p.y),q=c.unproject(s.x,s.y);
   assert.ok(distance(p,q)<.00001);
@@ -825,4 +825,52 @@ test('compact selector and bracket progression retain team selection and local-m
  const sf=h.elements.get('cupBracket').innerHTML;
  assert.ok(sf.includes('class="complete">1 · Quarterfinal'));assert.ok(sf.includes('class="current">2 · Semifinal'));
  h.chooseMode('menu');h.chooseMode('multi');assert.equal(h.app.view,'local');
+});
+
+test('restart live announcements clear on resumption, match restart, menu and result transitions',()=>{
+ const h=localHarness(),m=h.app.match;
+ const restart=()=>{m.phase='restart';m.restart={type:'Goal Kick',team:1,x:1000,y:318};h.app.syncMatch();assert.ok(h.elements.get('matchStatus').textContent.includes('Goal Kick'));};
+ restart();h.click('takeCorner');assert.equal(h.elements.get('matchStatus').textContent,'');
+ h.flush();assert.equal(h.elements.get('toast').textContent,'');
+ restart();h.chooseMode('menu');assert.equal(h.elements.get('matchStatus').textContent,'');
+ assert.equal(h.elements.get('toast').textContent,'');
+ h.chooseMode('multi');h.click('startLocal');h.flush();
+ h.app.match.phase='restart';h.app.match.restart={type:'Throw-in',team:0,x:500,y:108};h.app.syncMatch();
+ h.click('restartMatch');assert.equal(h.elements.get('matchStatus').textContent,'');h.flush();
+ h.app.match.phase='restart';h.app.match.restart={type:'Corner Kick',team:0,x:100,y:108};h.app.syncMatch();
+ h.app.match.phase='full';h.app.syncMatch();assert.equal(h.elements.get('matchStatus').textContent,'');
+});
+test('behind-goal replay keeps recorded action and the goal in frame at both ends and orientations',()=>{
+ const h=localHarness(),m=h.app.match,c=h.app.camera,canvas=h.elements.get('game');
+ for(const rect of [{width:1280,height:720},{width:500,height:739}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});h.app.render(1/60);
+  for(const goal of [FIELD.left,FIELD.right]){
+   c.preset='gameplay';c.replayGoal=goal;
+   const inward=goal===FIELD.left?1:-1;
+   for(let frame=0;frame<=240;frame++){
+    const t=frame/240,shot=m.snapshot();
+    shot.ball.x=goal+inward*(650*(1-t)+15);shot.ball.y=318+100*(1-t);shot.ball.z=10*Math.sin(t*Math.PI);
+    shot.players[shot.active].x=shot.ball.x;shot.players[shot.active].y=shot.ball.y;
+    c.update(shot,1/60,true);
+    const ball=c.project(shot.ball.x,shot.ball.y,shot.ball.z),post=c.project(goal,318);
+    assert.ok(ball.x>0&&ball.x<c.width&&ball.y>0&&ball.y<c.height,'recorded ball must stay visible');
+    assert.ok(post.y>c.height*.65&&post.y<c.height,'goal stays in foreground');
+    const q=c.unproject(ball.x,c.project(shot.ball.x,shot.ball.y).y);
+    assert.ok(Math.abs(q.x-shot.ball.x)<.001);
+   }
+   assert.ok(c.tilt<(c.portrait?.55:.35));
+   const totalYaw=c.yaw+(c.portrait?Math.PI/2:0);
+   assert.ok(Math.abs(totalYaw-(goal===FIELD.left?-Math.PI/2:Math.PI/2))<.01);
+   c.update(m.snapshot(),1/60,false);assert.equal(c.preset,'gameplay');
+  }
+ }
+});
+test('composed interval art and sculptural trophy retain accessible team and score data',()=>{
+ const h=localHarness(),m=h.app.match;
+ m.phase='half';h.app.syncMatch();assert.ok(h.elements.get('halfSummary').textContent.includes(m.home.name));
+ m.score=[2,1];m.finish();h.app.syncMatch();assert.ok(h.elements.get('resultScore').textContent.includes('2 - 1'));
+ assert.equal((html.match(/class="interval-art"/g)||[]).length,2);
+ h.chooseMode('menu');h.chooseMode('cup');
+ const cup=h.elements.get('cupBracket').innerHTML;
+ assert.ok(cup.includes('International Cup trophy'));assert.ok(cup.includes('cx="90" cy="55" r="40"'));
 });
