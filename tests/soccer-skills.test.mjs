@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,input};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,input,bracketMarkup,replaySample};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -144,10 +144,10 @@ test('halftime swaps directions and practice never ends on the match clock',()=>
 });
 test('selected nation propagates through selection, loading, HUD and results for all nations',()=>{
  for(let n=0;n<NATIONS.length;n++){
-  const h=uiHarness(html);h.chooseMode('cup');
+  const h=uiHarness(html);
   for(let i=0;i<n;i++)h.click('next');
   assert.equal(h.elements.get('teamName').textContent,NATIONS[n].name);
-  h.click('toTrophy');h.click('startMatch');
+  h.chooseMode('cup');h.click('startMatch');
   assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[n].name);
   assert.equal(h.elements.get('loadingFlag').textContent,NATIONS[n].flag);
   h.flush();
@@ -159,9 +159,9 @@ test('selected nation propagates through selection, loading, HUD and results for
  }
 });
 test('practice skips cup setup; cup advances QF to SF to final and a loss resets the run',()=>{
- const practice=uiHarness(html);practice.chooseMode('practice');practice.click('toTrophy');
+ const practice=uiHarness(html);practice.chooseMode('practice');
  assert.equal(practice.app.view,'loading');practice.flush();assert.equal(practice.app.match.mode,'practice');
- const cup=uiHarness(html);cup.chooseMode('cup');cup.click('toTrophy');
+ const cup=uiHarness(html);cup.chooseMode('cup');
  for(let round=0;round<3;round++){
   assert.equal(cup.app.round,round);cup.click('startMatch');cup.flush();
   cup.app.match.score=[1,0];cup.app.match.finish();cup.app.syncMatch();cup.click('continueCup');
@@ -172,7 +172,7 @@ test('practice skips cup setup; cup advances QF to SF to final and a loss resets
  cup.click('continueCup');assert.equal(cup.app.round,0);assert.equal(cup.app.champion,false);
 });
 test('pointer hold moves the active player; release kicks; cancellation does not kick',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.elements.get('game'),m=h.app.match,p=m.owner;m.protection=4;
  const event=(x,y)=>({clientX:x,clientY:y,pointerId:1,preventDefault(){}});
  const start={x:p.x,y:p.y};
@@ -185,7 +185,7 @@ test('pointer hold moves the active player; release kicks; cancellation does not
  c.handlers.pointercancel(event(p.x-100,p.y));assert.equal(m.ball.owner,p.id);
 });
 test('rendering, pause, resume and replay do not advance the paused simulation',()=>{
- const h=uiHarness(html);h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
  h.tick(16);h.tick(32);h.click('menuBtn');const minute=h.app.match.minute;
  h.tick(100);h.tick(200);assert.equal(h.app.match.minute,minute);
  h.click('resumePause');h.tick(300);assert.ok(h.app.match.minute>minute);
@@ -200,26 +200,26 @@ test('local multiplayer has distinct setup and never claims online play',()=>{
 });
 
 test('a 0–0 regulation finish never declares the selected team the winner',()=>{
- const h=uiHarness(html);h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
  h.app.match.period=2;h.app.match.minute=89.999;h.app.match.step(1/60);h.app.syncMatch();
  assert.equal(h.app.view,'penalties');assert.equal(h.app.match.winner(),null);
  assert.ok(!h.elements.get('resultMsg').textContent.includes('Congratulations'));
 });
 test('pause menu restarts a match and practice can finish without a timed result',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  h.app.match.score=[3,2];h.click('menuBtn');h.click('restartMatch');h.flush();
  assert.deepEqual(h.app.match.score,[0,0]);assert.equal(h.app.match.mode,'practice');
- h.click('menuBtn');h.click('finishPractice');assert.equal(h.app.view,'full');h.click('continueCup');assert.equal(h.app.view,'team');
+ h.click('menuBtn');h.click('finishPractice');assert.equal(h.app.view,'full');h.click('continueCup');assert.equal(h.app.view,'menu');
 });
 test('keyboard passing and shooting use possession rather than teleporting the ball',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const m=h.app.match,key=value=>({key:value,target:{tagName:'CANVAS'},repeat:false,preventDefault(){}});
  h.window.handlers.keydown(key('e'));assert.equal(m.ball.owner,null);assert.equal(m.passes[0],1);
  const p=m.players[9];m.giveBall(p);h.window.handlers.keydown(key(' '));
  assert.equal(m.ball.owner,null);assert.equal(m.shots[0],1);
 });
 test('pointer coordinates remain correct on a scaled touch canvas',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.elements.get('game'),p=h.app.match.owner;
  c.getBoundingClientRect=()=>({left:10,top:100,width:550,height:310});
  const event=(x,y)=>({clientX:10+x/2,clientY:100+y/2,pointerId:8,preventDefault(){}});
@@ -248,7 +248,7 @@ test('six seeded matches finish without nonfinite coordinates or repeated-goal l
 });
 
 test('shootout labels wait for both fifth kicks and stay in sudden death during its reply kick',()=>{
- const h=uiHarness(html);h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
  const m=h.app.match;m.finish();m.random=()=>0;h.app.syncMatch();
  for(let kick=0;kick<9;kick++){
   assert.equal(h.elements.get('penaltyPrompt').textContent,
@@ -265,7 +265,7 @@ test('shootout labels wait for both fifth kicks and stay in sudden death during 
  assert.equal(h.elements.get('penaltyPrompt').textContent,'Sudden death · Choose where to dive');
  h.penalties[0].onclick();assert.equal(h.app.view,'full');assert.equal(m.winner(),0);
 
- const regulation=uiHarness(html);regulation.chooseMode('cup');regulation.click('toTrophy');regulation.click('startMatch');regulation.flush();
+ const regulation=uiHarness(html);regulation.chooseMode('cup');regulation.click('startMatch');regulation.flush();
  regulation.app.match.finish();regulation.app.match.random=()=>0;regulation.app.syncMatch();
  for(let kick=0;kick<9;kick++)regulation.penalties[1].onclick();
  assert.equal(regulation.elements.get('penaltyPrompt').textContent,'Round 5 · Choose where to dive');
@@ -290,7 +290,7 @@ test('camera ground projection round-trips at both ends and across landscape and
   'near touchline must appear wider than the far touchline');
 });
 test('camera pans smoothly to the action, widens for fast passes and follows replay snapshots',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.app.camera,m=h.app.match,before=c.x,normalZoom=c.zoom,shot=m.snapshot();
  shot.ball.x=900;shot.ball.vx=500;shot.active=9;shot.players[9].x=870;
  c.update(shot,1/60);assert.ok(c.x>before&&c.x<900);assert.ok(c.zoom<normalZoom);
@@ -305,7 +305,7 @@ test('camera pans smoothly to the action, widens for fast passes and follows rep
  const p=c.project(180,318);assert.ok(p.x>0&&p.x<1100);
 });
 test('stationary touch does not create a kick when the camera moves beneath it',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.elements.get('game'),m=h.app.match,p=m.owner;
  const down={clientX:550,clientY:320,pointerId:3,preventDefault(){}};
  c.handlers.pointerdown(down);
@@ -314,7 +314,7 @@ test('stationary touch does not create a kick when the camera moves beneath it',
  assert.equal(m.owner.id,p.id);assert.equal(m.passes[0],0);assert.equal(m.shots[0],0);
 });
 test('projected touch selection picks the intended player after camera movement',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.elements.get('game'),m=h.app.match;m.ball.owner=null;
  const p=m.players[6];m.active=9;
  h.app.camera.x=400;h.app.camera.y=340;h.app.camera.zoom=1.8;
@@ -324,7 +324,7 @@ test('projected touch selection picks the intended player after camera movement'
  c.handlers.pointercancel({pointerId:4});
 });
 test('canvas fills resized desktop and touch viewports without changing simulation coordinates',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const canvas=h.elements.get('game'),before=h.app.match.snapshot();
  for(const rect of [{width:1440,height:810},{width:390,height:844},{width:844,height:390}]){
   canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
@@ -337,7 +337,7 @@ test('canvas fills resized desktop and touch viewports without changing simulati
  assert.ok(h.draws.some(d=>d.method==='lineTo'),'pitch and articulated limbs are rendered');
 });
 test('restarts and halftime remain controllable under the new camera',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const m=h.app.match;
  m.phase='restart';m.restart={type:'Corner Kick',team:0,x:88,y:108};h.app.syncMatch();h.click('takeCorner');
  for(let i=0;i<90;i++)h.app.render(1/60);
@@ -354,7 +354,7 @@ test('restarts and halftime remain controllable under the new camera',()=>{
 });
 
 test('portrait turns the long pitch axis upright and fills the 500 by 739 viewport',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const canvas=h.elements.get('game');
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});
  h.app.render(1/60);
@@ -372,7 +372,7 @@ test('portrait turns the long pitch axis upright and fills the 500 by 739 viewpo
 });
 test('touch guidance is selected before first input and landscape returns to horizontal pitch',()=>{
  const h=uiHarness(html);h.window.matchMedia=()=>({matches:true});
- h.chooseMode('practice');h.click('toTrophy');h.flush();
+ h.chooseMode('practice');h.flush();
  assert.ok(!h.elements.get('hint').textContent.includes('WASD'));
  const canvas=h.elements.get('game');
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
@@ -380,19 +380,19 @@ test('touch guidance is selected before first input and landscape returns to hor
  const c=h.app.camera,a=c.project(68,318),b=c.project(1032,318);
  assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<.001);assert.ok(b.x>a.x);
  assert.ok(c.zoom<1.8);
- const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.click('toTrophy');desktop.flush();
+ const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.flush();
  assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
 });
 
 test('portrait keeps both end lines at the frame edges through keeper tracking, fast balls and replay zoom',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
  for(const rect of [{width:500,height:739},{width:390,height:844}]){
   canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});h.app.render(1/60);
   for(const x of [FIELD.right-18,FIELD.left+18,550,FIELD.right-18]){
    const shot=m.snapshot();shot.ball.x=x;shot.ball.y=318;shot.players[shot.active].x=x;shot.players[shot.active].y=318;
    for(const speed of [0,600,0])for(let frame=0;frame<90;frame++){
-    shot.ball.vx=speed;c.update(shot,1/60,frame>45);
+    shot.ball.vx=speed;c.update(shot,1/60,false);
     const top=c.project(FIELD.left,318).y/c.height,bottom=c.project(FIELD.right,318).y/c.height;
     assert.ok(top<=.140001,'top runoff must not grow into a blank third');
     assert.ok(bottom>=.899999,'bottom runoff must stay within ten percent');
@@ -403,7 +403,7 @@ test('portrait keeps both end lines at the frame edges through keeper tracking, 
  }
 });
 test('portrait end-line clamp preserves touch aiming and leaves landscape tracking unchanged',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
  const shot=m.snapshot();shot.ball.x=1014;shot.players[shot.active].x=1014;
@@ -432,7 +432,7 @@ test('successful kicks and keeper saves have bounded replayable pose envelopes',
  save.kickoff(0);assert.ok(save.snapshot().players.every(p=>p.kick===0&&p.save===0));
 });
 test('running, kicking and keeper poses change without moving simulation players',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const p=h.app.match.snapshot().players[9],ball=h.app.match.ball;
  const idle=h.app.playerPose({...p,speed:0,kick:0},ball);
  const run=h.app.playerPose({...p,speed:120,stride:1,kick:0},ball);
@@ -444,17 +444,17 @@ test('running, kicking and keeper poses change without moving simulation players
  assert.deepEqual(h.app.match.snapshot(),before);
 });
 test('new menu stats, trophy teams and circular loading stay in sync with team selection',()=>{
- const h=uiHarness(html);h.chooseMode('cup');h.click('next');
+ const h=uiHarness(html);h.click('next');
  assert.equal(h.elements.get('atkBar').style.width,'86%');
- h.click('toTrophy');
- assert.ok(h.elements.get('cupTeams').innerHTML.includes('Argentina'));
- assert.ok(h.elements.get('cupTeams').innerHTML.includes('YOUR TEAM'));
- assert.ok(h.elements.get('cupTeams').innerHTML.includes('NEXT OPPONENT'));
+ h.chooseMode('cup');
+ assert.ok(h.elements.get('cupBracket').innerHTML.includes('Argentina'));
+ assert.ok(h.elements.get('cupBracket').innerHTML.includes('selected'));
+ assert.ok(h.elements.get('cupBracket').innerHTML.includes('SEMIFINAL'));
  h.click('startMatch');assert.equal(h.elements.get('loadingPercent').textContent,'0%');h.flush();
  assert.equal(h.elements.get('loadingPercent').textContent,'100%');assert.equal(h.app.view,'match');
 });
 test('stadium, turf and new sprite rendering stay finite and bounded in desktop and portrait',()=>{
- const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.elements.get('game'),m=h.app.match;
  for(const rect of [{width:1440,height:810},{width:500,height:739},{width:844,height:390}]){
   c.getBoundingClientRect=()=>({left:0,top:0,...rect});
@@ -597,7 +597,7 @@ test('local mode ignores pointer play and legacy solo kick keys; quitting restor
  c.handlers.pointerdown({pointerId:1,clientX:550,clientY:318,preventDefault(){}});
  c.handlers.pointerup({pointerId:1,clientX:100,clientY:318});assert.equal(m.ball.owner,9);
  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keydown(keyEvent(' '));assert.equal(m.ball.owner,9);
- h.chooseMode('menu');h.chooseMode('practice');h.click('toTrophy');h.flush();
+ h.chooseMode('menu');h.chooseMode('practice');h.flush();
  assert.equal(h.app.match.mode,'practice');h.window.handlers.keydown(keyEvent('e'));assert.equal(h.app.match.ball.owner,null);
 });
 
@@ -640,8 +640,8 @@ test('an entire no-input local match completes as a draw without AI shooting or 
 });
 
 test('Choose Your Team after quitting local returns to the solo cup flow',()=>{
- const h=localHarness();h.chooseMode('menu');h.chooseMode('team');
- assert.equal(h.app.view,'team');h.click('toTrophy');assert.equal(h.app.view,'trophy');
+ const h=localHarness();h.chooseMode('menu');
+ assert.equal(h.app.view,'menu');h.chooseMode('cup');assert.equal(h.app.view,'trophy');
  h.click('startMatch');h.flush();assert.equal(h.app.match.mode,'cup');
  h.app.match.score=[0,1];h.app.match.finish();h.app.syncMatch();
  assert.ok(h.elements.get('rematchLocal').classList.contains('hidden'));
@@ -661,13 +661,81 @@ test('canvas accessible instructions follow local, practice and cup modes withou
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — local two-player match');
  h.click('menuBtn');h.click('resumePause');
  assert.ok(description.textContent.includes('Player 2'));
- h.chooseMode('menu');h.chooseMode('practice');h.click('toTrophy');h.flush();
+ h.chooseMode('menu');h.chooseMode('practice');h.flush();
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — untimed practice');
  assert.ok(description.textContent.includes('Space shoots'));assert.ok(description.textContent.includes('E passes'));
  assert.ok(description.textContent.includes('Hold and drag'));assert.ok(!description.textContent.includes('Player 2'));
- h.chooseMode('menu');h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ h.chooseMode('menu');h.chooseMode('cup');h.click('startMatch');h.flush();
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — single-player cup');
  assert.ok(description.textContent.includes('Tab switches player'));
  h.chooseMode('menu');h.chooseMode('multi');
  assert.ok(description.textContent.includes('K passes'));assert.ok(!description.textContent.includes('Space shoots'));
+});
+
+test('one compact selector directly launches practice, cup and local setup',()=>{
+ const h=uiHarness(html);assert.equal(h.app.view,'menu');
+ assert.ok(h.elements.has('prev')&&h.elements.has('next'));assert.ok(!h.elements.has('toTrophy'));
+ assert.ok(!h.elements.has('team'));
+ h.click('next');h.chooseMode('practice');assert.equal(h.app.view,'loading');h.flush();
+ assert.equal(h.app.match.home.name,'Argentina');assert.equal(h.app.match.mode,'practice');
+ h.chooseMode('menu');h.chooseMode('cup');assert.equal(h.app.view,'trophy');
+ h.chooseMode('team');assert.equal(h.app.view,'menu');h.chooseMode('multi');assert.equal(h.app.view,'local');
+});
+test('eight-team bracket has every nation once in quarterfinals and actual future opponents on each branch',()=>{
+ const h=uiHarness(html);
+ for(let n=0;n<NATIONS.length;n++){
+  const qf=h.app.bracketMarkup(n,0,false);
+  for(const nation of NATIONS)assert.equal((qf.match(new RegExp('title="'+nation.name+'"','g'))||[]).length,1);
+  assert.equal((qf.match(/class="bracket-match"/g)||[]).length,7);
+ }
+ h.chooseMode('cup');
+ for(let round=0;round<3;round++){
+  assert.equal(h.app.round,round);h.click('startMatch');h.flush();
+  const m=h.app.match;assert.ok(h.elements.get('cupBracket').innerHTML.includes(m.away.code));
+  m.score=[1,0];m.finish();h.app.syncMatch();h.click('continueCup');
+ }
+ assert.ok(h.elements.get('cupBracket').innerHTML.includes('UZB · CHAMPIONS'));
+});
+test('intro, gameplay and replay presets have different viewpoints with invertible input mapping',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');
+ // Render the loading preview before its timers complete.
+ h.app.render(.1);assert.equal(h.app.camera.preset,'intro');
+ const introYaw=h.app.camera.yaw;assert.ok(introYaw<0);
+ h.flush();for(let i=0;i<100;i++)h.app.render(1/60);
+ const c=h.app.camera;assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw)<.01);
+ const normalZoom=c.zoom;
+ const m=h.app.match;m.phase='replay';m.replayFrames=[m.snapshot()];m.replayTime=1;
+ for(let i=0;i<90;i++)h.app.render(1/60);
+ assert.equal(c.preset,'replay');assert.ok(c.yaw>.45);assert.ok(c.tilt<.52);assert.ok(c.zoom>normalZoom+.3);
+ for(const p of [{x:200,y:150},{x:550,y:318},{x:920,y:480}]){
+  const s=c.project(p.x,p.y),q=c.unproject(s.x,s.y);
+  assert.ok(distance(p,q)<.00001);
+ }
+ m.scorer=0;h.click('skipReplay');for(let i=0;i<120;i++)h.app.render(1/60);
+ assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw)<.01);
+});
+test('replay interpolation uses recorded positions and never changes the live match',()=>{
+ const h=localHarness(),m=h.app.match,a=m.snapshot(),b=m.snapshot();
+ b.players[9].x+=100;b.ball.x+=100;b.ball.z=20;
+ const before=m.snapshot(),sample=h.app.replaySample([a,b],.5);
+ assert.equal(sample.players[9].x,a.players[9].x+50);assert.equal(sample.ball.x,a.ball.x+50);assert.equal(sample.ball.z,10);
+ assert.deepEqual(m.snapshot(),before);
+});
+test('stoppages automatically set up the taker while waiting for human release or keyboard pass',()=>{
+ for(const mode of ['practice','multi']){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();
+  const m=h.app.match;m.phase='restart';m.restart={type:'Corner Kick',team:mode==='multi'?1:0,x:100,y:108};h.app.syncMatch();
+  h.tick(100);h.tick(200);assert.equal(m.phase,'restart');
+  for(let t=300;t<=1300;t+=100)h.tick(t);
+  assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Corner Kick');assert.ok(m.owner);
+  const owner=m.owner.id;for(let i=0;i<60;i++)m.step(1/60,h.app.input());
+  assert.equal(m.ball.owner,owner);
+  if(mode==='multi'){h.window.handlers.keydown(keyEvent('k'));assert.equal(m.ball.owner,null);}
+ }
+});
+test('screen-direction solo keyboard controls stay aligned while intro camera settles',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.app.render(.15);h.flush();
+ h.window.handlers.keydown(keyEvent('w'));
+ const p=h.app.match.players[h.app.match.active],v=h.app.input(),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x+v.dx,p.y+v.dy);
+ assert.ok(b.y<a.y);assert.ok(Math.abs(b.x-a.x)<.02);
 });
