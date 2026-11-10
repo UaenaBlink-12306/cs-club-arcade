@@ -137,6 +137,22 @@ button.yellow{background:#ffe175;color:#6d5316;box-shadow:0 4px 0 #d7ae3f}
  .cup-art{height:130px}.cup-team{padding:3px 8px;font-size:11px}.cup-team>span{font-size:16px}
  #fixture{margin:4px 0}#trophy .stats{margin:6px auto}
 }
+
+#local{background:#20c7d0}
+#local .card{width:min(94%,820px);padding:24px;background:#ecfaf4}
+#local h2{font-size:clamp(24px,4vw,36px);margin-top:8px;color:#15546b}
+.local-players{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.local-player{border-radius:6px;background:#d7f3ef;padding:12px;border-top:5px solid #2cd5dd}
+.local-player.p2{background:#e4ecf7;border-color:#f4ad42}
+.local-player h3{margin:0 0 8px;color:#164b63;font-size:17px}.local-player small{display:block;font-size:9px;letter-spacing:.08em;margin-top:4px}
+.local-team-row{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.local-team-row b{font-size:16px}.local-team-row button{margin:2px;padding:5px 10px}
+.local-player p{margin:12px 0 2px;line-height:1.9;font-size:13px;color:#285d6d}
+kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;padding:2px 5px;border-bottom:2px solid #afc6cb}
+.local-note{font-size:12px;line-height:1.5;max-width:650px;margin:14px auto}
+#localPauseHelp{font-size:13px;line-height:1.7}
+@media(max-width:600px){#local .card{padding:14px 10px}.local-players{gap:8px}.local-player{padding:10px 5px}.local-team-row b{font-size:12px}.local-player p{font-size:11px}.local-note{font-size:11px}}
+@media(max-height:520px){#local .card{padding:12px}#local h2{font-size:24px}#local p{margin:6px 0}.local-player{padding:7px}.local-player p{line-height:1.5}.local-note{font-size:10px}}
 </style>
 </head>
 <body>
@@ -145,15 +161,21 @@ button.yellow{background:#ffe175;color:#6d5316;box-shadow:0 4px 0 #d7ae3f}
 <div id="hud" class="hidden"><div class="score"><span id="homeFlag">🇦🇷</span><span id="homeName">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">CRO</span><span id="awayFlag">🇭🇷</span><span class="clock" id="clock">00:00</span></div><button id="menuBtn" class="hamb">☰</button></div>
 <div id="hint" class="hidden">Drag from the active player to pass or shoot • release to kick</div>
 <div id="toast"></div>
-<section class="panel" id="menu"><div class="card"><div class="logo">THE BEAUTIFUL GAME</div><h1>SOCCER<br><span>SKILLS</span></h1><p class="menu-subtitle">INTERNATIONAL CUP</p><div class="hero-ball" aria-hidden="true"><svg viewBox="0 0 100 105"><ellipse cx="54" cy="96" rx="35" ry="6" fill="#087989" opacity=".2"/><circle cx="48" cy="46" r="38" fill="#f8ffeb" stroke="#d6eddf" stroke-width="2"/><path d="m43 29 17 5 2 18-17 9-14-12zM17 25l13-10 10 3-6 15-15 5zm53-7 13 16-1 14-15-9-6-17zM12 54l17 6 4 15-10 1-10-12zm33 19 16-9 15 5-13 13-18 2z" fill="#225267"/><path d="m34 33 9-4m17 5 7 5m-5 13 7 13m-24-4v12m-14-24-12-11" fill="none" stroke="#b1cac7" stroke-width="2"/><path d="M20 26q12-15 27-16" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg></div><div class="row"><button class="primary" data-go="team">CHOOSE YOUR TEAM</button></div><div class="row"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" disabled aria-disabled="true" title="Multiplayer is not available">MULTIPLAYER · UNAVAILABLE</button></div></div></section>
+<section class="panel" id="menu"><div class="card"><div class="logo">THE BEAUTIFUL GAME</div><h1>SOCCER<br><span>SKILLS</span></h1><p class="menu-subtitle">INTERNATIONAL CUP</p><div class="hero-ball" aria-hidden="true"><svg viewBox="0 0 100 105"><ellipse cx="54" cy="96" rx="35" ry="6" fill="#087989" opacity=".2"/><circle cx="48" cy="46" r="38" fill="#f8ffeb" stroke="#d6eddf" stroke-width="2"/><path d="m43 29 17 5 2 18-17 9-14-12zM17 25l13-10 10 3-6 15-15 5zm53-7 13 16-1 14-15-9-6-17zM12 54l17 6 4 15-10 1-10-12zm33 19 16-9 15 5-13 13-18 2z" fill="#225267"/><path d="m34 33 9-4m17 5 7 5m-5 13 7 13m-24-4v12m-14-24-12-11" fill="none" stroke="#b1cac7" stroke-width="2"/><path d="M20 26q12-15 27-16" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg></div><div class="row"><button class="primary" data-go="team">CHOOSE YOUR TEAM</button></div><div class="row"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play">LOCAL TWO PLAYER</button></div></div></section>
+<section class="panel hidden" id="local"><div class="card"><div class="pill">Same screen · Shared keyboard</div><h2>LOCAL TWO PLAYER</h2><p>Choose a team each. Two people, one keyboard. No online connection needed.</p>
+<div class="local-players">
+<div class="local-player p1"><h3>PLAYER 1 <small>WHITE · CYAN MARKER</small></h3><div class="local-team-row"><button id="localHomePrev" aria-label="Previous player one team">‹</button><b id="localHome"></b><button id="localHomeNext" aria-label="Next player one team">›</button></div><p><kbd>W A S D</kbd> Move<br><kbd>F</kbd> Pass · <kbd>G</kbd> Shoot<br><kbd>Q</kbd> Switch defender</p></div>
+<div class="local-player p2"><h3>PLAYER 2 <small>BLUE · ORANGE MARKER</small></h3><div class="local-team-row"><button id="localAwayPrev" aria-label="Previous player two team">‹</button><b id="localAway"></b><button id="localAwayNext" aria-label="Next player two team">›</button></div><p><kbd>↑ ← ↓ →</kbd> Move<br><kbd>K</kbd> Pass · <kbd>L</kbd> Shoot<br><kbd>O</kbd> Switch defender</p></div>
+</div><p class="local-note">Keyboard required. Movement follows the screen. Teammates support automatically; the ball carrier is yours to control. Switch to a defender near the ball. Escape pauses. Teams switch ends at halftime; a level final score is a draw.</p>
+<button class="primary" id="startLocal">START LOCAL MATCH</button><button data-go="menu">BACK</button></div></section>
 <section class="panel hidden" id="team"><div class="card"><div class="pill" id="modeText">Choose your cup team</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div><svg class="team-art" viewBox="0 0 180 210" aria-hidden="true"><ellipse cx="90" cy="196" rx="61" ry="10" fill="#0b748a" opacity=".22"/><path d="m63 129-3 34 10 29h17l-5-32 6-30m9 0 3 33 1 28h18l-2-35-5-28" fill="#e5b68c"/><path d="m62 123-3 28 25 1 6-20 7 20h23l-6-29" fill="#e9f3f1"/><path d="m64 165 6 29h17l-4-28m17 0 1 28h18l-1-29" fill="#fafff8"/><path d="m69 189-9 7q-2 6 8 6h22l-4-13m16 0-3 13h30q4-8-13-13" fill="#24454e"/><path d="m57 69-15 36 3 35 11-2 1-31 12-24m53-14 17 37-2 32-11-1-3-31-10-22" fill="#e7b98e"/><path d="m72 60-21 10-8 23 20 7 6-14-6 45h54l-5-45 8 13 18-8-9-23-22-8z" fill="#fcfff6"/><path d="m103 63 11 8-2 15 5 45h-14z" fill="#b7d7dc"/><path d="M74 88h32v5H74z" fill="#3d9cae"/><path d="m79 52 1 12 11 7 11-8-2-12" fill="#d8a77c"/><path d="m78 63 13 8 12-8" fill="none" stroke="#318ba0" stroke-width="4"/><ellipse cx="90" cy="36" rx="21" ry="26" fill="#e8bb90"/><path d="M69 35Q61 9 90 8q27 0 23 29l-8-17-14 6-18-3z" fill="#3e342b"/><path d="M80 37h4m13 0h4m-14 14q5 3 10-1" fill="none" stroke="#654a38" stroke-width="2"/><path d="M73 47q0 12 18 16" fill="none" stroke="#ce966b" stroke-width="3"/></svg></div><button class="yellow" id="next">NEXT ›</button></div><div class="stats"><div class="stat"><b id="atk">74</b>ATTACK<div class="rating-track"><i id="atkBar"></i></div></div><div class="stat"><b id="mid">71</b>MIDFIELD<div class="rating-track"><i id="midBar"></i></div></div><div class="stat"><b id="def">68</b>DEFENCE<div class="rating-track"><i id="defBar"></i></div></div></div><div class="row"><button class="primary" id="toTrophy">CONTINUE</button><button data-go="menu">BACK</button></div></div></section>
 <section class="panel hidden" id="trophy"><div class="card"><div class="pill">Road to the final</div><h2 id="trophyTitle">International Cup</h2><p id="fixture"></p><div class="cup-display"><svg class="cup-art" viewBox="0 0 200 230" aria-hidden="true"><ellipse cx="100" cy="211" rx="66" ry="10" fill="#087b8b" opacity=".18"/><path d="M52 35H25v37q0 34 40 38M148 35h27v37q0 34-40 38" fill="none" stroke="#d49225" stroke-width="14"/><path d="M53 23h94l-8 71q-4 25-31 31v43h29v22H63v-22h29v-43q-27-6-31-31z" fill="#edb537"/><path d="M67 23h36v99q-24-3-28-27z" fill="#ffdd73"/><path d="M133 23h14l-8 71q-4 25-31 31v43h-8v-48q24-7 27-29z" fill="#c58a20"/><path d="M48 20h104v12H48z" fill="#ffe5a0"/><path d="M56 185h88v24H56z" fill="#19556d"/><path d="M72 191h56v11H72z" fill="#eec55c"/><path d="m100 55 5 11 13 2-9 9 2 13-11-6-11 6 2-13-9-9 13-2z" fill="#ffefb6"/></svg><div class="cup-teams" id="cupTeams"></div></div><div class="stats"><div class="stat"><b id="roundName">QUARTERFINAL</b>ROUND</div><div class="stat"><b id="cupAttack"></b>ATTACK</div><div class="stat"><b id="cupDefence"></b>DEFENCE</div></div><button class="primary" id="startMatch">START MATCH</button><button data-go="team">CHANGE TEAM</button></div></section>
 <section class="panel hidden" id="loading"><div class="card"><div class="pill">Loading match</div><h2 id="loadingTitle"></h2><div class="loading-ring" id="loadingRing"><div><span id="loadingFlag"></span><small id="loadingPercent">0%</small></div></div><div style="height:12px;border-radius:99px;background:#d6e9e8;overflow:hidden"><div id="loadBar" style="height:100%;width:0;background:#22c9d0;transition:width .2s"></div></div><p id="loadText">Preparing the pitch…</p></div></section>
 <section class="panel hidden" id="replay"><div class="card"><div class="pill">Highlight</div><h2>INSTANT REPLAY</h2><p>The goal, played back in slow motion.</p><div class="row"><button class="yellow" id="skipReplay">SKIP</button><button class="primary" id="replayAgain">REPLAY</button></div></div></section>
 <section class="panel hidden" id="half"><div class="card"><div class="big">HALF TIME</div><p id="halfSummary"></p><button class="green" id="resume">RESUME GAME</button></div></section>
 <section class="panel hidden" id="corner"><div class="card"><div class="pill">Set piece</div><div class="big" style="font-size:clamp(30px,6vw,62px)">BALL OUT</div><h2 id="restartType">Corner Kick</h2><p id="restartHelp"></p><button class="primary" id="takeCorner">TAKE CORNER</button></div></section>
-<section class="panel hidden" id="full"><div class="card"><div class="pill">Full time</div><h2 id="resultScore">Full time</h2><p id="resultMsg"></p><button class="green" id="continueCup">CONTINUE</button></div></section>
-<section class="panel hidden" id="pause"><div class="card"><h2>Match paused</h2><p>Take a moment, then continue your run.</p><button class="primary" id="resumePause">RESUME</button><button id="restartMatch">RESTART MATCH</button><button id="finishPractice" class="hidden">FINISH PRACTICE</button><button data-go="menu">QUIT TO MENU</button></div></section>
+<section class="panel hidden" id="full"><div class="card"><div class="pill">Full time</div><h2 id="resultScore">Full time</h2><p id="resultMsg"></p><button class="primary hidden" id="rematchLocal">REMATCH</button><button class="green" id="continueCup">CONTINUE</button></div></section>
+<section class="panel hidden" id="pause"><div class="card"><h2>Match paused</h2><p id="localPauseHelp" class="hidden">P1: WASD move · F pass · G shoot · Q switch<br>P2: Arrows move · K pass · L shoot · O switch<br>Shared keyboard · same-screen friendly match</p><p>Take a moment, then continue your run.</p><button class="primary" id="resumePause">RESUME</button><button id="restartMatch">RESTART MATCH</button><button id="finishPractice" class="hidden">FINISH PRACTICE</button><button data-go="menu">QUIT TO MENU</button></div></section>
 <section class="panel hidden" id="penalties"><div class="card"><div class="pill">Penalty shootout</div><h2 id="penaltyScore"></h2><p id="penaltyPrompt"></p><div class="row"><button class="yellow" data-penalty="0">LEFT</button><button class="yellow" data-penalty="1">CENTRE</button><button class="yellow" data-penalty="2">RIGHT</button></div><p id="penaltyLast" aria-live="polite"></p><small>Five kicks each. Sudden death if still level.</small></div></section>
 </div></div></div>
 <script>
@@ -176,7 +198,7 @@ class SoccerMatch {
   constructor(home,away,mode='cup',seed=23){
     this.home=home;this.away=away;this.mode=mode;this.seed=seed;
     this.score=[0,0];this.minute=0;this.period=1;this.elapsed=0;this.phase='playing';
-    this.active=9;this.players=[];this.history=[];this.replayFrames=[];this.replayTime=0;
+    this.active=9;this.activeAway=20;this.players=[];this.history=[];this.replayFrames=[];this.replayTime=0;
     this.recordAt=0;this.event='Kick off';this.restarts=0;this.tackles=0;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:0,lock:0};
     for(let team=0;team<2;team++) for(let slot=0;slot<11;slot++){
@@ -188,6 +210,8 @@ class SoccerMatch {
   direction(team){return (team===0?-1:1)*(this.period===1?1:-1);}
   goalX(team){return this.direction(team)>0?FIELD.right:FIELD.left;}
   ownGoalX(team){return this.direction(team)>0?FIELD.left:FIELD.right;}
+  activeFor(team){return team===0?this.active:this.activeAway;}
+  selectPlayer(team,id){if(this.players[id]?.team!==team)return;if(team===0)this.active=id;else this.activeAway=id;}
   get owner(){return this.ball.owner===null?null:this.players[this.ball.owner];}
   resetFormation(){
     for(const p of this.players){
@@ -205,7 +229,7 @@ class SoccerMatch {
     }
     const taker=this.players[team*11+9];taker.x=550;taker.y=318;
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:team,lock:0};
-    this.giveBall(taker);this.active=team===0?taker.id:this.nearest(0,this.ball).id;
+    this.giveBall(taker);this.active=team===0?taker.id:this.nearest(0,this.ball).id;this.activeAway=team===1?taker.id:this.nearest(1,this.ball).id;
     this.phase='playing';this.phaseTime=0;this.setPiece=null;this.history=[];this.recordAt=0;
   }
   nearest(team,target,exclude=null){
@@ -216,6 +240,7 @@ class SoccerMatch {
     this.ball.owner=p.id;this.ball.lastTouch=p.team;this.ball.z=0;this.ball.vx=0;this.ball.vy=0;this.ball.vz=0;
     p.held=0;p.think=Math.max(p.think,.25);this.protection=.55;
     if(p.team===0)this.active=p.id;
+    else if(this.mode==='local')this.activeAway=p.id;
     this.followBall();
   }
   followBall(){
@@ -241,6 +266,7 @@ class SoccerMatch {
     if(shot)this.shots[p.team]++;else this.passes[p.team]++;
     this.setPiece=null;
     if(p.team===0){this.active=this.nearest(0,target,p.id).id;this.event=shot?'Shot!':'Pass!';}
+    else if(this.mode==='local'){this.activeAway=this.nearest(1,target,p.id).id;this.event='Player 2: '+(shot?'Shot!':'Pass!');}
     return true;
   }
   bestPass(p){
@@ -294,17 +320,22 @@ class SoccerMatch {
     this.protection=Math.max(0,(this.protection||0)-dt);this.ball.lock=Math.max(0,this.ball.lock-dt);
     let owner=this.owner;if(owner)owner.held+=dt;
     if(owner?.team===0)this.active=owner.id;
-    else if(!input && (this.players[this.active].keeper||distance(this.players[this.active],this.ball)>distance(this.nearest(0,this.ball),this.ball)+70))this.active=this.nearest(0,this.ball).id;
+    else if(this.mode!=='local'&&!input && (this.players[this.active].keeper||distance(this.players[this.active],this.ball)>distance(this.nearest(0,this.ball),this.ball)+70))this.active=this.nearest(0,this.ball).id;
+    if(this.mode==='local'&&owner?.team===1)this.activeAway=owner.id;
+    const localInputs=this.mode==='local'?[0,1].map(team=>input?.teams?.[team]||{dx:0,dy:0}):null;
     const chasers=[0,1].map(team=>this.players.filter(p=>p.team===team&&!p.keeper)
       .sort((a,b)=>distance(a,this.ball)-distance(b,this.ball)).slice(0,2).map(p=>p.id));
     for(const p of this.players){
       p.cooldown=Math.max(0,p.cooldown-dt);
-      if(p.team===0&&p.id===this.active&&input){
+      const control=localInputs?(p.id===this.activeFor(p.team)?localInputs[p.team]:null):(p.team===0&&p.id===this.active?input:null);
+      if(control){
         if(this.setPiece&&this.ball.owner===p.id){p.speed=0;continue;}
-        if(input.target)this.move(p,input.target.x,input.target.y,142,dt);
-        else this.move(p,p.x+input.dx*100,p.y+input.dy*100,142,dt);
+        if(control.target)this.move(p,control.target.x,control.target.y,142,dt);
+        else this.move(p,p.x+control.dx*100,p.y+control.dy*100,142,dt);
         continue;
       }
+      // Let a local pass leave the kicker's feet before off-ball AI chases it.
+      if(this.mode==='local'&&p.cooldown>0&&this.ball.owner===null){p.speed=0;continue;}
       if(this.ball.owner===p.id){this.aiBallCarrier(p,dt);continue;}
       const d=this.direction(p.team),own=this.ownGoalX(p.team);
       if(p.keeper){
@@ -317,7 +348,7 @@ class SoccerMatch {
       if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)){
         const lead=owner?.team!==p.team&&owner?18:0;
         this.move(p,clamp(this.ball.x+this.ball.vx*.13+d*lead,FIELD.left+14,FIELD.right-14),
-          clamp(this.ball.y+this.ball.vy*.13,FIELD.top+14,FIELD.bottom-14),p.team===0?128:115,dt);
+          clamp(this.ball.y+this.ball.vy*.13,FIELD.top+14,FIELD.bottom-14),p.team===0||this.mode==='local'?128:115,dt);
       }else{
         const f=formation[p.slot],attacking=owner?.team===p.team;
         const fraction=f[0]+(attacking?.09:-.06);
@@ -423,11 +454,12 @@ class SoccerMatch {
     return null;
   }
 
-  switchPlayer(){if(this.owner?.team===0){this.active=this.owner.id;return;}
-    const candidates=this.players.filter(p=>p.team===0&&!p.keeper).sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
-    this.active=(candidates.find(p=>p.id!==this.active)||candidates[0]).id;
+  switchPlayer(team=0){
+    if(this.owner?.team===team){this.selectPlayer(team,this.owner.id);return;}
+    const candidates=this.players.filter(p=>p.team===team&&!p.keeper).sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
+    this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id);
   }
-  snapshot(){return {players:this.players.map(p=>({id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.angle,stride:p.stride,speed:p.speed,kick:clamp(1-(this.elapsed-(p.kickAt??-100))/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)})),ball:{...this.ball},active:this.active};}
+  snapshot(){return {players:this.players.map(p=>({id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.angle,stride:p.stride,speed:p.speed,kick:clamp(1-(this.elapsed-(p.kickAt??-100))/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)})),ball:{...this.ball},active:this.active,activeAway:this.activeAway};}
 }
 
 // END SOCCER ENGINE
@@ -492,19 +524,23 @@ const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
 const W=1100;let H=620;
 const camera=new ActionCamera();
 const $=selector=>document.querySelector(selector);
-const panels=['menu','team','trophy','loading','replay','half','corner','full','pause','penalties'];
-let view='menu',selection=0,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0;
+const panels=['menu','local','team','trophy','loading','replay','half','corner','full','pause','penalties'];
+let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0;
 let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0,touchControls=false;
 function updateControlHint(){
+  if(mode==='local'){
+    $('#hint').textContent='P1: WASD · F pass · G shoot · Q switch | P2: Arrows · K pass · L shoot · O switch';
+    return;
+  }
   const touch=touchControls||!!window.matchMedia?.('(pointer: coarse)').matches||!!window.navigator?.maxTouchPoints;
   $('#hint').textContent=touch?'Hold + drag to run · Release to pass or shoot · Tap a teammate to select':'Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
 }
-function attackHint(){return camera.portrait?(match.direction(0)<0?'↑ ATTACK':'ATTACK ↓'):(match.direction(0)<0?'← ATTACK':'ATTACK →');}
+function attackHint(){if(mode==='local')return camera.portrait?(match.direction(0)<0?'P1 ↑  ·  P2 ↓':'P1 ↓  ·  P2 ↑'):(match.direction(0)<0?'P1 ←  ·  P2 →':'P1 →  ·  P2 ←');return camera.portrait?(match.direction(0)<0?'↑ ATTACK':'ATTACK ↓'):(match.direction(0)<0?'← ATTACK':'ATTACK →');}
 const keys=new Set();
 const roundNames=['QUARTERFINAL','SEMIFINAL','FINAL'];
 function opponentFor(homeIndex,roundIndex){return [2,3,4,1,5,0].filter(i=>i!==homeIndex)[roundIndex];}
 function show(id){
-  view=id;panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
+  view=id;$('#localPauseHelp').classList.toggle('hidden',mode!=='local');panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
   $('#hud').classList.toggle('hidden',!['match','goal','replay','half','corner','pause','penalties'].includes(id));
   $('#hint').classList.toggle('hidden',id!=='match');
   if(id!=='match'){drag=null;keys.clear();}
@@ -541,9 +577,9 @@ function updateHUD(){
 function startMatch(){
   const current=++loadId;clearTimeout(loadTimer);
   if(champion){round=0;champion=false;}
-  const home=NATIONS[selection],away=NATIONS[opponentFor(selection,round)];
+  const home=NATIONS[selection],away=NATIONS[mode==='local'?localAway:opponentFor(selection,round)];
   match=null;show('loading');$('#loadingTitle').textContent=home.name;$('#loadingFlag').textContent=home.flag;
-  $('#loadBar').style.width='0%';$('#loadingPercent').textContent='0%';$('#loadingRing').style.background='conic-gradient(#ffe078 0%,#ffffff33 0%)';$('#loadText').textContent=mode==='practice'?'Untimed practice session':'Preparing '+roundNames[round].toLowerCase();
+  $('#loadBar').style.width='0%';$('#loadingPercent').textContent='0%';$('#loadingRing').style.background='conic-gradient(#ffe078 0%,#ffffff33 0%)';$('#loadText').textContent=mode==='practice'?'Untimed practice session':mode==='local'?'Local two-player match · shared keyboard':'Preparing '+roundNames[round].toLowerCase();
   let progress=0;
   const advance=()=>{
     if(current!==loadId)return;progress+=20;$('#loadBar').style.width=progress+'%';$('#loadingPercent').textContent=progress+'%';$('#loadingRing').style.background='conic-gradient(#ffe078 '+progress+'%,#ffffff33 0%)';
@@ -553,17 +589,18 @@ function startMatch(){
       camera.ready=false;resizeView();camera.update(match.snapshot(),0,false,true);
       lastEvent='';accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
       updateControlHint();
-      toast(mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the '+(camera.portrait?'top':'left')+' goal!');
+      toast(mode==='local'?'Player 1: white / cyan. Player 2: blue / orange.':mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the '+(camera.portrait?'top':'left')+' goal!');
     }
   };loadTimer=setTimeout(advance,150);
 }
 function result(){
   const winner=match.winner(),penalties=match.penalties;
+  $('#rematchLocal').classList.toggle('hidden',mode!=='local');
   $('#resultScore').textContent=match.home.name+' '+match.score[0]+' - '+match.score[1]+' '+match.away.name;
   if(penalties?.done)$('#resultScore').textContent+=' (pens '+penalties.score.join(' - ')+')';
-  $('#resultMsg').textContent=mode==='practice'?'Practice finished. Keep building your passing and shooting.':
+  $('#resultMsg').textContent=mode==='local'?(winner===null?'Draw — honours even.':('Player '+(winner+1)+' — '+(winner===0?match.home.name:match.away.name)+' wins!')):mode==='practice'?'Practice finished. Keep building your passing and shooting.':
     winner===null?'Draw — the scores are level.':winner===0?'Congratulations, '+match.home.name+' wins!':match.away.name+' wins. Your cup run ends here.';
-  $('#continueCup').textContent=mode==='practice'?'BACK TO TEAMS':winner===0?(round<2?'CONTINUE TO '+roundNames[round+1]:'LIFT THE CUP'):'BACK TO CUP';
+  $('#continueCup').textContent=mode==='local'?'CHANGE TEAMS':mode==='practice'?'BACK TO TEAMS':winner===0?(round<2?'CONTINUE TO '+roundNames[round+1]:'LIFT THE CUP'):'BACK TO CUP';
 }
 function syncMatch(){
   if(!match)return;updateHUD();
@@ -576,6 +613,11 @@ function syncMatch(){
       $('#restartType').textContent=match.restart.type;
       $('#restartHelp').textContent=(match.restart.team===0?match.home.name:match.away.name)+' to restart. '+(match.restart.team===0?'Hold and drag to aim; release to take the kick.':'The opposition takes the restart.');
       $('#takeCorner').textContent=match.restart.team===0?'SET UP '+match.restart.type.toUpperCase():'CONTINUE';
+    }
+    if(match.phase==='restart'&&mode==='local'){
+      const team=match.restart.team;
+      $('#restartHelp').textContent='Player '+(team+1)+' takes this restart. Press '+(team===0?'F to pass or G to shoot.':'K to pass or L to shoot.');
+      $('#takeCorner').textContent='SET UP '+match.restart.type.toUpperCase();
     }
     if(match.phase==='half')$('#halfSummary').textContent=match.home.name+' '+match.score[0]+' - '+match.score[1]+' '+match.away.name+' · Teams switch ends after the break.';
   }
@@ -590,6 +632,7 @@ function syncMatch(){
 function continueCup(){
   if(!match||match.phase!=='full')return;
   const winner=match.winner();match=null;
+  if(mode==='local'){setLocalTeams();show('local');return;}
   if(mode==='practice'){setTeam();show('team');return;}
   if(winner===0){if(round<2)round++;else champion=true;}else{round=0;champion=false;}
   updateTrophy();show('trophy');
@@ -607,7 +650,7 @@ function point(event){
   const r=canvas.getBoundingClientRect();return {x:(event.clientX-r.left)*W/r.width,y:(event.clientY-r.top)*H/r.height};
 }
 canvas.addEventListener('pointerdown',event=>{
-  if(match?.phase!=='playing')return;event.preventDefault();
+  if(match?.phase!=='playing'||mode==='local')return;event.preventDefault();
   if(event.pointerType==='touch'||event.pointerType==='pen'){touchControls=true;updateControlHint();}
   canvas.focus({preventScroll:true});
   const screen=point(event),q=camera.unproject(screen.x,screen.y);
@@ -641,7 +684,20 @@ function updateDrag(){
   const v=camera.vector(match.players[drag.player],drag.screenDx,drag.screenDy);
   drag.dx=v.x;drag.dy=v.y;
 }
+function localMovement(team){
+  const right=team===0?'d':'arrowright',left=team===0?'a':'arrowleft',down=team===0?'s':'arrowdown',up=team===0?'w':'arrowup';
+  const dx=Number(keys.has(right))-Number(keys.has(left)),dy=Number(keys.has(down))-Number(keys.has(up));
+  if(!dx&&!dy)return {dx:0,dy:0};
+  const p=match.players[match.activeFor(team)],v=camera.vector(p,dx*10,dy*10),len=Math.hypot(v.x,v.y);
+  return {dx:v.x/len,dy:v.y/len};
+}
+function localKick(team,shot){
+  const p=match?.owner;if(!p||p.team!==team)return;
+  if(shot)match.kick(p,{x:match.goalX(team)+match.direction(team)*20,y:FIELD.cy},1,!!match.setPiece);
+  else{const receiver=match.bestPass(p);if(receiver)match.kick(p,receiver,.6,!!match.setPiece);}
+}
 function input(){
+  if(mode==='local'&&match)return {teams:[localMovement(0),localMovement(1)]};
   updateDrag();
   if(drag){const len=Math.hypot(drag.dx,drag.dy);return {dx:len>6?drag.dx/len:0,dy:len>6?drag.dy/len:0};}
   const dx=Number(keys.has('d')||keys.has('arrowright'))-Number(keys.has('a')||keys.has('arrowleft'));
@@ -652,6 +708,17 @@ window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
   if(key==='escape'){if(match?.phase==='paused')resume();else pause();return;}
   if(match?.phase!=='playing'||event.target?.tagName==='BUTTON'||event.target?.tagName==='A')return;
+  if(mode==='local'){
+    const movement=['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'];
+    if(movement.includes(key)||['f','g','q','k','l','o'].includes(key))event.preventDefault();
+    if(movement.includes(key))keys.add(key);
+    if(!event.repeat){
+      if(key==='q')match.switchPlayer(0);if(key==='o')match.switchPlayer(1);
+      if(key==='f'||key==='g')localKick(0,key==='g');
+      if(key==='k'||key==='l')localKick(1,key==='l');
+    }
+    return;
+  }
   if(['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d',' ','e','tab'].includes(key))event.preventDefault();
   if(['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(key))keys.add(key);
   if(event.repeat)return;
@@ -665,18 +732,32 @@ window.addEventListener('blur',pause);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 document.querySelectorAll('[data-go]').forEach(button=>button.onclick=()=>{
   const next=button.dataset.go;
-  if(next==='multi')return;
+  if(next==='multi'){mode='local';round=0;champion=false;if(localAway===selection)localAway=(selection+1)%NATIONS.length;setLocalTeams();show('local');return;}
   if(next==='menu'){quitToMenu();return;}
   if(next==='practice'||next==='cup'){mode=next;round=0;champion=false;}
+  if(next==='team'&&mode==='local'){mode='cup';round=0;champion=false;}
   setTeam();show('team');
 });
 $('#prev').onclick=()=>{selection=(selection+NATIONS.length-1)%NATIONS.length;round=0;champion=false;setTeam();};
 $('#next').onclick=()=>{selection=(selection+1)%NATIONS.length;round=0;champion=false;setTeam();};
 $('#toTrophy').onclick=()=>{if(mode==='practice')startMatch();else{updateTrophy();show('trophy');}};
 $('#startMatch').onclick=startMatch;
+function setLocalTeams(){
+  $('#localHome').textContent=NATIONS[selection].flag+' '+NATIONS[selection].name;
+  $('#localAway').textContent=NATIONS[localAway].flag+' '+NATIONS[localAway].name;
+}
+function cycleLocal(team,step){
+  let value=team===0?selection:localAway;
+  do{value=(value+step+NATIONS.length)%NATIONS.length;}while(value===(team===0?localAway:selection));
+  if(team===0)selection=value;else localAway=value;setLocalTeams();
+}
+$('#localHomePrev').onclick=()=>cycleLocal(0,-1);$('#localHomeNext').onclick=()=>cycleLocal(0,1);
+$('#localAwayPrev').onclick=()=>cycleLocal(1,-1);$('#localAwayNext').onclick=()=>cycleLocal(1,1);
+$('#startLocal').onclick=startMatch;
+$('#rematchLocal').onclick=startMatch;
 $('#skipReplay').onclick=()=>{match?.skipReplay();syncMatch();};
 $('#replayAgain').onclick=()=>{if(match){match.phase='replay';match.replayTime=0;syncMatch();}};
-$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();canvas.focus({preventScroll:true});toast('You now attack the '+(camera.portrait?'bottom':'right')+' goal!');};
+$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();canvas.focus({preventScroll:true});toast(mode==='local'?'Teams switch ends — follow the P1 / P2 arrows.':'You now attack the '+(camera.portrait?'bottom':'right')+' goal!');};
 $('#takeCorner').onclick=()=>{match?.takeRestart();syncMatch();canvas.focus({preventScroll:true});};
 $('#continueCup').onclick=continueCup;
 $('#menuBtn').onclick=pause;$('#resumePause').onclick=resume;
@@ -849,7 +930,7 @@ function drawPlayer(p,active,ball){
   ctx.save();ctx.translate(at.x,at.y);ctx.scale(s,s);
   ctx.fillStyle='#19432932';ctx.beginPath();ctx.ellipse(7,3,14,4.6,.13,0,Math.PI*2);ctx.fill();
   if(active){
-    ctx.strokeStyle='#49f2e7';ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(0,1,13.5,5.6,0,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=mode==='local'&&p.team===1?'#ffb84e':'#49f2e7';ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(0,1,13.5,5.6,0,0,Math.PI*2);ctx.stroke();
   }
   ctx.save();ctx.translate(fx*running*.7,-bob);
   ctx.rotate(fx*running*.045+reach*save*.72);
@@ -897,8 +978,9 @@ function drawPlayer(p,active,ball){
   else{ctx.fillStyle='#3b342b';ctx.fillRect(hx+fx*1.8,-35.7,1,1);ctx.fillStyle=skin;ctx.beginPath();ctx.arc(hx+fx*3.8,-34.6,1.1,0,Math.PI*2);ctx.fill();}
   ctx.restore();
   if(active){
-    ctx.fillStyle='#29e7e6';ctx.strokeStyle='#eaffee';ctx.lineWidth=.8;ctx.beginPath();
+    ctx.fillStyle=mode==='local'&&p.team===1?'#ffb84e':'#29e7e6';ctx.strokeStyle='#eaffee';ctx.lineWidth=.8;ctx.beginPath();
     ctx.moveTo(0,-46-bob);ctx.lineTo(-5.5,-55-bob);ctx.lineTo(5.5,-55-bob);ctx.closePath();ctx.fill();ctx.stroke();
+    if(mode==='local')label('P'+(p.team+1),0,-59-bob,7,'#fff');
   }
   ctx.restore();
 }
@@ -915,7 +997,7 @@ function radar(shot){
   ctx.strokeStyle='#dcffe280';ctx.lineWidth=1;ctx.strokeRect(x,y,width,height);
   ctx.beginPath();ctx.moveTo(x+width/2,y);ctx.lineTo(x+width/2,y+height);ctx.stroke();
   const map=p=>({x:x+(p.x-FIELD.left)/(FIELD.right-FIELD.left)*width,y:y+(p.y-FIELD.top)/(FIELD.bottom-FIELD.top)*height});
-  for(const p of shot.players){const q=map(p);ctx.fillStyle=p.id===shot.active?'#33f3ff':p.team===0?'#fff':'#163276';ctx.fillRect(q.x-2,q.y-2,4,4);}
+  for(const p of shot.players){const q=map(p);ctx.fillStyle=p.id===shot.active?'#33f3ff':mode==='local'&&p.id===shot.activeAway?'#ffb84e':p.team===0?'#fff':'#163276';ctx.fillRect(q.x-2,q.y-2,4,4);}
   const b=map(shot.ball);ctx.fillStyle='#ffe04f';ctx.beginPath();ctx.arc(b.x,b.y,2.5,0,Math.PI*2);ctx.fill();
 }
 function render(dt=0){
@@ -925,7 +1007,7 @@ function render(dt=0){
     const t=clamp(match.replayTime/4,0,.999);
     shot=match.replayFrames[Math.floor(t*match.replayFrames.length)];
   }
-  if(shot)camera.update(shot,dt,match.phase==='replay');
+  if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match.phase==='replay');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
   if(drag&&match.phase==='playing'){
@@ -938,7 +1020,7 @@ function render(dt=0){
   }
   const entities=shot.players.map(p=>({y:camera.project(p.x,p.y).y,player:p}));
   entities.push({y:camera.project(shot.ball.x,shot.ball.y).y+shot.ball.z*.2,ball:shot.ball});
-  entities.sort((a,b)=>a.y-b.y).forEach(e=>e.player?drawPlayer(e.player,e.player.id===shot.active,shot.ball):drawBall(e.ball));
+  entities.sort((a,b)=>a.y-b.y).forEach(e=>e.player?drawPlayer(e.player,e.player.id===shot.active||(mode==='local'&&e.player.id===shot.activeAway),shot.ball):drawBall(e.ball));
   const light=ctx.createLinearGradient(0,0,W,H);
   light.addColorStop(0,'#fff9cd0d');light.addColorStop(.5,'#fff9cd00');light.addColorStop(1,'#173a4b0c');
   ctx.fillStyle=light;ctx.fillRect(0,0,W,H);

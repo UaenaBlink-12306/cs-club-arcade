@@ -33,7 +33,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,input};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -191,9 +191,11 @@ test('rendering, pause, resume and replay do not advance the paused simulation',
  h.app.match.scorer=0;h.app.match.phase='replay';h.app.match.replayFrames=[h.app.match.snapshot()];h.tick(400);
  h.click('skipReplay');assert.equal(h.app.match.phase,'playing');
 });
-test('multiplayer is visibly unavailable and cannot start a fake cup',()=>{
- const h=uiHarness(html);h.chooseMode('multi');assert.equal(h.app.view,'menu');assert.equal(h.app.match,null);
- assert.ok(/data-go="multi" disabled aria-disabled="true"/.test(html));
+test('local multiplayer has distinct setup and never claims online play',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');assert.equal(h.app.view,'local');assert.equal(h.app.match,null);
+ assert.ok(html.includes('LOCAL TWO PLAYER'));assert.ok(html.includes('Keyboard required.'));
+ h.click('startLocal');h.flush();assert.equal(h.app.match.mode,'local');
+ assert.ok(h.elements.get('hint').textContent.includes('P2: Arrows'));
 });
 
 test('a 0–0 regulation finish never declares the selected team the winner',()=>{
@@ -463,4 +465,183 @@ test('stadium, turf and new sprite rendering stay finite and bounded in desktop 
   }
  }
  m.scorer=0;m.phase='goal';m.phaseTime=.6;h.app.render(1/60);
+});
+
+function localHarness(){
+ const h=uiHarness(html);h.chooseMode('multi');h.click('startLocal');h.flush();return h;
+}
+function keyEvent(key,repeat=false){return {key,repeat,target:{tagName:'CANVAS'},preventDefault(){this.prevented=true;}};}
+test('local setup independently changes two distinct teams and preserves them on restart',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');
+ const away=h.elements.get('localAway').textContent;
+ h.click('localHomeNext');assert.equal(h.elements.get('localAway').textContent,away);
+ const home=h.elements.get('localHome').textContent;
+ h.click('localAwayNext');assert.equal(h.elements.get('localHome').textContent,home);
+ for(let i=0;i<12;i++){
+  h.click('localHomeNext');assert.ok(h.elements.get('localHome').textContent!==h.elements.get('localAway').textContent);
+  h.click('localAwayPrev');assert.ok(h.elements.get('localHome').textContent!==h.elements.get('localAway').textContent);
+ }
+ h.click('startLocal');h.flush();const names=[h.app.match.home.name,h.app.match.away.name];
+ h.click('menuBtn');h.click('restartMatch');h.flush();
+ assert.deepEqual([h.app.match.home.name,h.app.match.away.name],names);
+});
+test('both teams move simultaneously with separate keys; idle active players remain under human control',()=>{
+ const h=localHarness(),m=h.app.match;
+ for(const p of m.players){p.x=800+(p.id%5)*30;p.y=420+Math.floor(p.id/5)*25;}
+ const p1=m.players[9],p2=m.players[20];p1.x=400;p1.y=220;p2.x=600;p2.y=220;m.giveBall(p1);m.activeAway=p2.id;m.protection=4;
+ const b1={x:p1.x,y:p1.y},b2={x:p2.x,y:p2.y};
+ h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowDown'));
+ for(let i=0;i<30;i++)m.step(1/60,h.app.input());
+ assert.ok(p1.y<b1.y-55);assert.ok(p2.y>b2.y+55);
+ h.window.handlers.keyup(keyEvent('w'));const stop={x:p1.x,y:p1.y};
+ for(let i=0;i<15;i++)m.step(1/60,h.app.input());
+ assert.ok(distance(p1,stop)<.001);assert.ok(p2.y>b2.y+90);
+ h.window.handlers.keyup(keyEvent('ArrowDown'));assert.deepEqual(h.app.input().teams,[{dx:0,dy:0},{dx:0,dy:0}]);
+});
+test('each player can pass and shoot only for the team currently in possession',()=>{
+ const h=localHarness(),m=h.app.match;
+ h.window.handlers.keydown(keyEvent('l'));h.window.handlers.keydown(keyEvent('k'));
+ assert.equal(m.ball.owner,9);assert.deepEqual(m.shots,[0,0]);assert.deepEqual(m.passes,[0,0]);
+ h.window.handlers.keydown(keyEvent('f'));assert.equal(m.ball.owner,null);assert.equal(m.passes[0],1);
+ m.giveBall(m.players[20]);h.window.handlers.keydown(keyEvent('g'));assert.equal(m.ball.owner,20);
+ h.window.handlers.keydown(keyEvent('k'));assert.equal(m.ball.owner,null);assert.equal(m.passes[1],1);
+ m.giveBall(m.players[9]);h.window.handlers.keydown(keyEvent('g'));assert.equal(m.shots[0],1);
+ m.giveBall(m.players[20]);h.window.handlers.keydown(keyEvent('l'));assert.equal(m.shots[1],1);
+ assert.ok(m.ball.vx>0);
+});
+test('possession transfers and defensive selection are independent for both teams',()=>{
+ const h=localHarness(),m=h.app.match;m.ball.owner=null;
+ const p1=m.active,p2=m.activeAway;
+ h.window.handlers.keydown(keyEvent('q'));assert.ok(m.active!==p1);assert.equal(m.activeAway,p2);
+ const p1After=m.active;
+ h.window.handlers.keydown(keyEvent('o'));assert.ok(m.activeAway!==p2);assert.equal(m.active,p1After);
+ m.giveBall(m.players[17]);assert.equal(m.activeAway,17);assert.equal(m.active,p1After);
+ m.giveBall(m.players[4]);assert.equal(m.active,4);assert.equal(m.activeAway,17);
+});
+test('neither local ball carrier automatically dribbles, passes or shoots',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');
+  for(const p of m.players){p.x=900+(p.id%4)*25;p.y=110+Math.floor(p.id/4)*28;}
+  const p=m.players[team*11+9];p.x=550;p.y=318;m.giveBall(p);m.protection=10;
+  const before={x:p.x,y:p.y};
+  for(let i=0;i<180;i++)m.step(1/60);
+  assert.ok(distance(p,before)<.001);assert.equal(m.ball.owner,p.id);
+  assert.deepEqual(m.passes,[0,0]);assert.deepEqual(m.shots,[0,0]);
+ }
+});
+test('corners, throw-ins and goal kicks wait for the correct human and accept that team pass key',()=>{
+ for(const team of [0,1])for(const type of ['Corner Kick','Throw-in','Goal Kick']){
+  const h=localHarness(),m=h.app.match;
+  m.phase='restart';m.restart={type,team,x:team===0?100:1000,y:type==='Goal Kick'?318:108};
+  h.app.syncMatch();assert.ok(h.elements.get('restartHelp').textContent.startsWith('Player '+(team+1)));
+  h.click('takeCorner');const owner=m.owner.id;
+  for(let i=0;i<90;i++)m.step(1/60,h.app.input());
+  assert.equal(m.ball.owner,owner);assert.equal(m.setPiece,type);
+  h.window.handlers.keydown(keyEvent(team===0?'k':'f'));assert.equal(m.ball.owner,owner);
+  h.window.handlers.keydown(keyEvent(team===0?'f':'k'));assert.equal(m.ball.owner,null);assert.equal(m.setPiece,null);
+  assert.equal(m.ball.lastTouch,team);
+ }
+});
+test('local goals score correctly at both ends in both halves and restart with the conceding team',()=>{
+ for(const period of [1,2])for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const side=m.goalX(team),d=m.direction(team);
+  Object.assign(m.ball,{owner:null,x:side+d,y:318,z:0,lastTouch:team});
+  m.checkBoundary({x:side-d*10,y:318,z:0});
+  assert.equal(m.phase,'goal');assert.equal(m.score[team],1);assert.equal(m.score[1-team],0);
+  m.skipReplay();assert.equal(m.owner.team,1-team);assert.equal(m.activeFor(1-team),m.owner.id);
+ }
+});
+test('local halftime switches ends and local wins, losses and draws do not enter the cup',()=>{
+ for(const score of [[2,1],[1,2],[1,1]]){
+  const h=localHarness(),m=h.app.match;m.minute=44.999;m.step(1/60);h.app.syncMatch();
+  assert.equal(h.app.view,'half');h.click('resume');assert.equal(m.period,2);assert.equal(m.direction(0),1);assert.equal(m.direction(1),-1);
+  m.score=score;m.period=2;m.minute=89.999;m.step(1/60);h.app.syncMatch();assert.equal(h.app.view,'full');
+  assert.ok(!m.penalties);
+  const text=h.elements.get('resultMsg').textContent;
+  assert.ok(score[0]===score[1]?text.startsWith('Draw'):text.startsWith('Player '+(score[0]>score[1]?1:2)));
+  assert.equal(h.elements.get('continueCup').textContent,'CHANGE TEAMS');
+  assert.ok(!h.elements.get('rematchLocal').classList.contains('hidden'));
+  h.click('continueCup');assert.equal(h.app.view,'local');assert.equal(h.app.round,0);
+ }
+});
+test('rematch preserves both teams, resets scores and returns keyboard focus to the game',()=>{
+ const h=localHarness(),m=h.app.match,names=[m.home.name,m.away.name];
+ m.score=[1,3];m.finish();h.app.syncMatch();h.click('rematchLocal');h.flush();
+ assert.equal(h.app.match.mode,'local');assert.deepEqual(h.app.match.score,[0,0]);
+ assert.deepEqual([h.app.match.home.name,h.app.match.away.name],names);assert.ok(h.elements.get('game').focused);
+});
+test('pause and blur clear both input sets; key repeats cannot double-fire shots',()=>{
+ const h=localHarness(),m=h.app.match;
+ h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowUp'));h.window.handlers.blur();
+ assert.equal(m.phase,'paused');h.click('resumePause');
+ assert.deepEqual(h.app.input().teams,[{dx:0,dy:0},{dx:0,dy:0}]);
+ h.window.handlers.keydown(keyEvent('g',true));assert.equal(m.ball.owner,9);
+ h.window.handlers.keydown(keyEvent('g'));assert.equal(m.ball.owner,null);
+ m.giveBall(m.players[20]);h.window.handlers.keydown(keyEvent('l',true));assert.equal(m.ball.owner,20);
+ h.window.handlers.keydown(keyEvent('l'));assert.equal(m.ball.owner,null);
+});
+test('local screen-direction input rotates correctly in portrait for both players',()=>{
+ const h=localHarness(),m=h.app.match,canvas=h.elements.get('game');
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
+ h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowDown'));
+ const input=h.app.input();assert.ok(input.teams[0].dx<0);assert.ok(input.teams[1].dx>0);
+ for(const team of [0,1]){
+  const p=m.players[m.activeFor(team)],v=input.teams[team],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x+v.dx,p.y+v.dy);
+  assert.ok(Math.abs(b.x-a.x)<.02);assert.ok(team===0?b.y<a.y:b.y>a.y);
+ }
+});
+test('local mode ignores pointer play and legacy solo kick keys; quitting restores solo controls',()=>{
+ const h=localHarness(),m=h.app.match,c=h.elements.get('game');
+ c.handlers.pointerdown({pointerId:1,clientX:550,clientY:318,preventDefault(){}});
+ c.handlers.pointerup({pointerId:1,clientX:100,clientY:318});assert.equal(m.ball.owner,9);
+ h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keydown(keyEvent(' '));assert.equal(m.ball.owner,9);
+ h.chooseMode('menu');h.chooseMode('practice');h.click('toTrophy');h.flush();
+ assert.equal(h.app.match.mode,'practice');h.window.handlers.keydown(keyEvent('e'));assert.equal(h.app.match.ball.owner,null);
+});
+
+test('local keyboard shots physically cross the correct goal line for either player in either half',()=>{
+ for(const period of [1,2])for(const team of [0,1]){
+  const h=localHarness(),m=h.app.match;m.period=period;m.kickoff(team);
+  for(const p of m.players){p.x=550;p.y=120;}
+  const p=m.players[team*11+9],d=m.direction(team);p.x=m.goalX(team)-d*100;p.y=318;m.giveBall(p);
+  h.window.handlers.keydown(keyEvent(team===0?'g':'l'));
+  for(let i=0;i<90&&m.phase==='playing';i++)m.step(1/60,h.app.input());
+  assert.equal(m.phase,'goal');assert.equal(m.score[team],1);assert.equal(m.restarts,0);
+ }
+});
+test('receiving a real short pass transfers control to either team receiver',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.players[team*11+9],receiver=m.players[team*11+6];
+  for(const q of m.players){q.x=950;q.y=110;}
+  p.x=500;p.y=318;receiver.x=team===0?420:580;receiver.y=318;
+  m.giveBall(p);m.kick(p,receiver,.3);
+  for(let frame=0;frame<120&&!m.owner;frame++)m.step(1/60);
+  assert.equal(m.owner.id,receiver.id);assert.equal(m.activeFor(team),receiver.id);
+  assert.equal(m.restarts,0);
+ }
+});
+test('a real local tackle transfers possession and the selected player to the winning side',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),owner=m.players[team*11+9],defender=m.players[(1-team)*11+9];
+  owner.x=550;owner.y=318;defender.x=565;defender.y=318;m.giveBall(owner);
+  m.selectPlayer(1-team,defender.id);m.protection=0;m.random=()=>0;
+  m.step(1/60);assert.equal(m.owner.id,defender.id);assert.equal(m.activeFor(1-team),defender.id);assert.equal(m.tackles,1);
+ }
+});
+test('an entire no-input local match completes as a draw without AI shooting or penalties',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');
+ for(let i=0;i<10000&&m.phase!=='full';i++){
+  if(m.phase==='half')m.resumeHalf();if(m.phase==='restart')m.takeRestart();
+  m.step(1/60);
+ }
+ assert.equal(m.phase,'full');assert.equal(m.minute,90);assert.deepEqual(m.score,[0,0]);assert.deepEqual(m.shots,[0,0]);assert.equal(m.winner(),null);
+});
+
+test('Choose Your Team after quitting local returns to the solo cup flow',()=>{
+ const h=localHarness();h.chooseMode('menu');h.chooseMode('team');
+ assert.equal(h.app.view,'team');h.click('toTrophy');assert.equal(h.app.view,'trophy');
+ h.click('startMatch');h.flush();assert.equal(h.app.match.mode,'cup');
+ h.app.match.score=[0,1];h.app.match.finish();h.app.syncMatch();
+ assert.ok(h.elements.get('rematchLocal').classList.contains('hidden'));
 });
