@@ -379,7 +379,7 @@ test('touch guidance is selected before first input and landscape returns to hor
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});h.app.render(1/60);
  const c=h.app.camera,a=c.project(68,318),b=c.project(1032,318);
  assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<.001);assert.ok(b.x>a.x);
- assert.ok(c.zoom<1.8);
+ assert.ok(c.zoom>1.8&&c.zoom<2.1);
  const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.flush();
  assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
 });
@@ -738,4 +738,52 @@ test('screen-direction solo keyboard controls stay aligned while intro camera se
  h.window.handlers.keydown(keyEvent('w'));
  const p=h.app.match.players[h.app.match.active],v=h.app.input(),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x+v.dx,p.y+v.dy);
  assert.ok(b.y<a.y);assert.ok(Math.abs(b.x-a.x)<.02);
+});
+
+test('selector country and rating colors have WCAG AA normal-text contrast',()=>{
+ const luminance=hex=>{
+  const rgb=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+  return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+ };
+ const bg=luminance('#e8f4ee');
+ for(const fg of ['#123f40','#254d43'])assert.ok((bg+.05)/(luminance(fg)+.05)>=4.5);
+ assert.ok(html.includes('#menu .teamName{color:#123f40;text-shadow:none}'));
+ assert.ok(html.includes('#menu .stat{background:#e8f4ee;color:#254d43'));
+});
+test('half-time and full-time badges match teams and penalties occupy a separate score element',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
+ const m=h.app.match;m.score=[4,4];m.phase='half';h.app.syncMatch();
+ assert.equal(h.elements.get('halfHomeName').textContent,m.home.name);
+ assert.equal(h.elements.get('halfAwayFlag').textContent,m.away.flag);
+ assert.equal(h.elements.get('halfGoals').textContent,'4 – 4');
+ m.penalties={done:true,score:[2,3]};m.phase='full';h.app.syncMatch();
+ assert.equal(h.elements.get('resultGoals').textContent,'4 – 4');
+ assert.equal(h.elements.get('resultPenalties').textContent,'PENALTIES  2 – 3');
+ assert.ok(!h.elements.get('resultPenalties').classList.contains('hidden'));
+ assert.ok(h.elements.get('resultScore').textContent.includes('(pens 2 - 3)'));
+ assert.ok(h.elements.get('resultMsg').textContent.includes(m.away.name+' wins'));
+ h.click('continueCup');h.click('startMatch');h.flush();h.app.match.score=[1,0];h.app.match.finish();h.app.syncMatch();
+ assert.equal(h.elements.get('resultPenalties').textContent,'');
+ assert.ok(h.elements.get('resultPenalties').classList.contains('hidden'));
+ assert.equal(h.elements.get('resultHomeFlag').textContent,h.app.match.home.flag);
+ assert.equal(h.elements.get('resultGoals').textContent,'1 – 0');
+});
+test('routine pass and shot messages use subtle feedback and other notices reset that style',()=>{
+ const h=localHarness(),m=h.app.match;
+ for(const event of ['Pass!','Shot!','Player 2: Pass!','Player 2: Shot!']){
+  m.event=event;h.app.syncMatch();
+  assert.ok(h.elements.get('toast').classList.contains('routine'));
+ }
+ m.event='Second half — switch ends';h.app.syncMatch();
+ assert.ok(!h.elements.get('toast').classList.contains('routine'));
+});
+test('bracket includes an original cup graphic and result layouts keep penalty tallies unbroken',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');
+ const bracket=h.elements.get('cupBracket').innerHTML;
+ assert.ok(bracket.includes('class="gold-cup"'));
+ assert.ok(bracket.includes('aria-label="International Cup trophy"'));
+ assert.ok(!bracket.includes('aria-hidden="true">★'));
+ assert.ok(/\.penalty-tally\{[^}]*white-space:nowrap/.test(html));
+ assert.ok(/#skipReplay\{[^}]*right:[^}]*bottom:/.test(html));
+ assert.ok(/#replay h2\{[^}]*left:[^}]*top:/.test(html));
 });
