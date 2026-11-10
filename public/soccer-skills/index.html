@@ -153,10 +153,11 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 #localPauseHelp{font-size:13px;line-height:1.7}
 @media(max-width:600px){#local .card{padding:14px 10px}.local-players{gap:8px}.local-player{padding:10px 5px}.local-team-row b{font-size:12px}.local-player p{font-size:11px}.local-note{font-size:11px}}
 @media(max-height:520px){#local .card{padding:12px}#local h2{font-size:24px}#local p{margin:6px 0}.local-player{padding:7px}.local-player p{line-height:1.5}.local-note{font-size:10px}}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
 <body>
-<div id="app"><div id="stage"><canvas id="game" width="1100" height="620" tabindex="0" aria-label="Soccer pitch. Hold and drag to run; release to kick. WASD or arrows move, Space shoots, E passes."></canvas>
+<div id="app"><div id="stage"><canvas id="game" width="1100" height="620" tabindex="0" aria-label="Soccer pitch" aria-describedby="gameControls"></canvas><p id="gameControls" class="sr-only">Hold and drag to run; release to kick. WASD or arrows move. Space shoots, E passes, Tab switches player, and Escape pauses.</p>
 <div id="ui">
 <div id="hud" class="hidden"><div class="score"><span id="homeFlag">🇦🇷</span><span id="homeName">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">CRO</span><span id="awayFlag">🇭🇷</span><span class="clock" id="clock">00:00</span></div><button id="menuBtn" class="hamb">☰</button></div>
 <div id="hint" class="hidden">Drag from the active player to pass or shoot • release to kick</div>
@@ -527,11 +528,20 @@ const $=selector=>document.querySelector(selector);
 const panels=['menu','local','team','trophy','loading','replay','half','corner','full','pause','penalties'];
 let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0;
 let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0,touchControls=false;
+function updateCanvasInstructions(name,description){
+  if(canvas.getAttribute('aria-label')!==name)canvas.setAttribute('aria-label',name);
+  const instructions=$('#gameControls');
+  if(instructions.textContent!==description)instructions.textContent=description;
+}
 function updateControlHint(){
   if(mode==='local'){
+    updateCanvasInstructions('Soccer pitch — local two-player match',
+      'Shared keyboard. Player 1: WASD moves, F passes, G shoots, Q switches defender. Player 2: arrow keys move, K passes, L shoots, O switches defender. Movement follows the screen. Escape pauses. Pointer controls are unavailable in local two-player mode.');
     $('#hint').textContent='P1: WASD · F pass · G shoot · Q switch | P2: Arrows · K pass · L shoot · O switch';
     return;
   }
+  updateCanvasInstructions(mode==='practice'?'Soccer pitch — untimed practice':'Soccer pitch — single-player cup',
+    'Hold and drag to run; release to kick. WASD or arrow keys move. Space shoots, E passes, Tab switches player, and Escape pauses.');
   const touch=touchControls||!!window.matchMedia?.('(pointer: coarse)').matches||!!window.navigator?.maxTouchPoints;
   $('#hint').textContent=touch?'Hold + drag to run · Release to pass or shoot · Tap a teammate to select':'Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
 }
@@ -540,7 +550,7 @@ const keys=new Set();
 const roundNames=['QUARTERFINAL','SEMIFINAL','FINAL'];
 function opponentFor(homeIndex,roundIndex){return [2,3,4,1,5,0].filter(i=>i!==homeIndex)[roundIndex];}
 function show(id){
-  view=id;$('#localPauseHelp').classList.toggle('hidden',mode!=='local');panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
+  view=id;updateControlHint();$('#localPauseHelp').classList.toggle('hidden',mode!=='local');panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
   $('#hud').classList.toggle('hidden',!['match','goal','replay','half','corner','pause','penalties'].includes(id));
   $('#hint').classList.toggle('hidden',id!=='match');
   if(id!=='match'){drag=null;keys.clear();}

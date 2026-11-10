@@ -15,9 +15,10 @@ function uiHarness(html){
     draws.push({method:key,args});
   }),set:()=>true});
   function element(id,dataset={}){
-    const classes=new Set();return {id,dataset,textContent:'',style:{},title:'',tagName:'BUTTON',handlers:{},
+    const classes=new Set(),attributes=new Map();return {id,dataset,textContent:'',style:{},title:'',tagName:'BUTTON',handlers:{},
       classList:{toggle:(key,on)=>{if(on)classes.add(key);else classes.delete(key);},add:key=>classes.add(key),remove:key=>classes.delete(key),contains:key=>classes.has(key)},
       addEventListener(type,cb){this.handlers[type]=cb;},
+      setAttribute(name,value){attributes.set(name,String(value));},getAttribute(name){return attributes.get(name)??null;},
       focus(){this.focused=true;},width:1100,height:620,getContext:()=>drawing,
       getBoundingClientRect:()=>({left:0,top:0,width:1100,height:620}),
       setPointerCapture(id){this.capture=id;},hasPointerCapture(id){return this.capture===id;},releasePointerCapture(){this.capture=null;}
@@ -644,4 +645,29 @@ test('Choose Your Team after quitting local returns to the solo cup flow',()=>{
  h.click('startMatch');h.flush();assert.equal(h.app.match.mode,'cup');
  h.app.match.score=[0,1];h.app.match.finish();h.app.syncMatch();
  assert.ok(h.elements.get('rematchLocal').classList.contains('hidden'));
+});
+
+test('canvas accessible instructions follow local, practice and cup modes without stale solo bindings',()=>{
+ const h=uiHarness(html),canvas=h.elements.get('game'),description=h.elements.get('gameControls');
+ assert.ok(/aria-describedby="gameControls"/.test(html));
+ h.chooseMode('multi');
+ assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — local two-player match');
+ for(const expected of ['Player 1: WASD','F passes','G shoots','Q switches','Player 2: arrow keys','K passes','L shoots','O switches','Escape pauses']){
+  assert.ok(description.textContent.includes(expected),expected);
+ }
+ assert.ok(!description.textContent.includes('Space shoots'));assert.ok(!description.textContent.includes('E passes'));
+ assert.ok(!description.textContent.includes('Hold and drag'));
+ h.click('startLocal');h.flush();
+ assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — local two-player match');
+ h.click('menuBtn');h.click('resumePause');
+ assert.ok(description.textContent.includes('Player 2'));
+ h.chooseMode('menu');h.chooseMode('practice');h.click('toTrophy');h.flush();
+ assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — untimed practice');
+ assert.ok(description.textContent.includes('Space shoots'));assert.ok(description.textContent.includes('E passes'));
+ assert.ok(description.textContent.includes('Hold and drag'));assert.ok(!description.textContent.includes('Player 2'));
+ h.chooseMode('menu');h.chooseMode('cup');h.click('toTrophy');h.click('startMatch');h.flush();
+ assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — single-player cup');
+ assert.ok(description.textContent.includes('Tab switches player'));
+ h.chooseMode('menu');h.chooseMode('multi');
+ assert.ok(description.textContent.includes('K passes'));assert.ok(!description.textContent.includes('Space shoots'));
 });
