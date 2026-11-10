@@ -8,8 +8,12 @@ const {SoccerMatch,NATIONS,FIELD,distance}=new Function(engine+';return {SoccerM
 
 
 function uiHarness(html){
-  const elements=new Map(),timers=new Map();let tid=0,animation=null;
-  const drawing=new Proxy({}, {get:(_,key)=>key==='canvas'?{}:(()=>{}),set:()=>true});
+  const elements=new Map(),timers=new Map();let tid=0,animation=null;const draws=[];
+  const drawing=new Proxy({}, {get:(_,key)=>key==='canvas'?{}:((...args)=>{
+    if(args.some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('Nonfinite canvas '+String(key));
+    if((key==='arc'||key==='ellipse')&&args[2]<0)throw Error('Negative radius');
+    draws.push({method:key,args});
+  }),set:()=>true});
   function element(id,dataset={}){
     const classes=new Set();return {id,dataset,textContent:'',style:{},title:'',tagName:'BUTTON',handlers:{},
       classList:{toggle:(key,on)=>{if(on)classes.add(key);else classes.delete(key);},add:key=>classes.add(key),remove:key=>classes.delete(key),contains:key=>classes.has(key)},
@@ -29,9 +33,9 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
-  return {app,elements,go,penalties,document,window,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
+  return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
     chooseMode(mode){go.find(e=>e.dataset.go===mode).onclick();}};
 }
@@ -217,7 +221,11 @@ test('pointer coordinates remain correct on a scaled touch canvas',()=>{
  c.getBoundingClientRect=()=>({left:10,top:100,width:550,height:310});
  const event=(x,y)=>({clientX:10+x/2,clientY:100+y/2,pointerId:8,preventDefault(){}});
  c.handlers.pointerdown(event(p.x,p.y));c.handlers.pointermove(event(p.x,p.y+100));c.handlers.pointerup(event(p.x,p.y+100));
- assert.ok(h.app.match.ball.vy>0);assert.ok(Math.abs(h.app.match.ball.vx)<.01);
+ assert.ok(h.app.match.ball.vy>0);
+ // A vertical screen drag can have a small world-x component on the tapered pitch.
+ const from=h.app.camera.project(p.x,p.y),v=h.app.match.ball;
+ const target=h.app.camera.project(p.x+v.vx*.1,p.y+v.vy*.1);
+ assert.ok(Math.abs(target.x-from.x)<1);assert.ok(target.y>from.y);
 });
 test('six seeded matches finish without nonfinite coordinates or repeated-goal loops',()=>{
  for(let seed=1;seed<=6;seed++){
@@ -261,4 +269,83 @@ test('shootout labels wait for both fifth kicks and stay in sudden death during 
  regulation.penalties[0].onclick();
  assert.deepEqual(regulation.app.match.penalties.taken,[5,5]);
  assert.equal(regulation.app.view,'full');assert.ok(regulation.elements.get('penalties').classList.contains('hidden'));
+});
+
+test('camera ground projection round-trips at both ends and across landscape and portrait viewports',()=>{
+ const cameraCode=html.split('// BEGIN SOCCER CAMERA')[1].split('// END SOCCER CAMERA')[0];
+ const {ActionCamera}=new Function('clamp',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)));
+ const c=new ActionCamera();
+ for(const size of [[1100,620],[1100,2380],[1100,510]])for(const cx of [125,550,975])for(const zoom of [1.3,1.58,2.25]){
+  c.resize(...size);c.x=cx;c.y=318;c.zoom=zoom;
+  for(const x of [68,200,550,900,1032])for(const y of [88,318,548]){
+   const screen=c.project(x,y),world=c.unproject(screen.x,screen.y);
+   assert.ok(Math.abs(world.x-x)<.00001);assert.ok(Math.abs(world.y-y)<.00001);
+  }
+ }
+ c.resize(1100,620);c.x=550;c.zoom=1.58;
+ assert.ok(c.project(1032,548).x-c.project(68,548).x>c.project(1032,88).x-c.project(68,88).x,
+  'near touchline must appear wider than the far touchline');
+});
+test('camera pans smoothly to the action, widens for fast passes and follows replay snapshots',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const c=h.app.camera,m=h.app.match,before=c.x,normalZoom=c.zoom,shot=m.snapshot();
+ shot.ball.x=900;shot.ball.vx=500;shot.active=9;shot.players[9].x=870;
+ c.update(shot,1/60);assert.ok(c.x>before&&c.x<900);assert.ok(c.zoom<normalZoom);
+ for(let i=0;i<120;i++)c.update(shot,1/60);
+ assert.ok(c.x>900);assert.ok(c.project(shot.ball.x,shot.ball.y).x<1100);
+ const pan=c.x;
+ m.phase='replay';m.replayTime=0;
+ const replay=m.snapshot();replay.ball.x=180;replay.players[replay.active].x=190;
+ m.replayFrames=[replay];
+ h.app.render(.1);assert.ok(c.x<pan,'replay tracks the recorded ball, not the live ball');
+ for(let i=0;i<120;i++)h.app.render(1/60);
+ const p=c.project(180,318);assert.ok(p.x>0&&p.x<1100);
+});
+test('stationary touch does not create a kick when the camera moves beneath it',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const c=h.elements.get('game'),m=h.app.match,p=m.owner;
+ const down={clientX:550,clientY:320,pointerId:3,preventDefault(){}};
+ c.handlers.pointerdown(down);
+ h.app.camera.x+=170;h.app.camera.zoom=1.4;
+ c.handlers.pointerup(down);
+ assert.equal(m.owner.id,p.id);assert.equal(m.passes[0],0);assert.equal(m.shots[0],0);
+});
+test('projected touch selection picks the intended player after camera movement',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const c=h.elements.get('game'),m=h.app.match;m.ball.owner=null;
+ const p=m.players[6];m.active=9;
+ h.app.camera.x=400;h.app.camera.y=340;h.app.camera.zoom=1.8;
+ const q=h.app.camera.project(p.x,p.y);
+ c.handlers.pointerdown({clientX:q.x,clientY:q.y,pointerId:4,preventDefault(){}});
+ assert.equal(m.active,p.id);
+ c.handlers.pointercancel({pointerId:4});
+});
+test('canvas fills resized desktop and touch viewports without changing simulation coordinates',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const canvas=h.elements.get('game'),before=h.app.match.snapshot();
+ for(const rect of [{width:1440,height:810},{width:390,height:844},{width:844,height:390}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.app.render(1/60);
+  assert.equal(canvas.width,rect.width);assert.equal(canvas.height,rect.height);
+  assert.ok(Math.abs(h.app.camera.height-1100*rect.height/rect.width)<.0001);
+ }
+ assert.deepEqual(h.app.match.snapshot(),before);
+ assert.ok(h.draws.some(d=>d.method==='scale'),'upright player sprites use projected depth scale');
+ assert.ok(h.draws.some(d=>d.method==='lineTo'),'pitch and articulated limbs are rendered');
+});
+test('restarts and halftime remain controllable under the new camera',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const m=h.app.match;
+ m.phase='restart';m.restart={type:'Corner Kick',team:0,x:88,y:108};h.app.syncMatch();h.click('takeCorner');
+ for(let i=0;i<90;i++)h.app.render(1/60);
+ const projected=h.app.camera.project(m.owner.x,m.owner.y);
+ assert.ok(projected.x>0&&projected.x<1100&&projected.y>0&&projected.y<620);
+ const ball=m.ball.owner;
+ const event=(x,y)=>({clientX:x,clientY:y,pointerId:5,preventDefault(){}});
+ const canvas=h.elements.get('game');
+ canvas.handlers.pointerdown(event(projected.x,projected.y));
+ canvas.handlers.pointerup(event(projected.x+120,projected.y+80));
+ assert.equal(m.ball.owner,null);assert.ok(m.ball.vx>0&&m.ball.vy>0);assert.equal(m.setPiece,null);
+ m.phase='half';h.app.syncMatch();h.click('resume');h.app.render(1/60);
+ assert.equal(m.direction(0),1);assert.equal(m.phase,'playing');assert.ok(Number.isFinite(h.app.camera.x));
 });
