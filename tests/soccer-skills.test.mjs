@@ -9,7 +9,7 @@ const {SoccerMatch,NATIONS,FIELD,distance}=new Function(engine+';return {SoccerM
 
 function uiHarness(html){
   const elements=new Map(),timers=new Map();let tid=0,animation=null;const draws=[];
-  const drawing=new Proxy({}, {get:(_,key)=>key==='canvas'?{}:((...args)=>{
+  const drawing=new Proxy({}, {get:(_,key)=>key==='canvas'?{}:key==='createLinearGradient'?(()=>({addColorStop(){}})):((...args)=>{
     if(args.some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('Nonfinite canvas '+String(key));
     if((key==='arc'||key==='ellipse')&&args[2]<0)throw Error('Negative radius');
     draws.push({method:key,args});
@@ -33,7 +33,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -410,4 +410,57 @@ test('portrait end-line clamp preserves touch aiming and leaves landscape tracki
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});h.app.render(1/60);
  c.update(shot,0,false,true);
  assert.equal(c.x,975);assert.equal(c.portrait,false);
+});
+
+test('successful kicks and keeper saves have bounded replayable pose envelopes',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]),p=m.owner;
+ assert.equal(m.snapshot().players[p.id].kick,0);
+ assert.ok(m.kick(p,{x:450,y:318},.5));
+ assert.equal(m.snapshot().players[p.id].kick,1);
+ m.step(1/60);assert.ok(m.snapshot().players[p.id].kick<1);
+ const recorded=m.snapshot();for(let i=0;i<30;i++)m.step(1/60);
+ assert.equal(m.snapshot().players[p.id].kick,0);assert.ok(recorded.players[p.id].kick>0);
+ const save=new SoccerMatch(NATIONS[0],NATIONS[2]),keeper=save.players[11];
+ Object.assign(save.ball,{owner:null,x:keeper.x+10,y:keeper.y,z:0,vx:-150,vy:0,vz:0,lastTouch:0,lock:0});
+ save.step(1/60);assert.equal(save.owner.id,keeper.id);
+ assert.equal(save.snapshot().players[keeper.id].save,1);
+ for(let i=0;i<45;i++)save.step(1/60);
+ assert.equal(save.snapshot().players[keeper.id].save,0);
+ save.kickoff(0);assert.ok(save.snapshot().players.every(p=>p.kick===0&&p.save===0));
+});
+test('running, kicking and keeper poses change without moving simulation players',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const p=h.app.match.snapshot().players[9],ball=h.app.match.ball;
+ const idle=h.app.playerPose({...p,speed:0,kick:0},ball);
+ const run=h.app.playerPose({...p,speed:120,stride:1,kick:0},ball);
+ const kick=h.app.playerPose({...p,kick:.5},ball);
+ const keeper=h.app.playerPose({...p,keeper:true,save:.5},ball);
+ assert.equal(idle.running,0);assert.ok(run.running>0);assert.ok(run.bob>0);
+ assert.ok(kick.kick>.9);assert.ok(keeper.save>.9);
+ const before=h.app.match.snapshot();h.app.render(1/60);
+ assert.deepEqual(h.app.match.snapshot(),before);
+});
+test('new menu stats, trophy teams and circular loading stay in sync with team selection',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');h.click('next');
+ assert.equal(h.elements.get('atkBar').style.width,'86%');
+ h.click('toTrophy');
+ assert.ok(h.elements.get('cupTeams').innerHTML.includes('Argentina'));
+ assert.ok(h.elements.get('cupTeams').innerHTML.includes('YOUR TEAM'));
+ assert.ok(h.elements.get('cupTeams').innerHTML.includes('NEXT OPPONENT'));
+ h.click('startMatch');assert.equal(h.elements.get('loadingPercent').textContent,'0%');h.flush();
+ assert.equal(h.elements.get('loadingPercent').textContent,'100%');assert.equal(h.app.view,'match');
+});
+test('stadium, turf and new sprite rendering stay finite and bounded in desktop and portrait',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.click('toTrophy');h.flush();
+ const c=h.elements.get('game'),m=h.app.match;
+ for(const rect of [{width:1440,height:810},{width:500,height:739},{width:844,height:390}]){
+  c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  for(const x of [88,550,1014]){
+   m.players[9].x=x;m.giveBall(m.players[9]);h.draws.length=0;
+   h.app.camera.ready=false;h.app.render(1/60);
+   assert.ok(h.draws.length<18000,'bounded visible crowd/turf drawing work');
+   assert.ok(h.draws.filter(d=>d.method==='lineTo').length>100);
+  }
+ }
+ m.scorer=0;m.phase='goal';m.phaseTime=.6;h.app.render(1/60);
 });
