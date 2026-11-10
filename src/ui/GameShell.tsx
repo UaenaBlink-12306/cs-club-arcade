@@ -161,7 +161,10 @@ export function GameShell({ meta, onExit, onRecordsChanged }: { meta: GameMeta; 
       setHockeyOpponent(selected)
       setHud(runtime.getHud())
     } else if (runtime instanceof SoccerSkillsGame) {
-      const selected: SoccerOpponent = opponent === 'human' ? 'human' : 'ai'
+      // Soccer is single-player for this release; keep the existing runtime
+      // hook but always start the cup against the AI until local multiplayer
+      // gets its own deliberate UX pass.
+      const selected: SoccerOpponent = 'ai'
       runtime.setOpponent?.(selected)
       runtime.setPracticeMode?.(soccerMode === 'practice')
       runtime.setNationalTeam?.(soccerTeam)
