@@ -3,7 +3,6 @@ export const GAME_HEIGHT = 600
 
 export type GameId =
   | 'air-hockey'
-  | 'air-hockey-football'
   | 'tank-duel'
   | 'dodge-hell'
   | 'platform-panic'

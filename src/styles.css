@@ -225,11 +225,6 @@ button:focus-visible, input:focus-visible {
 .game-back svg { width: 22px; }
 .game-header-actions { justify-self: end; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
 .game-header .action-button { min-height: 42px; font-size: 16px; }
-.soccer-header-actions { gap: 6px; }
-.soccer-header-actions .action-button { min-height: 38px; padding-inline: 9px; font-size: 13px; }
-.soccer-header-actions + * { min-width: 0; }
-.game-header:has(.soccer-header-actions) h1 { min-width: 0; overflow: hidden; font-size: clamp(24px, 2.2vw, 32px); text-overflow: ellipsis; white-space: nowrap; }
-
 .hud-strip {
   width: min(100%, 1200px);
   min-height: 55px;
@@ -274,38 +269,14 @@ button:focus-visible, input:focus-visible {
 .hockey-draw-rule select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--cyan); border-radius: 3px; background: var(--deep); color: var(--text); font: inherit; font-size: 14px; color-scheme: dark; }
 .hockey-draw-rule select:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
 .hockey-mode-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
-.soccer-team-select { width: min(100%, 250px); margin-bottom: 14px; }
-.soccer-team-select select { border-color: var(--lime); }
-.soccer-mode-actions { margin-top: 2px; }
-.soccer-skills-ready-overlay { background: radial-gradient(circle at 50% 42%, rgba(44, 186, 127, .16), transparent 52%), linear-gradient(180deg, rgba(4, 16, 31, .9), rgba(3, 9, 22, .94)); }
-.soccer-skills-ready-overlay p { max-width: 660px; line-height: 1.45; }
-.soccer-skills-ready-overlay .controls-list kbd { border-color: rgba(98, 207, 170, .56); background: rgba(5, 32, 40, .74); box-shadow: 0 4px 18px rgba(0, 0, 0, .16); }
-.soccer-skills-ready-overlay .action-primary { box-shadow: 0 10px 28px rgba(255, 91, 85, .28), 0 0 0 1px rgba(255, 255, 255, .08) inset; }
-.soccer-skills-ready-overlay .soccer-kit-preview { padding: 7px 9px; border: 1px solid rgba(184, 251, 246, .22); border-radius: 5px; background: rgba(3, 17, 28, .54); }
-.soccer-kit-preview { display: grid; grid-template-columns: 34px auto 1fr; align-items: center; gap: 8px; width: min(100%, 250px); margin: -6px 0 14px; color: var(--text); text-align: left; }
-.soccer-kit-preview strong { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; letter-spacing: .08em; }
-.soccer-kit-preview small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.soccer-kit-swatch { display: inline-block; width: 30px; height: 22px; border: 2px solid; border-radius: 4px; box-shadow: inset 0 -5px rgba(0,0,0,.16); }
-.tutorial-card, .group-preview, .pause-controls { width: min(100%, 460px); display: grid; gap: 5px; margin: 8px 0 12px; padding: 9px 12px; border: 1px solid rgba(185,242,11,.55); background: rgba(185,242,11,.08); color: #e8f4ce; text-align: left; }
-.tutorial-card strong, .group-preview strong { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .08em; }
-.tutorial-card span, .group-preview span, .pause-controls span { color: #c8d1dc; font-size: 12px; line-height: 1.3; }
-.group-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 104px; overflow: auto; margin-top: 0; border-color: rgba(24,216,242,.5); background: rgba(24,216,242,.07); }
-.group-preview strong { grid-column: 1 / -1; }
-.group-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group-preview strong { color: var(--cyan); }
+.pause-controls { width: min(100%, 460px); display: grid; gap: 5px; margin: 8px 0 12px; padding: 9px 12px; border: 1px solid rgba(185,242,11,.55); background: rgba(185,242,11,.08); color: #e8f4ce; text-align: left; }
+.pause-controls span { color: #c8d1dc; font-size: 12px; line-height: 1.3; }
 .pause-controls { border-color: rgba(24,216,242,.55); background: rgba(24,216,242,.08); }
 .pause-controls strong { color: var(--cyan); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; }
 .overlay-primary { min-width: 180px; }
 .ready-overlay small { margin-top: 14px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 14px; letter-spacing: .07em; text-transform: uppercase; }
 .countdown-overlay { background: rgba(3, 9, 22, .48); }
 .countdown-overlay strong { color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-size: clamp(110px, 20vw, 240px); font-weight: 800; line-height: .8; text-shadow: 0 0 45px color-mix(in srgb, var(--game-accent) 55%, transparent); }
-.replay-overlay { position: absolute; left: 20px; right: 20px; bottom: 44px; z-index: 3; display: grid; gap: 7px; padding: 10px 14px; border: 1px solid rgba(255, 207, 59, .65); background: rgba(5, 17, 31, .88); color: var(--text); box-shadow: 0 8px 30px rgba(0,0,0,.3); }
-.replay-overlay > div { display: flex; align-items: center; gap: 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.replay-overlay > div svg { width: 16px; color: var(--game-accent); }
-.replay-overlay > div span { margin-left: auto; color: var(--muted); font-size: 12px; }
-.replay-overlay progress { width: 100%; height: 5px; accent-color: var(--game-accent); }
-.replay-overlay small { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-.replay-overlay .text-button { justify-self: start; margin: 0; padding: 2px 0; font-size: 12px; }
 .pause-overlay h2 { color: var(--cyan); }
 .text-button { margin-top: 13px; padding: 8px 12px; border-color: transparent; background: transparent; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; text-transform: uppercase; }
 .result-label { margin-bottom: 14px; color: var(--game-accent); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
@@ -343,9 +314,7 @@ button:focus-visible, input:focus-visible {
 
 @media (max-width: 1280px) and (min-width: 721px) {
   .game-header { grid-template-columns: auto minmax(150px, 1fr) auto; gap: 8px; }
-  .soccer-header-actions .action-button { min-width: 40px; padding: 0 8px; font-size: 0; }
-  .soccer-header-actions .action-button svg { margin: 0; }
-}
+    }
 
 @media (max-width: 720px) {
   .arcade-menu { padding: 14px; }
@@ -374,8 +343,7 @@ button:focus-visible, input:focus-visible {
 
 @media (max-width: 480px) {
   .classic-setup-frame { min-height: 285px; }
-  .soccer-setup-frame { min-height: 360px; max-height: none; aspect-ratio: auto; }
-  .hockey-draw-rule { gap: 4px; margin-bottom: 10px; }
+    .hockey-draw-rule { gap: 4px; margin-bottom: 10px; }
   .hockey-draw-rule span { font-size: 12px; }
   .hockey-draw-rule select { min-height: 36px; padding: 5px 8px; font-size: 12px; }
   .hockey-ready-overlay { padding: 8px; }
@@ -385,18 +353,7 @@ button:focus-visible, input:focus-visible {
   .hockey-ready-overlay .controls-list kbd { padding: 4px 6px; font-size: 11px; }
   .hockey-ready-overlay .hockey-mode-actions { flex-direction: column; width: min(100%, 200px); gap: 5px; }
   .hockey-ready-overlay .action-button { min-height: 30px; padding: 4px; font-size: 13px; }
-  .soccer-skills-ready-overlay { padding: 10px; }
-  .soccer-skills-ready-overlay .overlay-rule, .soccer-skills-ready-overlay h2 { display: none; }
-  .soccer-skills-ready-overlay p { margin: 0 0 7px; font-size: 12px; line-height: 1.2; }
-  .soccer-skills-ready-overlay .controls-list { gap: 5px; margin-bottom: 7px; }
-  .soccer-skills-ready-overlay .controls-list kbd { padding: 4px 6px; font-size: 11px; }
-  .soccer-skills-ready-overlay .soccer-team-select { width: min(100%, 220px); gap: 3px; margin-bottom: 7px; }
-  .soccer-skills-ready-overlay .soccer-team-select span { font-size: 11px; }
-  .soccer-skills-ready-overlay .soccer-team-select select { min-height: 30px; padding: 4px 7px; font-size: 12px; }
-  .soccer-skills-ready-overlay .soccer-mode-actions { flex-direction: column; width: min(100%, 200px); gap: 5px; }
-  .soccer-skills-ready-overlay .action-button { min-height: 30px; padding: 4px; font-size: 13px; }
-  .soccer-skills-ready-overlay .soccer-kit-preview { width: min(100%, 220px); margin: -3px 0 7px; }
-}
+              }
 
 @media (max-height: 780px) and (min-width: 1120px) {
   .arcade-menu { padding-top: 12px; gap: 10px; }
