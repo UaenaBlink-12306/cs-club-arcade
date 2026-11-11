@@ -752,7 +752,11 @@ test('selector country and rating colors have WCAG AA normal-text contrast',()=>
  };
  const bg=luminance('#e8f4ee');
  for(const fg of ['#123f40','#254d43'])assert.ok((bg+.05)/(luminance(fg)+.05)>=4.5);
- assert.ok(html.includes('#menu .teamName{color:#123f40;text-shadow:none}'));
+ // Evaluate the last explicit foreground/background pair, not a superseded rule.
+ const rules=[...html.matchAll(/#menu \.teamName\{([^}]+)\}/g)].map(m=>m[1]);
+ const lastValue=key=>rules.map(r=>r.match(new RegExp('(?:^|;)'+key+':([^;]+)'))?.[1]).filter(Boolean).pop();
+ assert.equal(lastValue('background'),'#e8f4ee');assert.equal(lastValue('color'),'#123f40');
+ assert.ok((luminance(lastValue('background'))+.05)/(luminance(lastValue('color'))+.05)>=4.5);
  assert.ok(html.includes('#menu .stat{background:#e8f4ee;color:#254d43'));
 });
 test('half-time and full-time badges match teams and penalties occupy a separate score element',()=>{
