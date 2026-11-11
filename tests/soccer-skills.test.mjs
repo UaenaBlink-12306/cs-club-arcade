@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,input,bracketMarkup,replaySample};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,input,bracketMarkup,replaySample};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -333,7 +333,7 @@ test('canvas fills resized desktop and touch viewports without changing simulati
   assert.ok(Math.abs(h.app.camera.height-1100*rect.height/rect.width)<.0001);
  }
  assert.deepEqual(h.app.match.snapshot(),before);
- assert.ok(h.draws.some(d=>d.method==='scale'),'upright player sprites use projected depth scale');
+ assert.ok(h.draws.some(d=>d.method==='fill'),'projected player faces are filled');
  assert.ok(h.draws.some(d=>d.method==='lineTo'),'pitch and articulated limbs are rendered');
 });
 test('restarts and halftime remain controllable under the new camera',()=>{
@@ -905,4 +905,45 @@ test('player cadence varies by identity without altering simulation positions',(
  const b=h.app.playerPose({...base,id:10,speed:110,stride:1},ball);
  assert.ok(Math.abs(a.stride-b.stride)>.01);
  const before=m.snapshot();h.app.render(1/60);assert.deepEqual(m.snapshot(),before);
+});
+
+test('player mesh has real depth, finite face normals and rotates with player heading',()=>{
+ const h=localHarness(),p={...h.app.match.snapshot().players[9],angle:0,speed:0,stride:0,kick:0,save:0},ball=h.app.match.ball;
+ const pose=h.app.playerPose(p,ball),a=h.app.playerMesh(p,pose),b=h.app.playerMesh({...p,angle:Math.PI/2},pose);
+ assert.ok(a.length>=70&&a.length<=110);
+ for(let f=0;f<a.length;f++){
+  assert.ok(a[f].normal.every(Number.isFinite));assert.ok(Math.hypot(...a[f].normal)>.99);
+  for(let i=0;i<a[f].points.length;i++){
+   const u=a[f].points[i],v=b[f].points[i];
+   assert.ok(u.every(Number.isFinite));assert.ok(u[2]>=0);
+   assert.ok(Math.abs((v[0]-p.x)+(u[1]-p.y))<.001);
+   assert.ok(Math.abs((v[1]-p.y)-(u[0]-p.x))<.001);
+   assert.ok(Math.abs(v[2]-u[2])<.001);
+  }
+ }
+ const heights=a.flatMap(f=>f.points.map(p=>p[2]));
+ assert.ok(Math.max(...heights)>35);assert.ok(Math.min(...heights)<2);
+});
+test('kick and goalkeeper poses change mesh geometry without changing the match snapshot',()=>{
+ const h=localHarness(),m=h.app.match,p=m.snapshot().players[9],ball=m.ball;
+ const normal=h.app.playerPose({...p,speed:0,kick:0},ball);
+ const standing=h.app.playerMesh(p,normal);
+ const kicked=h.app.playerMesh(p,{...normal,kick:1});
+ const keeper=h.app.playerMesh({...p,keeper:true},{...normal,save:1,reach:1});
+ assert.ok(JSON.stringify(standing)!==JSON.stringify(kicked));
+ assert.ok(JSON.stringify(standing)!==JSON.stringify(keeper));
+ const before=m.snapshot();h.app.render(1/60);assert.deepEqual(m.snapshot(),before);
+});
+test('country grid supports direct choice with pressed state and correct cup opponent status',()=>{
+ const h=uiHarness(html),grid=h.elements.get('nationGrid');
+ assert.equal((grid.innerHTML.match(/data-nation=/g)||[]).length,8);
+ grid.handlers.click({target:{closest:()=>({dataset:{nation:'3'}})}});
+ assert.equal(h.elements.get('teamName').textContent,'Japan');
+ assert.ok(grid.innerHTML.includes('data-nation="3" aria-label="Choose Japan" aria-pressed="true"'));
+ grid.handlers.click({target:{closest:()=>({dataset:{nation:'999'}})}});
+ assert.equal(h.elements.get('teamName').textContent,'Japan');
+ h.chooseMode('cup');
+ assert.equal((h.elements.get('cupEntrants').innerHTML.match(/<em>YOU<\/em>/g)||[]).length,1);
+ assert.equal((h.elements.get('cupEntrants').innerHTML.match(/<em>NEXT<\/em>/g)||[]).length,1);
+ h.click('startMatch');h.flush();assert.equal(h.app.match.home.name,'Japan');
 });
