@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -2685,4 +2685,73 @@ test('a settling receiver can aim and return a pass under live AI pressure witho
  for(let i=0;i<240&&m.owner?.id===p.id;i++)m.step(1/60,h.app.input());
  assert.ok(m.protection===0||m.owner?.id!==p.id||m.phase!=='playing');
  assert.ok(distance(d,p)<42||m.owner?.id!==p.id||m.phase!=='playing','defender resumes closing after settling window');
+});
+
+test('running feet have a ground stance, bent swing and continuous cycle boundaries',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const p={...h.app.match.snapshot().players[9],id:0,speed:110,strikePhase:'idle',strike:0,receive:0,save:0};
+ const sample=phase=>{const q={...p,stride:phase*Math.PI*2/1.35};const pose=h.app.playerPose(q,null);return h.app.playerSkeleton(q,pose).legs[0];};
+ const a=sample(.03),b=sample(.29),flight=sample(.66);
+ assert.equal(a.stance,true);assert.equal(b.stance,true);assert.equal(a.ankle[2],b.ankle[2]);assert.ok(flight.ankle[2]>a.ankle[2]+3);
+ const rootTravel=(.29-.03)*Math.PI*2/(1.35*.095);
+ assert.ok(Math.abs(rootTravel+(b.ankle[1]-a.ankle[1])*.6)<1.5,'stance foot nearly cancels root travel');
+ for(const phase of [.32,1]){
+  const l=sample(phase-1e-5),r=sample(phase+1e-5);
+  assert.ok(Math.hypot(...l.ankle.map((v,i)=>v-r.ankle[i]))<.02);
+ }
+});
+test('run-to-kick blends the incoming legs and keeps the boot beside the ball at contact',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.owner;m.giveBall(p);m.protection=5;
+ for(let i=0;i<20;i++)m.step(1/60,{dx:1,dy:0});
+ const s=m.snapshot().players[p.id],before=h.app.playerSkeleton(s,h.app.playerPose(s,m.ball));
+ m.kick(p,{x:p.x+130,y:p.y,pass:true},.7);
+ const w=m.snapshot().players[p.id],start=h.app.playerSkeleton(w,h.app.playerPose(w,m.ball));
+ assert.deepEqual(before.legs.map(x=>x.ankle),start.legs.map(x=>x.ankle));
+ advanceToContact(m);const at=m.snapshot().players[p.id],pose=h.app.playerPose(at,m.ball),leg=h.app.playerSkeleton(at,pose).legs[1];
+ assert.equal(at.strikePhase,'follow');assert.equal(pose.running,0);
+ assert.ok(Math.abs((leg.ankle[1]+2)*.6-10)<2,'contact boot matches the 10-unit held ball offset');
+});
+test('visual acceleration, braking and turn balance settle without delaying control',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.owner;m.giveBall(p);m.protection=10;
+ m.step(1/60,{dx:1,dy:0});assert.ok(p.bodyLean>0);
+ for(let i=0;i<25;i++)m.step(1/60,{dx:1,dy:0});
+ for(let i=0;i<4;i++)m.step(1/60,{dx:0,dy:1});
+ assert.ok(Math.abs(p.turnLean)>.05);const old={x:p.x,y:p.y};
+ m.step(1/60,{dx:0,dy:0});assert.ok(distance(old,p)<.001);assert.ok(p.bodyLean<0);
+ for(let i=0;i<90;i++)m.step(1/60,{dx:0,dy:0});
+ assert.ok(Math.abs(p.bodyLean)<.001&&Math.abs(p.turnLean)<.001);
+ m.kickoff(0);assert.ok(m.snapshot().players.every(q=>q.bodyLean===0&&q.turnLean===0&&q.tackle===0));
+});
+test('animation envelopes and replay stay finite and preserve deterministic mesh size',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.snapshot().players[9],ball=m.ball;
+ let faceCount=null;
+ for(const kind of ['run','strike','receive','tackle','save','fouled'])for(let i=0;i<=60;i++){
+  const t=i/60,q={...p,speed:kind==='run'?110:0,stride:t*Math.PI*2,strike:kind==='strike'?t:0,
+   strikePhase:kind==='strike'?(t<.3?'windup':'follow'):'idle',receive:kind==='receive'?1-t:0,
+   tackle:kind==='tackle'?1-t:0,save:kind==='save'?1-t:0,fouled:kind==='fouled'?1-t:0,
+   keeper:kind==='save',saveSide:.8,turnLean:Math.sin(t*Math.PI),bodyLean:Math.cos(t*Math.PI)};
+  const pose=h.app.playerPose(q,ball),mesh=h.app.playerMesh(q,pose);
+  for(const f of mesh)assert.ok([...f.normal,...f.points.flat()].every(Number.isFinite));
+  if(!q.keeper){if(faceCount===null)faceCount=mesh.length;assert.equal(mesh.length,faceCount);}
+  assert.ok(pose.running>=0&&pose.running<=1);
+ }
+ const a=m.snapshot();a.players[9].bodyLean=-.7;a.players[9].turnLean=.6;a.players[9].tackle=.8;
+ const b=JSON.parse(JSON.stringify(a));b.players[9].bodyLean=.5;b.players[9].turnLean=-.2;b.players[9].tackle=.2;
+ const mix=h.app.replaySample([a,b],.5).players[9];
+ assert.ok(Math.abs(mix.bodyLean+.1)<1e-8);assert.ok(Math.abs(mix.turnLean-.2)<1e-8);assert.equal(mix.tackle,.5);
+});
+test('keeper save direction stays stable across camera turns and ball ownership changes',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p={...m.snapshot().players[0],save:.5,saveSide:-.8,keeper:true};
+ const a=h.app.playerPose(p,{...m.ball,x:p.x+30,y:p.y+20});
+ h.app.camera.yaw+=1;const b=h.app.playerPose(p,{...m.ball,x:p.x-30,y:p.y-20,owner:p.id});
+ assert.equal(a.reach,-.8);assert.equal(b.reach,-.8);assert.ok(a.save>.9&&b.save>.9);
+});
+
+test('catching during a keeper dive preserves its animation envelope rather than snapping to a new start',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]),p=m.players[11];
+ m.giveBall(m.players[9]);m.elapsed=2;p.saveAt=1.8;p.saveSide=-.7;
+ Object.assign(m.ball,{owner:null,lastTouch:0,x:p.x+2,y:p.y,z:0,vx:0,vy:0});
+ const before=m.snapshot().players[p.id].save;m.receiveBall(p);
+ assert.equal(m.owner.id,p.id);assert.equal(p.saveAt,1.8);assert.equal(p.saveSide,-.7);
+ assert.equal(m.snapshot().players[p.id].save,before);
 });

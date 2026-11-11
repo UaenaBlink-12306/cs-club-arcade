@@ -114,3 +114,17 @@ The reported 1180×757 two-drag sequence reproduced a pass returning to its orig
 - AI contains a newly receiving opponent at 42 world units for 650 ms, then resumes its usual press. Existing 800 ms tackle protection is unchanged. Human defenders, flight interceptions, foul checks and restart rules remain active.
 - The regression asserts actual recipient IDs for the reported two-drag sequence with all 22 players and AI at 30/60/120 Hz. It also covers 72 directional/power/frame-rate cases, desktop/portrait projected sprite targeting after camera movement, synthetic mouse/touch pointer events, held-pointer possession recovery, moving receivers during wind-up, explicit movement override, covered-lane interceptions and live pressure during a 150 ms return-pass gesture.
 - Verification uses the production JavaScript with the repository's DOM/canvas event harness. It is not a rendered-browser or physical-touch test. Independent deployed play-testing is still needed, especially for subjective targeting and pressure balance. No guarantees are made that marked or late passes complete.
+
+
+## Player animation follow-up (2026-11-11)
+
+This pass changes presentation and recorded pose data. Movement response, possession, kick contact times, ball speed, receiver assistance and collision decisions are unchanged.
+
+- Replaced the single sine-wave gait with a continuous contact/swing cycle: stance foot counter-travel, bent-knee clearance, ankle/toe articulation and soft return. The contact segment approximately cancels root travel at full running speed; it is procedural foot planting, not terrain-aware inverse kinematics.
+- Added eased visual acceleration/braking lean, turn balance, hip/shoulder counter-rotation, reduced body bounce and opposing arm motion. Input movement still starts/stops immediately.
+- Kick wind-up blends from the incoming running feet; the support stance braces, the striking boot reaches the held-ball offset at contact, and locomotion returns progressively after follow-through. Pass and shot delays remain 75 ms and 140 ms.
+- First-touch arms and leg cushioning use smooth envelopes. Actual tackle attempts trigger a short reaching/brace pose; no new tackle outcomes or fouls were added.
+- Keeper readiness fades with distance, reach uses the player's local frame, and save direction persists across camera/possession changes. A catch during a current dive preserves the pose envelope instead of restarting it. Keeper handling remains the existing simplified simulation.
+- New pose channels are reset at kickoff and interpolated in replays. The mesh face count is unchanged for each player type; no external artwork, dependencies or extra mesh subdivisions were added.
+
+Validation uses production JavaScript in the existing DOM/canvas event harness: continuous gait boundaries, near-stationary stance feet, run-to-kick continuity, contact boot position, lean settling, finite geometry across animation phases, replay channels and keeper direction. The existing passing/shot/ownership/rules/local-mode regressions remain required. Browser plugin and executor were unavailable; no screenshot, physical-touch, subjective smoothness or numerical frame-rate claim is made. Desktop/portrait visual review remains necessary.
