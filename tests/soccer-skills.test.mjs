@@ -118,7 +118,7 @@ test('touchline exit, attacking miss, and defender touch produce different resta
 });
 test('defenders win possession rather than simply following stationary dots',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2]),p=m.owner,defender=m.players[20];
- m.giveBall(p);defender.x=p.x+15;defender.y=p.y;m.protection=0;m.random=()=>0;
+ m.giveBall(p);defender.x=p.x-15;defender.y=p.y;m.protection=0;m.random=()=>0;
  m.step(1/60,{dx:0,dy:0});
  assert.equal(m.owner.team,1);assert.equal(m.tackles,1);
 });
@@ -244,7 +244,7 @@ test('six seeded matches finish without nonfinite coordinates or repeated-goal l
   for(let frame=0;frame<60*300&&m.phase!=='full';frame++){
    if(m.phase==='half')m.resumeHalf();
    if(m.phase==='restart')m.takeRestart();
-   if(m.setPiece&&m.owner?.team===0)m.kick(m.owner,m.bestPass(m.owner),.6,true);
+   if(m.setPiece&&m.owner?.team===0)m.kick(m.owner,m.setPiece==='Penalty Kick'?{x:m.goalX(0)+m.direction(0)*20,y:FIELD.cy+35}:m.bestPass(m.owner),.6,true);
    if(m.phase==='penalties')m.takePenalty(frame%3);
    m.step(1/60);
    assert.ok(m.players.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
@@ -634,7 +634,7 @@ test('receiving a real short pass transfers control to either team receiver',()=
 test('a real local tackle transfers possession and the selected player to the winning side',()=>{
  for(const team of [0,1]){
   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),owner=m.players[team*11+9],defender=m.players[(1-team)*11+9];
-  owner.x=550;owner.y=318;defender.x=565;defender.y=318;m.giveBall(owner);
+  owner.x=550;owner.y=318;owner.angle=m.direction(team)>0?0:Math.PI;defender.x=550+m.direction(team)*15;defender.y=318;m.giveBall(owner);
   m.selectPlayer(1-team,defender.id);m.protection=0;m.random=()=>0;
   m.step(1/60);assert.equal(m.owner.id,defender.id);assert.equal(m.activeFor(1-team),defender.id);assert.equal(m.tackles,1);
  }
@@ -844,10 +844,11 @@ test('compact selector and bracket progression retain team selection and local-m
  h.chooseMode('menu');h.chooseMode('multi');assert.equal(h.app.view,'local');
 });
 
-test('restart live announcements clear on resumption, match restart, menu and result transitions',()=>{
+test('restart announcements describe the stationary restart, then clear at contact, menu and result transitions',()=>{
  const h=localHarness(),m=h.app.match;
  const restart=()=>{m.phase='restart';m.restart={type:'Goal Kick',team:1,x:1000,y:318};h.app.syncMatch();assert.ok(h.elements.get('matchStatus').textContent.includes('Goal Kick'));};
- restart();h.click('takeCorner');assert.equal(h.elements.get('matchStatus').textContent,'');
+ restart();h.click('takeCorner');assert.ok(h.elements.get('matchStatus').textContent.includes('Ball stationary'));
+ h.window.handlers.keydown(keyEvent('k'));advanceToContact(m);h.app.syncMatch();assert.equal(h.elements.get('matchStatus').textContent,'');
  h.flush();assert.equal(h.elements.get('toast').textContent,'');
  restart();h.chooseMode('menu');assert.equal(h.elements.get('matchStatus').textContent,'');
  assert.equal(h.elements.get('toast').textContent,'');
@@ -1372,6 +1373,7 @@ test('releasing a movement key keeps possession idle until an intentional shot',
 test('idle human controls leave opposition shooting and off-ball teammate AI operational',()=>{
  const h=uiHarness(html),clock={time:0};h.chooseMode('practice');h.flush();
  const m=h.app.match,opponent=m.players[20];
+ for(const q of m.players)if(q.team===0){q.x=300;q.y=100+q.id*20;}
  opponent.x=820;opponent.y=FIELD.cy;m.giveBall(opponent);
  const before=m.snapshot();
  runIdleFrames(h,clock,1);
@@ -1394,7 +1396,7 @@ test('kick intent and wind-up belong to a possession, and stale intent cannot re
 test('tackles cancel wind-up, while pass follow-through stays on its kicker rather than the receiver',()=>{
  const {m,p}=pacedMatch(),defender=m.players[20];
  m.kick(p,{x:FIELD.left-20,y:318},1);
- defender.x=p.x+15;defender.y=p.y;defender.cooldown=0;m.protection=0;m.random=()=>0;
+ defender.x=p.x-15;defender.y=p.y;defender.cooldown=0;m.protection=0;m.random=()=>0;
  m.step(1/120,{dx:0,dy:0});
  assert.equal(m.owner.id,defender.id);assert.equal(m.pendingKick,null);assert.equal(m.shots[0],0);
  assert.ok(m.snapshot().players.every(q=>q.strikePhase==='idle'));
@@ -1738,4 +1740,209 @@ test('second half and every post-goal kickoff require the correct team to kick b
   h.window.handlers.keydown(keyEvent(team===0?'f':'k'));advanceToContact(m);
   assert.equal(m.setPiece,null);assert.equal(m.ball.lastTouch,team);
  }
+});
+
+function contactFixture(team=0,period=1,inside=false){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+ for(const q of m.players){q.x=450+(q.id%4)*65;q.y=110+Math.floor(q.id/4)*23;}
+ const p=m.players[team*11+9],q=m.players[(1-team)*11+9],d=m.direction(team);
+ p.x=inside?m.goalX(team)-d*80:550;p.y=FIELD.cy;p.angle=d>0?0:Math.PI;
+ q.x=p.x-d*24;q.y=p.y;m.giveBall(p);m.selectPlayer(1-team,q.id);m.random=()=>1;m.protection=0;
+ const controls={teams:[{dx:0,dy:0},{dx:0,dy:0}]};controls.teams[1-team]={dx:d,dy:0};
+ return {m,p,q,d,controls};
+}
+test('visible charging contact from behind awards a direct free kick or penalty in both halves and for both teams',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const inside of [false,true]){
+  const {m,p,q,controls}=contactFixture(team,period,inside);
+  for(let i=0;i<25&&m.phase==='playing';i++)m.step(1/60,controls);
+  assert.equal(m.phase,'restart');assert.equal(m.restart.team,team);assert.equal(m.restart.type,inside?'Penalty Kick':'Direct Free Kick');
+  assert.equal(m.fouls[1-team],1);assert.equal(m.fouls[team],0);assert.equal(m.lastFoul.offender,q.id);assert.equal(m.lastFoul.victim,p.id);
+  assert.equal(m.pendingKick,null);assert.equal(m.ball.owner,null);assert.ok(m.event.includes('Challenge from behind'));
+  assert.ok(m.snapshot().players[p.id].fouled>0);
+  for(let i=0;i<10;i++)m.step(1/60,controls);assert.equal(m.fouls[1-team],1);
+ }
+});
+test('stationary proximity, a retreating defender and a clean ball-side challenge do not become fouls',()=>{
+ for(const action of ['idle','retreat','clean']){
+  const {m,p,q,d,controls}=contactFixture();q.x=p.x-d*16;
+  controls.teams[1]={dx:action==='retreat'?-d:0,dy:0};
+  if(action==='clean'){q.x=p.x+d*20;controls.teams[1]={dx:-d,dy:0};m.random=()=>0;}
+  for(let i=0;i<15&&m.phase==='playing';i++)m.step(1/60,controls);
+  assert.deepEqual(m.fouls,[0,0]);assert.equal(m.phase,'playing');
+  if(action==='clean'){assert.equal(m.owner.team,1);assert.equal(m.tackles,1);}
+ }
+});
+test('late contact after a released pass is penalised but dead-ball collisions are not',()=>{
+ const {m,p,q,d,controls}=contactFixture();
+ m.kick(p,{x:p.x+d*220,y:p.y},.8);advanceToContact(m);assert.equal(m.ball.owner,null);
+ for(let i=0;i<20&&m.phase==='playing';i++)m.step(1/60,controls);
+ assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Direct Free Kick');assert.equal(m.lastFoul.reason,'Late challenge');
+ const counts=[...m.fouls];m.takeRestart();
+ for(let i=0;i<60;i++){q.x=p.x-d*5;q.y=p.y;m.step(1/60,controls);}
+ assert.deepEqual(m.fouls,counts);assert.equal(m.setPiece,'Direct Free Kick');
+});
+test('foul location on the area line is a penalty; outside contact remains a free kick',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const outside of [false,true]){
+  const {m,p,q,d}=contactFixture(team,period,true);
+  p.x=m.goalX(team)-d*(126+(outside?.1:0));p.y=318;
+  m.foul(q,p,'Challenge from behind');
+  assert.equal(m.restart.type,outside?'Direct Free Kick':'Penalty Kick');
+  if(outside)assert.equal(m.restart.x,p.x);else assert.equal(m.restart.x,m.goalX(team)-d*90);
+ }
+});
+test('direct free kicks keep a stationary ball and legal distances, including defending-area free kicks',()=>{
+ for(const team of [0,1])for(const ownArea of [false,true]){
+  const {m,p,q,d}=contactFixture(team,1,false);
+  if(ownArea){p.x=m.ownGoalX(team)+d*30;p.y=318;}
+  m.foul(q,p,'Late challenge');m.takeRestart();const r=m.restartGuard,spot={x:r.x,y:r.y};
+  for(const opp of m.players)if(opp.team!==team){opp.x=p.x;opp.y=p.y;}
+  for(let i=0;i<60;i++)m.step(1/60,{teams:[{dx:1,dy:1},{dx:-1,dy:-1}]});
+  assert.equal(m.setPiece,'Direct Free Kick');assert.equal(m.ball.x,spot.x);assert.equal(m.ball.y,spot.y);
+  for(const opp of m.players)if(opp.team!==team){assert.ok(distance(opp,spot)>=66);if(ownArea)assert.ok(!m.inPenalty(opp,team));}
+  m.kick(m.owner,{x:550,y:450,pass:true},.5);advanceToContact(m);
+  assert.equal(m.setPiece,null);assert.equal(m.lastRestart.type,'Direct Free Kick');
+  const taker=m.players[m.lastRestart.taker];m.receiveBall(taker);
+  assert.equal(m.restart.type,'Indirect Free Kick');assert.equal(m.restart.team,1-team);
+ }
+});
+test('direct free kick may score in opposing goal, never directly in own goal',()=>{
+ for(const own of [false,true]){
+  const {m,p,q}=contactFixture();m.foul(q,p,'Late challenge');m.takeRestart();
+  const side=own?m.ownGoalX(0):m.goalX(0),d=side===FIELD.left?-1:1;
+  m.kick(m.owner,{x:side+d*20,y:318},.8);advanceToContact(m);
+  Object.assign(m.ball,{x:side+d*4,y:318,z:0});
+  m.checkBoundary({x:side-d*10,y:318,z:0});
+  assert.equal(m.phase,own?'restart':'goal');
+  if(own)assert.equal(m.restart.type,'Corner Kick');else assert.equal(m.score[0],1);
+ }
+});
+test('penalty setup excludes both teams from the area and arc, keeps keeper on line, and rejects backwards kicks',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const {m,p,q,d}=contactFixture(team,period,true);m.foul(q,p,'Challenge from behind');m.takeRestart();
+  const taker=m.owner,keeper=m.players[(1-team)*11],spot={x:m.goalX(team)-d*90,y:318};
+  assert.equal(m.activeFor(1-team),keeper.id);
+  for(let i=0;i<90;i++){
+   const controls={teams:[{dx:1,dy:1},{dx:1,dy:1}]};m.step(1/60,controls);
+   assert.equal(taker.x,spot.x);assert.equal(m.ball.x,spot.x);assert.equal(m.ball.y,318);
+   assert.equal(keeper.x,m.goalX(team));assert.ok(Math.abs(keeper.y-318)<=48);
+   for(const v of m.players)if(v.id!==taker.id&&v.id!==keeper.id){
+    assert.ok(!m.inPenalty(v,1-team));assert.ok((v.x-spot.x)*d<0);assert.ok(distance(v,spot)>=66);
+   }
+  }
+  assert.equal(m.kick(taker,{x:spot.x-d*50,y:318},1),false);assert.equal(m.pendingKick,null);
+  assert.ok(m.kick(taker,{x:m.goalX(team)+d*20,y:355},.8,true));
+  for(let i=0;i<5;i++){m.step(1/120);assert.equal(keeper.x,m.goalX(team));}
+  advanceToContact(m);assert.equal(m.setPiece,null);assert.equal(m.ball.vz,0);
+  assert.ok(m.ball.vx*d>0);assert.equal(m.lastRestart.type,'Penalty Kick');
+ }
+});
+test('a real in-match penalty scores through ball flight and restarts with the conceding team',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const {m,p,q,d}=contactFixture(team,period,true);m.foul(q,p,'Challenge from behind');m.takeRestart();
+  m.players[(1-team)*11].y=FIELD.cy-45;
+  m.kick(m.owner,{x:m.goalX(team)+d*20,y:FIELD.cy+45},.9);advanceToContact(m);
+  for(let i=0;i<90&&m.phase==='playing';i++)m.step(1/60);
+  assert.equal(m.phase,'goal');assert.equal(m.score[team],1);m.skipReplay();
+  assert.equal(m.setPiece,'Kick-off');assert.equal(m.owner.team,1-team);assert.equal(m.penaltyRun,null);
+ }
+});
+test('a saved in-match penalty remains live, while a taker second touch awards an indirect free kick',()=>{
+ const {m,p,q}=contactFixture(0,1,true);m.foul(q,p,'Challenge from behind');m.takeRestart();
+ const taker=m.owner,keeper=m.players[11];m.kick(taker,{x:FIELD.left-20,y:318},1);advanceToContact(m);
+ m.receiveBall(keeper);assert.equal(m.phase,'playing');assert.equal(m.owner.id,keeper.id);assert.equal(m.penaltyRun,null);
+ const n=contactFixture(0,1,true);n.m.foul(n.q,n.p,'Challenge from behind');n.m.takeRestart();
+ n.m.kick(n.m.owner,{x:FIELD.left-20,y:318},1);advanceToContact(n.m);n.m.receiveBall(n.p);
+ assert.equal(n.m.restart.type,'Indirect Free Kick');assert.equal(n.m.restart.team,1);
+});
+test('penalties awarded near the interval are completed before the half or match ends',()=>{
+ for(const period of [1,2])for(const outcome of ['goal','save','miss','stopped']){
+  const {m,p,q,d}=contactFixture(0,period,true);m.minute=period===1?44.999:89.999;
+  m.foul(q,p,'Challenge from behind');m.takeRestart();
+  for(let i=0;i<20;i++)m.step(1/60);
+  assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Penalty Kick');assert.ok(m.penaltyRun.extended);
+  m.kick(m.owner,{x:m.goalX(0)+d*20,y:FIELD.cy+40},.8);advanceToContact(m);
+  if(outcome==='goal'){
+   Object.assign(m.ball,{x:m.goalX(0)+d*4,y:318,z:0});
+   m.checkBoundary({x:m.goalX(0)-d*10,y:318,z:0});assert.equal(m.phase,'goal');m.skipReplay();
+  }else if(outcome==='save')m.receiveBall(m.players[11]);
+  else if(outcome==='miss'){
+   Object.assign(m.ball,{x:m.goalX(0)+d*4,y:FIELD.top+50,z:0});m.checkBoundary({x:m.goalX(0)-d*10,y:FIELD.top+50,z:0});
+  }else{Object.assign(m.ball,{vx:0,vy:0,vz:0,z:0,lock:1,x:550,y:110});m.step(1/60);}
+  assert.equal(m.phase,period===1?'half':'full');assert.equal(m.minute,period===1?45:90);
+  assert.equal(m.setPiece,null);assert.equal(m.penaltyRun,null);
+ }
+});
+test('foul detection is stable at 30, 60 and 120 Hz and does not depend on random draws',()=>{
+ for(const hz of [30,60,120])for(const random of [0,.5,1]){
+  const {m,controls}=contactFixture();m.random=()=>random;
+  for(let i=0;i<hz&&m.phase==='playing';i++)m.step(1/hz,controls);
+  assert.equal(m.restart?.type,'Direct Free Kick');assert.equal(m.lastFoul.reason,'Challenge from behind');
+ }
+});
+
+test('foul UI names the offence, clears a held gesture and exposes penalty controls for the proper local player',()=>{
+ for(const team of [0,1]){
+  const h=localHarness(),m=h.app.match,p=m.players[team*11+9],q=m.players[(1-team)*11+9],d=m.direction(team);
+  p.x=m.goalX(team)-d*80;p.y=318;m.giveBall(p);m.foul(q,p,'Challenge from behind');h.app.syncMatch();
+  assert.equal(h.elements.get('restartNotice').textContent,'FOUL');assert.equal(h.elements.get('restartType').textContent,'Penalty Kick');
+  assert.ok(h.elements.get('matchStatus').textContent.includes('Challenge from behind'));
+  h.click('takeCorner');
+  assert.ok(h.elements.get('hint').textContent.includes('P'+(team+1)));assert.ok(h.elements.get('hint').textContent.includes('move keeper'));
+  const keeper=m.players[(1-team)*11],y=keeper.y;
+  h.window.handlers.keydown(keyEvent(team===0?'ArrowUp':'w'));
+  for(let i=0;i<10;i++)m.step(1/60,h.app.input());
+  assert.ok(keeper.y!==y);assert.equal(keeper.x,m.goalX(team));
+  h.window.handlers.keydown(keyEvent(team===0?'l':'g'));assert.equal(m.pendingKick,null);
+  h.window.handlers.keydown(keyEvent(team===0?'g':'l'));assert.equal(m.pendingKick.player,p.id);advanceToContact(m);
+  assert.equal(m.setPiece,null);assert.equal(m.ball.lastTouch,team);
+ }
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;m.giveBall(p);
+ const from=h.app.camera.project(p.x,p.y),ev=(dx)=>pointerEvent(h,from.x+dx,from.y);
+ c.handlers.pointerdown(ev(0));c.handlers.pointermove(ev(120));
+ m.foul(m.players[20],p,'Late challenge');h.app.syncMatch();assert.equal(c.hasPointerCapture(31),false);
+ c.handlers.pointerup(ev(120));assert.equal(m.pendingKick,null);
+});
+test('moving held pointer reanchors through possession recovery with camera motion and releases exactly once',()=>{
+ for(const type of ['mouse','touch']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;m.giveBall(p);
+  const start=h.app.camera.project(p.x,p.y),ev=(i)=>pointerEvent(h,start.x+i*8,start.y+80+i*4,71,type);
+  c.handlers.pointerdown(pointerEvent(h,start.x,start.y,71,type));
+  for(let i=0;i<8;i++){c.handlers.pointermove(ev(i));m.step(1/60,h.app.input());h.app.render(1/60);h.draws.length=0;}
+  m.giveBall(m.players[20]);c.handlers.pointermove(ev(8));assert.ok(c.hasPointerCapture(71));
+  const r=m.players[6];r.x=610;r.y=330;m.giveBall(r);const before={x:r.x,y:r.y};
+  for(let i=9;i<22;i++){c.handlers.pointermove(ev(i));m.step(1/60,h.app.input());h.app.render(1/60);h.draws.length=0;}
+  assert.ok(distance(r,before)>10);assert.ok(c.hasPointerCapture(71));
+  c.handlers.pointerup(ev(22));assert.equal(m.pendingKick.player,r.id);advanceToContact(m);
+  assert.equal(m.passes[0]+m.shots[0],1);c.handlers.pointerup(ev(22));assert.equal(m.passes[0]+m.shots[0],1);
+ }
+});
+test('an actual goal-line miss becomes a human goal kick with box exclusion through a pointer wind-up',()=>{
+ for(const rect of [{width:1280,height:720},{width:500,height:745}]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const m=h.app.match;m.giveBall(m.owner);
+  Object.assign(m.ball,{owner:null,x:FIELD.right-5,y:FIELD.top+35,z:0,vx:200,vy:0,vz:0,lastTouch:1,lock:1});
+  for(let i=0;i<10&&m.phase==='playing';i++)m.step(1/60,h.app.input());
+  h.app.syncMatch();assert.equal(m.restart.type,'Goal Kick');assert.equal(m.restart.team,0);
+  const clock={time:0};runIdleFrames(h,clock,1.2);
+  assert.equal(m.setPiece,'Goal Kick');assert.equal(m.owner.id,0);
+  const p=m.owner,from=h.app.camera.project(p.x,p.y),to=h.app.camera.project(p.x-75,p.y+35);
+  c.handlers.pointerdown(pointerEvent(h,from.x,from.y));c.handlers.pointermove(pointerEvent(h,to.x,to.y));
+  for(let i=0;i<60;i++){
+   m.step(1/60,h.app.input());assert.equal(m.ball.owner,p.id);
+   assert.ok(m.players.filter(q=>q.team===1).every(q=>!m.inPenalty(q,0)));
+  }
+  c.handlers.pointerup(pointerEvent(h,to.x,to.y));assert.equal(m.pendingKick.player,0);
+  while(m.pendingKick){m.step(1/120,h.app.input());if(m.pendingKick)assert.ok(m.players.filter(q=>q.team===1).every(q=>!m.inPenalty(q,0)));}
+  assert.equal(m.restartGuard,null);assert.ok(m.ball.vx<0);assert.equal(m.passes[0],1);
+ }
+});
+test('AI takes its awarded penalty without human input and a paused penalty cannot progress',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.players[20],q=m.players[9];
+ p.x=m.goalX(1)-m.direction(1)*80;p.y=318;m.giveBall(p);m.foul(q,p,'Challenge from behind');m.takeRestart();h.app.syncMatch();
+ assert.ok(h.elements.get('hint').textContent.includes('your goalkeeper'));
+ h.click('menuBtn');const elapsed=m.elapsed;for(let i=0;i<100;i++)m.step(1/60,h.app.input());
+ assert.equal(m.elapsed,elapsed);assert.equal(m.pendingKick,null);
+ h.click('resumePause');
+ for(let i=0;i<100&&m.shots[1]===0;i++)m.step(1/60,h.app.input());
+ assert.equal(m.shots[1],1);assert.equal(m.setPiece,null);
 });
