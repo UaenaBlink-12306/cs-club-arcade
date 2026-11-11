@@ -845,6 +845,7 @@ class SoccerMatch {
       .reduce((a,p)=>!a||distance(p,target)<distance(a,target)?p:a,null);
   }
   giveBall(p){
+    this.possessionSerial=(this.possessionSerial||0)+1;p.kickAt=-100;p.strikeId=0;
     this.kickoffGrace=0;this.kickoffOwner=null;
     if(this.pendingKick&&this.pendingKick.player!==p.id)this.pendingKick=null;
     this.ball.owner=p.id;this.ball.lastTouch=p.team;this.ball.z=0;this.ball.vx=0;this.ball.vy=0;this.ball.vz=0;
@@ -869,22 +870,23 @@ class SoccerMatch {
     if(!Number.isFinite(dx)||!Number.isFinite(dy)||Math.hypot(dx,dy)<5)return false;
     const shot=Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110;
     const duration=shot?.105:.075;
-    this.pendingKick={player:p.id,target:{x:target.x,y:target.y},power,loft,remaining:duration,duration,started:this.elapsed,fromAngle:p.visualAngle??p.angle};
+    this.pendingKick={id:this.strikeSequence=(this.strikeSequence||0)+1,possession:this.possessionSerial,player:p.id,target:{x:target.x,y:target.y},power,loft,remaining:duration,duration,started:this.elapsed,fromAngle:p.visualAngle??p.angle};
     p.angle=Math.atan2(dy,dx);p.speed=0;
     return true;
   }
   releaseKick(action){
     const p=this.players[action.player],target=action.target,power=action.power,loft=action.loft;
-    if(this.phase!=='playing'||this.ball.owner!==p.id)return false;
+    if(this.phase!=='playing'||!p||this.ball.owner!==p.id||action.possession!==this.possessionSerial)return false;
     const dx=target.x-p.x,dy=target.y-p.y,len=Math.hypot(dx,dy);
     if(len<5)return false;
     const shot=Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110;
     const speed=shot?370+180*power:clamp(len*1.3,95,470)*.86;
     p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
+    this.possessionSerial=(this.possessionSerial||0)+1;
     Object.assign(this.ball,{owner:null,x:p.x+dx/len*10,y:p.y+dy/len*10,z:0,
       vx:dx/len*speed,vy:dy/len*speed,vz:loft?185+90*power:0,lastTouch:p.team,lock:.10});
     this.kickoffGrace=0;this.kickoffOwner=null;
-    p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;
+    p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;p.strikeId=action.id;
     if(shot)this.shots[p.team]++;else this.passes[p.team]++;
     this.setPiece=null;
     if(p.team===0){this.active=this.nearest(0,target,p.id).id;this.event=shot?'Shot!':'Pass!';}
@@ -1021,7 +1023,7 @@ class SoccerMatch {
     if(this.owner&&this.checkBoundary(this.ball))return;
     if(this.pendingKick){
       const action=this.pendingKick;
-      if(this.ball.owner!==action.player)this.pendingKick=null;
+      if(this.ball.owner!==action.player||action.possession!==this.possessionSerial)this.pendingKick=null;
       else{
         action.remaining=Math.max(0,action.remaining-dt);
         if(action.remaining<=1e-8){this.pendingKick=null;this.releaseKick(action);}
@@ -1108,7 +1110,17 @@ class SoccerMatch {
     const candidates=this.players.filter(p=>p.team===team&&!p.keeper).sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
     this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id);
   }
-  snapshot(){return {players:this.players.map(p=>({id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.visualAngle??p.angle,stride:p.stride,speed:p.gaitSpeed??p.speed,strike:this.pendingKick?.player===p.id ? .3*clamp(1-this.pendingKick.remaining/this.pendingKick.duration,0,1):(this.elapsed-(p.kickAt??-100)<.34?.3+.7*clamp((this.elapsed-p.kickAt)/.34,0,1):0),kick:clamp(1-(this.elapsed-(p.kickAt??-100))/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)})),ball:{...this.ball},active:this.active,activeAway:this.activeAway};}
+  snapshot(){
+    return {players:this.players.map(p=>{
+      const action=this.pendingKick;
+      const winding=action?.player===p.id&&action.possession===this.possessionSerial&&this.ball.owner===p.id&&['playing','paused'].includes(this.phase);
+      const age=this.elapsed-(p.kickAt??-100),following=age>=0&&age<.34;
+      return {id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.visualAngle??p.angle,stride:p.stride,speed:p.gaitSpeed??p.speed,
+        strikePhase:winding?'windup':following?'follow':'idle',strikeId:winding?action.id:following?p.strikeId:0,
+        strike:winding?.3*clamp(1-action.remaining/action.duration,0,1):following?.3+.7*clamp(age/.34,0,1):0,
+        kick:clamp(1-age/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)};
+    }),ball:{...this.ball},active:this.active,activeAway:this.activeAway};
+  }
 }
 
 // END SOCCER ENGINE
@@ -1404,7 +1416,7 @@ canvas.addEventListener('pointerdown',event=>{
   if(match.owner?.team!==0){
     const candidate=match.nearest(0,q);if(distance(candidate,q)<40)match.active=candidate.id;
   }
-  drag={id:event.pointerId,player:match.active,start:screen,screenDx:0,screenDy:0,dx:0,dy:0};
+  drag={id:event.pointerId,player:match.active,possession:match.possessionSerial,start:screen,screenDx:0,screenDy:0,dx:0,dy:0};
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener('pointermove',event=>{
@@ -1413,6 +1425,7 @@ canvas.addEventListener('pointermove',event=>{
 });
 function releaseDrag(event,cancel=false){
   if(!drag||event.pointerId!==drag.id)return;
+  updateDrag();if(!drag)return;
   const aim=drag;drag=null;
   if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);
   if(cancel||match?.phase!=='playing')return;
@@ -1428,6 +1441,9 @@ canvas.addEventListener('pointercancel',event=>releaseDrag(event,true));
 canvas.addEventListener('lostpointercapture',()=>{drag=null;});
 function updateDrag(){
   if(!drag||!match)return;
+  if(match.phase!=='playing'||drag.player!==match.active||drag.possession!==match.possessionSerial){
+    const id=drag.id;drag=null;if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);return;
+  }
   const v=camera.vector(match.players[drag.player],drag.screenDx,drag.screenDy);
   drag.dx=v.x;drag.dy=v.y;
 }
@@ -1728,7 +1744,8 @@ function strikePose(t){
 function playerPose(p,ball){
   const a=camera.project(p.x,p.y),b=camera.project(p.x+Math.cos(p.angle)*12,p.y+Math.sin(p.angle)*12);
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
-  const running=clamp(p.speed/110,0,1),stride=Math.sin(p.stride*(.92+(p.id%4)*.055)+p.id*.47),kick=p.strike!==undefined?strikePose(p.strike):Math.sin((1-(p.kick||0))*Math.PI)*(p.kick>0?1:0);
+  const baseRunning=clamp(p.speed/110,0,1),stride=Math.sin(p.stride*(.92+(p.id%4)*.055)+p.id*.47),kick=p.strike!==undefined?strikePose(p.strike):Math.sin((1-(p.kick||0))*Math.PI)*(p.kick>0?1:0);
+  const running=baseRunning*(1-clamp(Math.abs(kick)*1.4,0,1));
   const save=(p.save||0)>0?Math.sin((1-p.save)*Math.PI):0;
   const ready=p.keeper&&ball&&ball.owner!==p.id&&distance(p,ball)<200?1:0;
   const reach=p.keeper&&ball?clamp((camera.project(ball.x,ball.y).x-a.x)/50,-1,1):fx;
@@ -1743,7 +1760,7 @@ function playerMesh(p,pose){
   const shorts=p.keeper?'#33433d':p.team===0?'#e3ece4':'#193e6a';
   const socks=p.keeper?'#e5c73a':p.team===0?'#f6f7ed':'#cfdee5';
   const hair=['#312821','#64452e','#232624','#9d773f','#422d24'][p.id%5];
-  const width=.91+(p.id%3)*.055,height=.96+(p.id%4)*.025,roll=pose.save*pose.reach*.65;
+  const width=.91+(p.id%3)*.055,height=.96+(p.id%4)*.025,roll=pose.save*pose.reach*.65+pose.kick*.035;
   const co=Math.cos(p.angle),si=Math.sin(p.angle);
   const transformed=new WeakMap();
   const world=q=>{
@@ -1752,7 +1769,7 @@ function playerMesh(p,pose){
     let x=q[0]*width*.55,y=q[1]*.6,z=q[2]*height*.6;
     const tiltedX=x*Math.cos(roll)+z*Math.sin(roll),tiltedZ=z*Math.cos(roll)-x*Math.sin(roll);
     x=tiltedX;z=tiltedZ+pose.bob*.3;
-    y+=pose.running*z*.025;
+    y+=z*(pose.running*.025+pose.kick*.045);
     const v=[p.x+x*si+y*co,p.y-x*co+y*si,Math.max(.2,z)];transformed.set(q,v);return v;
   };
   function face(vertices,color){
@@ -1777,12 +1794,12 @@ function playerMesh(p,pose){
   for(const side of [-1,1]){
     const phase=pose.stride*side*pose.running,kicking=side===1?pose.kick:0;
     const hip=[side*2.2,0,16],knee=[side*2.4,phase*3.5+kicking*8,9+Math.max(0,-phase)*2+kicking*3];
-    const ankle=[side*2.5,phase*6+kicking*17,1.8+Math.max(0,phase)*3.5+kicking*3];
+    const ankle=[side*2.5,phase*6+kicking*17,1.8+Math.max(0,phase)*3.5+Math.max(0,kicking)];
     limb(hip,knee,1.75,1.4,skin);
     const hem=hip.map((v,i)=>v+(knee[i]-v)*.42);limb(hip,hem,2,1.8,shorts);
     limb(knee,ankle,1.3,1.05,socks);
     box(ankle[0],ankle[1]+1.1,ankle[2]-.8,ankle[2]+.8,2.4,4.2,2.2,4,p.id%4?'#1c3037':'#e89a45');
-    const shoulder=[side*4.4,0,26.5],elbow=[side*(5.4+pose.ready),-phase*2.2,21+pose.ready*1.5];
+    const shoulder=[side*4.4,0,26.5],elbow=[side*(5.4+pose.ready+Math.abs(pose.kick)*1.2),-phase*2.2,21+pose.ready*1.5];
     const hand=[side*(5.8+pose.ready)+pose.reach*pose.save*5,-phase*4+pose.kick*2,18.5+pose.ready*2.5+pose.save*8];
     limb(shoulder,elbow,1.65,1.3,shirt);limb(elbow,hand,1.15,.9,skin);
     if(p.keeper)box(hand[0],hand[1],hand[2]-1.2,hand[2]+1.2,2.5,2.8,2.3,2.5,'#eeeacf');
@@ -1841,9 +1858,13 @@ function drawBall(b){
   // Keep the ball legible in CSS pixels on narrow displays; physics radius is unchanged.
   const radius=camera.portrait?Math.max(1.5*at.scale,3*W/canvas.getBoundingClientRect().width):Math.max(1.5*at.scale,2.5*W/canvas.getBoundingClientRect().width);
   ctx.fillStyle='#173b3555';ctx.beginPath();ctx.ellipse(foot.x+2,foot.y+2,2*foot.scale,1*foot.scale,0,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#fffdf0';ctx.beginPath();ctx.arc(at.x,at.y,radius,0,Math.PI*2);ctx.fill();
+  const sphereLight=ctx.createLinearGradient(at.x-radius,at.y-radius,at.x+radius,at.y+radius);
+  sphereLight.addColorStop(0,'#ffffff');sphereLight.addColorStop(.45,'#f3f6dd');sphereLight.addColorStop(1,'#819e91');
+  ctx.fillStyle=sphereLight;ctx.beginPath();ctx.arc(at.x,at.y,radius,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='#214739';ctx.lineWidth=.35*at.scale;ctx.stroke();
-  ctx.fillStyle='#263e3f';ctx.fillRect(at.x-.5*at.scale,at.y-.5*at.scale,1*at.scale,1*at.scale);
+  ctx.fillStyle='#263e3f';ctx.beginPath();
+  for(let i=0;i<5;i++){const angle=i*Math.PI*2/5+(b.x+b.y)*.16,x=at.x+Math.cos(angle)*radius*.43,y=at.y+Math.sin(angle)*radius*.43;if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);}
+  ctx.closePath();ctx.fill();
 }
 function radar(shot){
   const width=H>W?172:140,height=width*.49,x=W-width-20,y=H-height-20;
@@ -1858,13 +1879,19 @@ function replaySample(frames,t){
   if(frames.length<=1)return frames[0];
   const position=clamp(t,0,1)*(frames.length-1),index=Math.floor(position),a=frames[index],b=frames[Math.min(index+1,frames.length-1)],mix=position-index;
   const blend=(x,y)=>x+(y-x)*mix;
+  const contact=a.players.find(p=>p.strikePhase==='windup'&&b.players.some(q=>q.id===p.id&&q.strikeId===p.strikeId&&q.strikePhase==='follow'));
+  const after=contact?b.players.find(p=>p.id===contact.id):null;
+  const contactMix=contact?clamp((.3-contact.strike)/(after.strike-contact.strike),0,1):.5;
   return {...a,players:a.players.map((p,i)=>{
-    const q=b.players[i];return {...p,x:blend(p.x,q.x),y:blend(p.y,q.y),stride:blend(p.stride,q.stride),speed:blend(p.speed,q.speed),
-      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike:blend(p.strike||0,q.strike>0?q.strike:p.strike>0?1:0),kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
-  }),ball:{...a.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
+    const q=b.players.find(q=>q.id===p.id)||p;
+    const sameStrike=p.strikeId&&p.strikeId===q.strikeId;
+    const strike=sameStrike?blend(p.strike||0,q.strike||0):p.strikePhase==='follow'?blend(p.strike||0,1):p.strikePhase==='windup'?0:p.strikePhase===undefined?blend(p.strike||0,q.strike||0):0;
+    return {...p,strikePhase:strike>0?(strike<.3?'windup':'follow'):'idle',strikeId:strike>0?p.strikeId:0,x:blend(p.x,q.x),y:blend(p.y,q.y),stride:blend(p.stride,q.stride),speed:blend(p.speed,q.speed),
+      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike,kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
+  }),ball:{...a.ball,owner:mix>=contactMix?b.ball.owner:a.ball.owner,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
 }
 function render(dt=0){
-  resizeView();
+  resizeView();updateDrag();
   let shot=match?match.snapshot():(view==='loading'?introShot:null);
   if(match?.phase==='replay'&&match.replayFrames.length){
     const t=clamp(match.replayTime/4,0,.999);

@@ -1378,3 +1378,69 @@ test('idle human controls leave opposition shooting and off-ball teammate AI ope
  assert.equal(m.shots[0],0);assert.equal(m.passes[0],0);
  assert.ok(m.players.filter(p=>!p.keeper&&p.id!==m.active&&distance(p,before.players[p.id])>5).length>=6,'off-ball players still steer');
 });
+
+test('kick intent and wind-up belong to a possession, and stale intent cannot release after reacquisition',()=>{
+ const {m,p}=pacedMatch();m.kick(p,{x:FIELD.left-20,y:318},1);
+ const action=m.pendingKick;m.step(1/120,{dx:0,dy:0});
+ assert.equal(m.snapshot().players.filter(q=>q.strikePhase==='windup').length,1);
+ assert.equal(m.snapshot().players[p.id].strikePhase,'windup');
+ m.giveBall(m.players[20]);assert.equal(m.pendingKick,null);
+ assert.ok(m.snapshot().players.every(q=>q.strikePhase!=='windup'));
+ m.giveBall(p);assert.equal(m.releaseKick(action),false);assert.equal(m.ball.owner,p.id);assert.equal(m.shots[0],0);
+ assert.ok(m.kick(p,{x:FIELD.left-20,y:318},1));assert.ok(m.pendingKick.id!==action.id);
+ advanceToContact(m);assert.equal(m.shots[0],1);
+});
+test('tackles cancel wind-up, while pass follow-through stays on its kicker rather than the receiver',()=>{
+ const {m,p}=pacedMatch(),defender=m.players[20];
+ m.kick(p,{x:FIELD.left-20,y:318},1);
+ defender.x=p.x+15;defender.y=p.y;defender.cooldown=0;m.protection=0;m.random=()=>0;
+ m.step(1/120,{dx:0,dy:0});
+ assert.equal(m.owner.id,defender.id);assert.equal(m.pendingKick,null);assert.equal(m.shots[0],0);
+ assert.ok(m.snapshot().players.every(q=>q.strikePhase==='idle'));
+ const pass=pacedMatch(),receiver=pass.m.players[6];receiver.x=400;receiver.y=318;
+ pass.m.kick(pass.p,receiver,.6);advanceToContact(pass.m);
+ assert.equal(pass.m.snapshot().players[pass.p.id].strikePhase,'follow');
+ assert.equal(pass.m.snapshot().players[receiver.id].strikePhase,'idle');
+ pass.m.giveBall(receiver);
+ assert.equal(pass.m.snapshot().players[receiver.id].strikePhase,'idle');
+ assert.equal(pass.m.snapshot().players[pass.p.id].strikePhase,'follow','legitimate contact follow-through remains on the original kicker');
+});
+test('pointer aiming cancels on teammate possession, opponent possession, reacquisition or selection change',()=>{
+ for(const transition of ['teammate','opponent','reacquire','selection']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();
+  const m=h.app.match,c=h.elements.get('game'),p=m.owner;
+  const at=h.app.camera.project(p.x,p.y),event=(x,y)=>({clientX:x,clientY:y,pointerId:7,preventDefault(){}});
+  c.handlers.pointerdown(event(at.x,at.y));c.handlers.pointermove(event(at.x-120,at.y));
+  if(transition==='teammate')m.giveBall(m.players[6]);
+  if(transition==='opponent')m.giveBall(m.players[20]);
+  if(transition==='reacquire'){m.giveBall(m.players[20]);m.giveBall(p);}
+  if(transition==='selection')m.active=6;
+  h.app.input();
+  assert.equal(c.hasPointerCapture(7),false);
+  c.handlers.pointerup(event(at.x-120,at.y));
+  assert.equal(m.pendingKick,null);assert.deepEqual(m.shots,[0,0]);assert.deepEqual(m.passes,[0,0]);
+ }
+});
+test('replay does not invent a strike when a wind-up is cancelled or interpolate another player by array position',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.owner;m.kick(p,{x:FIELD.left-20,y:318},1);
+ for(let i=0;i<5;i++)m.step(1/240,{dx:0,dy:0});
+ const windup=m.snapshot();m.giveBall(m.players[20]);const cancelled=m.snapshot();
+ const sample=h.app.replaySample([windup,cancelled],.6);
+ assert.equal(sample.players[p.id].strike,0);assert.equal(sample.players[p.id].strikePhase,'idle');
+ const next=structuredSnapshot(cancelled);next.players.reverse();
+ for(const q of next.players)q.x+=10;
+ const mixed=h.app.replaySample([cancelled,next],.5);
+ for(const q of mixed.players)assert.ok(Math.abs(q.x-(cancelled.players[q.id].x+5))<.001);
+});
+function structuredSnapshot(value){return JSON.parse(JSON.stringify(value));}
+test('replay preserves contact ownership and cancels old follow-through when a player receives again',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.owner;m.kick(p,{x:FIELD.left-20,y:318},1);
+ for(let i=0;i<11;i++)m.step(1/120,{dx:0,dy:0});
+ const before=m.snapshot();advanceToContact(m);m.step(1/120,{dx:0,dy:0});const after=m.snapshot();
+ const sample=h.app.replaySample([before,after],.9);
+ assert.equal(sample.ball.owner,null);assert.equal(sample.players[p.id].strikePhase,'follow');
+ m.giveBall(p);assert.equal(m.snapshot().players[p.id].strikePhase,'idle');
+ assert.equal(m.snapshot().players[p.id].kick,0);
+});
