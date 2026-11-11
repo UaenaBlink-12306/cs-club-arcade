@@ -1507,7 +1507,7 @@ function updateControlHint(){
     return;
   }
   updateCanvasInstructions(mode==='practice'?'Soccer pitch — untimed practice':'Soccer pitch — single-player cup',
-    'At kick-off, aim and release to kick the stationary ball into play. During play: Hold and drag to run; drag farther for more power, then release to kick. Near goal, aim toward a corner of the net to shoot; the SHOT/PASS power preview shows your action. After possession changes, keep holding to run and drag afresh to aim a new kick. WASD or arrow keys move. Space shoots, E passes, Tab switches player, and Escape pauses. The outlined arrow marks your controlled player; the filled ground ring marks possession.');
+    'At kick-off, aim and release to kick the stationary ball into play. During play: Hold and drag to run; drag farther for more power, then release to kick. Near goal, aim toward a corner of the net to shoot; the SHOT/PASS power preview shows your action. If the net is off-screen, aim between the two GOAL AIM post markers; green marks an on-target direction and amber means wide. After possession changes, keep holding to run and drag afresh to aim a new kick. WASD or arrow keys move. Space shoots, E passes, Tab switches player, and Escape pauses. The outlined arrow marks your controlled player; the filled ground ring marks possession.');
   const touch=touchControls||!!window.matchMedia?.('(pointer: coarse)').matches||!!window.navigator?.maxTouchPoints;
   $('#hint').textContent=touch?'Hold + drag to run · Release to pass or shoot · Tap a teammate to select':'Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
 }
@@ -2250,6 +2250,50 @@ function replaySample(frames,t){
       angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike,receive:blend(p.receive||0,q.receive||0),kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
   }),ball:{...a.ball,owner:mix>=contactMix?b.ball.owner:a.ball.owner,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
 }
+function goalAimGuide(p,intent=null){
+  if(!p||match?.phase!=='playing'||match.setPiece==='Throw-in'||mode!=='local'&&p.team!==0)return null;
+  const goal=match.goalX(p.team),range=(goal-p.x)*match.direction(p.team);
+  if(range<=0||range>360)return null;
+  const unit=W/canvas.getBoundingClientRect().width,margin=14*unit;
+  const posts=[camera.project(goal,FIELD.cy-FIELD.goalHalf),camera.project(goal,FIELD.cy+FIELD.goalHalf)];
+  const frame=[...posts,camera.project(goal,FIELD.cy-FIELD.goalHalf,44),camera.project(goal,FIELD.cy+FIELD.goalHalf,44)];
+  if(frame.every(q=>q.x>=margin&&q.x<=W-margin&&q.y>=85*unit&&q.y<=H-35*unit))return null;
+  const origin=camera.project(p.x,p.y);
+  // A miniature angular goal mouth, not a fake world-space goal: each post lies
+  // exactly on its real aiming ray, and a common scale preserves the whole window.
+  let scale=Math.min(1,115*unit/Math.max(...posts.map(q=>Math.hypot(q.x-origin.x,q.y-origin.y))));
+  for(const q of posts){
+    const dx=q.x-origin.x,dy=q.y-origin.y;
+    if(dx>0)scale=Math.min(scale,(W-24*unit-origin.x)/dx);
+    if(dx<0)scale=Math.min(scale,(24*unit-origin.x)/dx);
+    if(dy>0)scale=Math.min(scale,(H-35*unit-origin.y)/dy);
+    if(dy<0)scale=Math.min(scale,(85*unit-origin.y)/dy);
+  }
+  if(scale<=0)return null;
+  const projected=q=>({x:origin.x+(q.x-origin.x)*scale,y:origin.y+(q.y-origin.y)*scale});
+  const a=projected(posts[0]),b=projected(posts[1]);
+  let aim=null,wide=false;
+  if(intent?.shot){
+    const y=p.y+(intent.target.y-p.y)*(goal-p.x)/(intent.target.x-p.x);
+    aim=projected(camera.project(goal,y));wide=Math.abs(y-FIELD.cy)>FIELD.goalHalf;
+  }
+  return {origin,a,b,aim,wide,unit,scale};
+}
+function drawGoalAimGuide(guide){
+  if(!guide)return;
+  const {origin,a,b,aim,wide,unit}=guide;
+  ctx.save();ctx.lineWidth=1.5*unit;ctx.strokeStyle='#93f7ffd0';
+  ctx.setLineDash([3*unit,4*unit]);ctx.beginPath();
+  ctx.moveTo(origin.x,origin.y);ctx.lineTo(a.x,a.y);ctx.moveTo(origin.x,origin.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  ctx.setLineDash([]);ctx.lineWidth=6*unit;ctx.strokeStyle='#072925e8';ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  ctx.lineWidth=2*unit;ctx.strokeStyle='#d7ffff';ctx.stroke();
+  for(const p of [a,b]){ctx.fillStyle='#d7ffff';ctx.beginPath();ctx.arc(p.x,p.y,3.5*unit,0,Math.PI*2);ctx.fill();}
+  if(aim){ctx.fillStyle=wide?'#ffbe62':'#46f7b1';ctx.beginPath();ctx.arc(aim.x,aim.y,4*unit,0,Math.PI*2);ctx.fill();}
+  const x=clamp((a.x+b.x)/2,55*unit,W-55*unit),y=clamp(Math.min(a.y,b.y)-12*unit,78*unit,H-30*unit);
+  ctx.fillStyle='#092e28ed';ctx.fillRect(x-45*unit,y-12*unit,90*unit,17*unit);
+  label(wide?'GOAL AIM · WIDE':'GOAL AIM',x,y,10*unit,'#d7ffff');
+  ctx.restore();
+}
 function render(dt=0){
   resizeView();updateDrag();
   let shot=match?match.snapshot():(view==='loading'?introShot:null);
@@ -2301,6 +2345,10 @@ function render(dt=0){
   const light=ctx.createLinearGradient(0,0,W,H);
   light.addColorStop(0,'#d4f5cf05');light.addColorStop(.5,'#fff9cd00');light.addColorStop(1,'#173a4b0c');
   ctx.fillStyle=light;ctx.fillRect(0,0,W,H);
+  if(match?.phase==='playing'&&match.owner){
+    const intent=drag?.armed&&match.ball.owner===drag.player?pointerAim(drag):null;
+    drawGoalAimGuide(goalAimGuide(match.owner,intent));
+  }
   if(match?.phase==='goal'){
     const at=camera.project(match.goalX(match.scorer),FIELD.cy,85);
     label('GOAL!',clamp(at.x,130,W-130),clamp(at.y,130,H-100),58,'#fff');

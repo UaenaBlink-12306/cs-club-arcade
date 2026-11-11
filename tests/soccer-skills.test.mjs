@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -2186,4 +2186,78 @@ test('an immediate wide-position shot keeps the carrier visible while contact lo
    assert.ok(p.x>0&&p.x<width&&p.y>0&&p.y<height,'goal framing must not hide the ball while zoom is locked');
   }
  }
+});
+
+test('off-screen goal guidance is visible on the first shot-capable frame and its post rays are exact',()=>{
+ for(const rect of [{width:1100,height:620},{width:500,height:745}])
+ for(const period of [1,2])for(const offset of [-118,122]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,359,offset,0,period),cam=h.app.camera;
+  for(const q of f.m.players)if(q!==f.p&&!q.keeper){q.x=550;q.y=FIELD.bottom-20;}
+  h.app.render(0);cam.update(f.m.snapshot(),0,false,true);h.draws.length=0;
+  const origin=cam.project(f.p.x,f.p.y),goal=cam.project(f.goal,318);
+  const n=Math.hypot(goal.x-origin.x,goal.y-origin.y),len=Math.min(cam.width,cam.height)*.32;
+  const end={x:origin.x+(goal.x-origin.x)/n*len,y:origin.y+(goal.y-origin.y)/n*len};
+  c.handlers.pointerdown(pointerEvent(h,origin.x,origin.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+  const intent=h.app.pointerAim(h.app.drag);assert.ok(intent.shot);
+  const guide=h.app.goalAimGuide(f.p,intent);assert.ok(guide,'guide must exist immediately, without camera settlement');
+  h.app.render(0);
+  assert.ok(h.draws.some(d=>d.method==='fillText'&&d.args[0]==='GOAL AIM'),'first SHOT frame must draw its guide');
+  for(const [marker,y] of [[guide.a,264],[guide.b,372]]){
+   assert.ok(marker.x>0&&marker.x<cam.width&&marker.y>0&&marker.y<cam.height);
+   const actual=cam.project(f.goal,y),dx=marker.x-guide.origin.x,dy=marker.y-guide.origin.y;
+   assert.ok(Math.abs(dx*(actual.y-guide.origin.y)-dy*(actual.x-guide.origin.x))<.00001);
+  }
+  for(const fraction of [.1,.5,.9]){
+   const marker={x:guide.a.x+(guide.b.x-guide.a.x)*fraction,y:guide.a.y+(guide.b.y-guide.a.y)*fraction};
+   const aim=h.app.pointerAim(h.app.drag,(marker.x-origin.x)*3,(marker.y-origin.y)*3);
+   assert.ok(aim.shot);const crossing=f.p.y+(aim.target.y-f.p.y)*(f.goal-f.p.x)/(aim.target.x-f.p.x);
+   assert.ok(crossing>264&&crossing<372,'aim between visible markers must cross between real posts');
+  }
+  c.handlers.pointerup(pointerEvent(h,end.x,end.y));assert.ok(f.m.pendingKick?.shot);assert.equal(f.m.shots[0],0);
+  advanceToContact(f.m);assert.equal(f.m.shots[0],1,JSON.stringify({period,offset,rect,phase:f.m.phase,event:f.m.event,owner:f.m.ball.owner}));
+ }
+});
+test('rapid held approaches show the goal or exact post guidance on every SHOT frame before release',()=>{
+ for(const rect of [{width:1100,height:620},{width:500,height:745}])
+ for(const period of [1,2]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,400,-80,0,period),cam=h.app.camera;
+  h.app.render(0);cam.update(f.m.snapshot(),0,false,true);
+  const anchor=cam.project(f.p.x,f.p.y);c.handlers.pointerdown(pointerEvent(h,anchor.x,anchor.y));
+  let shotFrames=0,firstRange=null,last=null;
+  for(let frame=0;frame<131;frame++){
+   const at=cam.project(f.p.x,f.p.y),target=cam.project(f.goal,318+35),n=Math.hypot(target.x-at.x,target.y-at.y),len=Math.min(cam.width,cam.height)*.32;
+   last={x:anchor.x+(target.x-at.x)/n*len,y:anchor.y+(target.y-at.y)/n*len};
+   c.handlers.pointermove(pointerEvent(h,last.x,last.y));
+   f.m.step(1/60,h.app.input());h.app.render(1/60);h.draws.length=0;
+   assert.equal(f.m.owner.id,f.p.id);
+   const intent=h.app.pointerAim(h.app.drag);
+   if(intent.shot){
+    shotFrames++;if(firstRange===null)firstRange=Math.abs(f.goal-f.p.x);
+    const unit=cam.width/rect.width,points=[264,372].flatMap(y=>[0,44].map(z=>cam.project(f.goal,y,z)));
+    const visible=points.every(p=>p.x>=14*unit&&p.x<=cam.width-14*unit&&p.y>=14*unit&&p.y<=cam.height-14*unit);
+    assert.ok(visible||h.app.goalAimGuide(f.p,intent),'SHOT must never depend on a future camera position');
+   }
+  }
+  assert.ok(shotFrames>60&&firstRange>350,'check begins at shot availability, not after settlement');
+  c.handlers.pointerup(pointerEvent(h,last.x,last.y));assert.ok(f.m.pendingKick?.shot);
+  advanceToContact(f.m);assert.equal(f.m.shots[0],1);
+ }
+});
+test('goal guidance respects possession, both local sides, misses and replay visibility',()=>{
+ const h=localHarness(),m=h.app.match,c=h.app.camera;
+ for(const team of [0,1])for(const period of [1,2]){
+  const f=placeShot(m,359,0,team,period);c.update(m.snapshot(),0,false,true);
+  const guide=h.app.goalAimGuide(f.p,{shot:true,target:{x:f.goal+f.d*20,y:FIELD.cy+120}});
+  assert.ok(guide&&guide.wide&&guide.aim);
+  m.phase='replay';assert.equal(h.app.goalAimGuide(f.p),null);m.phase='playing';
+  m.setPiece='Throw-in';assert.equal(h.app.goalAimGuide(f.p),null);m.setPiece=null;
+  const snap={...m.snapshot(),shootingGoal:f.goal};f.p.x=f.goal-f.d*180;m.ball.x=f.p.x;
+  for(let i=0;i<300;i++)c.update({...m.snapshot(),shootingGoal:f.goal},1/60);
+  assert.equal(h.app.goalAimGuide(f.p),null,'guide clears when the whole goal is visible');
+ }
+ const solo=uiHarness(html);solo.chooseMode('practice');solo.flush();
+ const f=placeShot(solo.app.match,359,0,1);solo.app.camera.update(f.m.snapshot(),0,false,true);
+ assert.equal(solo.app.goalAimGuide(f.p),null,'opponent possession must not advertise player aim guidance');
 });
