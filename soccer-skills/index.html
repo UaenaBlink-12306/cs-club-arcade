@@ -612,6 +612,56 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
  .local-country-label{margin:6px 0 3px}
 }
 
+
+/* Compact carousel is the default; the full catalog is an optional disclosure. */
+#menu .card{width:min(96%,940px);padding:18px 14px}
+#menu .teams{max-width:540px;margin:22px auto 12px;align-items:center}
+#menu .teamBadge{display:flex;flex-direction:column;align-items:center;gap:9px;min-width:0;background:none;padding:0}
+#menu .flag{font-size:70px;margin:0;line-height:1.15}
+#menu .teamName{font-size:26px;line-height:1.2;white-space:normal}
+#menu .teams button{min-width:86px;font-size:13px;padding:13px}
+.carousel-tools{display:flex;align-items:center;justify-content:center;gap:14px;margin:4px auto 17px}
+#selectionPosition{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;color:#eff4df}
+#chooseCountry{font-size:11px;background:#254a36;color:#f0f4db;box-shadow:none;border:1px solid #8ba780;padding:8px 12px;margin:0}
+#countryChooser{margin-bottom:12px}
+#menu .stats{max-width:420px;margin-bottom:22px}
+#menu .stat{font-size:11px}#menu .stat b{font-size:20px}
+#menu .selector-modes{max-width:500px}
+#menu .selector-modes button{font-size:12px;min-height:48px}
+.tournament-overview{margin:10px 0 8px;text-align:left}
+.tournament-overview h3{font-size:13px;color:#e8edf1;letter-spacing:.07em;margin:0 0 5px}
+#trophy .tournament-overview p{font-size:12px;color:#cfdfeb;line-height:1.4;margin:0 0 10px;max-width:none}
+.world-roster{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px 12px}
+.world-country{display:grid;grid-template-columns:21px minmax(0,1fr) auto;align-items:center;gap:5px;padding:4px 6px;min-height:28px;color:#dde6ec;background:#213c51;border-bottom:1px solid #647e9144}
+.world-country>span{font-size:18px;line-height:1}
+.world-country b{font-size:12px;line-height:1.25;font-weight:600;overflow-wrap:anywhere}
+.world-country small{font-size:8px;letter-spacing:.03em;color:#b7c9d6}
+.world-country.finalist{background:#b4ccdb;color:#16364e;border-bottom-color:#7797ad}
+.world-country.finalist small{color:#25465b;font-weight:800}
+.world-country.chosen{background:#ead397;color:#3d361b}
+.world-country.chosen small{color:#4b411c}
+.finalist-details{text-align:left;border-bottom:1px solid #87a2b15c;padding:7px 0;margin-bottom:10px}
+.finalist-details summary{cursor:pointer;color:#d5e6ed;font-size:12px;font-weight:700;padding:4px}
+.finalist-details summary:focus-visible{outline:3px solid #e8c966;outline-offset:2px}
+.finalist-details .cup-field-heading{margin-top:10px}
+@media(max-width:620px){
+ #menu .teams{gap:8px;margin:18px auto 10px}#menu .flag{font-size:60px}#menu .teamName{font-size:23px}
+ #menu .teams button{min-width:65px;padding:12px 7px;font-size:11px}
+ #menu .card{padding:14px 6px}#menu .stats{margin-bottom:18px}
+ #menu .stat{font-size:10px}#menu .selector-modes button{font-size:10px}
+ .world-roster{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 8px}
+ .world-country{grid-template-columns:21px minmax(0,1fr);min-height:45px;gap:1px 5px}
+ .world-country>span{grid-row:1/3}.world-country b{font-size:13px}.world-country small{grid-column:2;font-size:10px}
+}
+@media(max-height:520px) and (orientation:landscape){
+ #menu .card{padding:8px}#menu .teams{margin:7px auto;max-width:440px;gap:20px}
+ #menu .teamBadge{flex-direction:row;gap:12px}#menu .flag{font-size:44px}#menu .teamName{font-size:23px}
+ .carousel-tools{margin:5px auto 12px}#menu .stats{margin-bottom:14px}
+ #menu .stat{font-size:10px}#menu .stat b{font-size:17px}
+ #menu .nation-grid{max-height:28svh}
+ .world-country{min-height:27px}.world-country b{font-size:11px}
+}
+
 </style>
 </head>
 <body>
@@ -627,8 +677,8 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 <div class="local-player p2"><h3>PLAYER 2 <small>BLUE · ORANGE MARKER</small></h3><div class="local-team-row"><button id="localAwayPrev" aria-label="Previous player two team">‹</button><b id="localAway"></b><button id="localAwayNext" aria-label="Next player two team">›</button></div><label class="local-country-label" for="localAwaySelect">Player 2 country</label><select id="localAwaySelect"></select><small class="local-rating" id="localAwayRating"></small><p><kbd>↑ ← ↓ →</kbd> Move<br><kbd>K</kbd> Pass · <kbd>L</kbd> Shoot<br><kbd>O</kbd> Switch defender</p></div>
 </div><p class="local-note">Keyboard required. Movement follows the screen. Teammates support automatically; the ball carrier is yours to control. Switch to a defender near the ball. Escape pauses. Teams switch ends at halftime; a level final score is a draw.</p>
 <button class="primary" id="startLocal">START LOCAL MATCH</button><button data-go="menu">BACK</button></div></section>
-<section class="panel" id="menu"><div class="card"><div class="pill" id="modeText">INTERNATIONAL SOCCER</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div></div><button class="yellow" id="next">NEXT ›</button></div><p class="roster-caption" id="rosterCaption">32 COUNTRIES · GAME RATINGS: ATT / MID / DEF · SCROLL TO EXPLORE</p><div class="nation-grid" id="nationGrid" role="group" aria-label="Choose from 32 countries" aria-describedby="rosterCaption"></div><div class="stats"><div class="stat"><span class="rating-label">ATTACK</span><div class="rating-track"><i id="atkBar"></i></div><b id="atk">74</b></div><div class="stat"><span class="rating-label">MIDFIELD</span><div class="rating-track"><i id="midBar"></i></div><b id="mid">71</b></div><div class="stat"><span class="rating-label">DEFENCE</span><div class="rating-track"><i id="defBar"></i></div><b id="def">68</b></div></div><div class="row selector-modes"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play"><span>MULTIPLAYER</span><small class="mode-note">LOCAL · TWO PLAYERS</small></button></div></div></section>
-<section class="panel hidden" id="trophy"><div class="card"><div class="pill">Road to the final</div><h2 id="trophyTitle">International Cup</h2><p id="fixture"></p><div class="cup-field-heading">EIGHT-TEAM FINALS <span>8 OF 32 COUNTRIES · ENTER AT QUARTERFINAL · GAME RATINGS: ATT / MID / DEF</span></div><div id="cupEntrants" class="cup-entrants" aria-label="Eight-team finals participants"></div><div class="tournament-bracket" id="cupBracket" aria-label="Eight-team knockout bracket"></div><div class="stats"><div class="stat"><b id="roundName">QUARTERFINAL</b>ROUND</div><div class="stat"><b id="cupAttack"></b>ATTACK</div><div class="stat"><b id="cupDefence"></b>DEFENCE</div></div><button class="primary" id="startMatch">START MATCH</button><button data-go="team">CHANGE TEAM</button></div></section>
+<section class="panel" id="menu"><div class="card"><div class="pill" id="modeText">INTERNATIONAL SOCCER</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div></div><button class="yellow" id="next">NEXT ›</button></div><div class="carousel-tools"><span id="selectionPosition" aria-live="polite"></span><button id="chooseCountry" aria-expanded="false" aria-controls="countryChooser">CHOOSE COUNTRY</button></div><div id="countryChooser" class="hidden"><p class="roster-caption" id="rosterCaption">32 COUNTRIES · GAME RATINGS: ATT / MID / DEF · SCROLL TO EXPLORE</p><div class="nation-grid" id="nationGrid" role="group" aria-label="Choose from 32 countries" aria-describedby="rosterCaption"></div></div><div class="stats"><div class="stat"><span class="rating-label">ATTACK</span><div class="rating-track"><i id="atkBar"></i></div><b id="atk">74</b></div><div class="stat"><span class="rating-label">MIDFIELD</span><div class="rating-track"><i id="midBar"></i></div><b id="mid">71</b></div><div class="stat"><span class="rating-label">DEFENCE</span><div class="rating-track"><i id="defBar"></i></div><b id="def">68</b></div></div><div class="row selector-modes"><button data-go="practice">PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play"><span>MULTIPLAYER</span><small class="mode-note">LOCAL · TWO PLAYERS</small></button></div></div></section>
+<section class="panel hidden" id="trophy"><div class="card"><div class="pill">Road to the final</div><h2 id="trophyTitle">International Cup</h2><p id="fixture"></p><section class="tournament-overview" aria-labelledby="worldRosterTitle"><h3 id="worldRosterTitle">32 COUNTRIES · INTERNATIONAL ROSTER</h3><p>Highlighted teams are this cup’s eight finalists. Play starts at the quarterfinal; no group stage or round of 16 is played.</p><div id="worldRoster" class="world-roster" aria-label="All selectable countries and this cup's finalists"></div></section><details class="finalist-details"><summary>EIGHT FINALISTS · RATINGS &amp; NEXT OPPONENT</summary><div class="cup-field-heading">EIGHT-TEAM FINALS <span>8 OF 32 COUNTRIES · ENTER AT QUARTERFINAL · GAME RATINGS: ATT / MID / DEF</span></div><div id="cupEntrants" class="cup-entrants" aria-label="Eight-team finals participants"></div></details><div class="tournament-bracket" id="cupBracket" aria-label="Eight-team knockout bracket"></div><div class="stats"><div class="stat"><b id="roundName">QUARTERFINAL</b>ROUND</div><div class="stat"><b id="cupAttack"></b>ATTACK</div><div class="stat"><b id="cupDefence"></b>DEFENCE</div></div><button class="primary" id="startMatch">START MATCH</button><button data-go="team">CHANGE TEAM</button></div></section>
 <section class="panel hidden" id="loading"><div class="card"><div class="pill">Loading match</div><h2 id="loadingTitle"></h2><div class="loading-ring" id="loadingRing"><div><span id="loadingFlag"></span><small id="loadingPercent">0%</small></div></div><div style="height:12px;border-radius:99px;background:#d6e9e8;overflow:hidden"><div id="loadBar" style="height:100%;width:0;background:#22c9d0;transition:width .2s"></div></div><p id="loadText">Preparing the pitch…</p></div></section>
 <section class="panel hidden" id="replay"><div class="card"><div class="pill">Highlight</div><h2>INSTANT REPLAY</h2><p>The goal, played back in slow motion.</p><div class="row"><button class="yellow" id="skipReplay">SKIP</button><button class="primary" id="replayAgain">REPLAY</button></div></div></section>
 <section class="panel hidden football-scene" id="half"><svg class="interval-art" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M0 0h1200v700H0z" fill="#102e37"/><path d="M0 265Q600 10 1200 265v105Q600 135 0 370z" fill="#244655"/><path d="M0 299Q600 45 1200 299M0 326Q600 83 1200 326" fill="none" stroke="#4a6470" stroke-width="9"/><path d="M0 395Q600 203 1200 395v305H0z" fill="#1b633f"/><path d="M0 510 1200 355v83L0 594zM0 674l1200-155v85L400 700H0z" fill="#23804b"/><path d="m0 609 1200-155M340 700l113-344M820 700l-93-351" fill="none" stroke="#cfe1bb" stroke-width="4" opacity=".35"/><ellipse cx="878" cy="610" rx="216" ry="25" fill="#072c26" opacity=".4"/><g transform="translate(735 310) scale(.64)"><ellipse cx="60" cy="270" rx="65" ry="12" fill="#092d28" opacity=".4"/><path d="m49 141-30 52 10 62 22-3-4-52 25-38m7-12 27 56 48 37 13-17-42-40-17-50" fill="#b87f5a"/><path d="m29 228 0 27 22-3-1-26m86-7 18 14 13-17-20-14" fill="#d4e4e7"/><path d="m28 250-10 15 34 2 8-11m95-31 10 15 20-6-17-20" fill="#193847"/><path d="m38 132-8 30 30 13 14-22 25 16 18-29-37-18" fill="#173e67"/><path d="m42 65-27 35-10 35 14 5 15-34 24-25m34-16 29 16 24-12 9 12-31 22-38-20" fill="#c78f68"/><path d="m54 57-20 11 9 29-6 43 42 13 34-15-17-42 5-25-24-14z" fill="#316a9d"/><path d="m76 59-7 34 9 58 35-13-17-42 5-25z" fill="#204b79"/><path d="m55 43 3 17 15 8 8-19" fill="#a56f4e"/><ellipse cx="66" cy="31" rx="17" ry="21" fill="#c78f68"/><path d="M49 27q-5-25 20-20 20 2 13 22l-10-12-21 3z" fill="#282d29"/></g><g transform="translate(315 165) scale(.64)"><g transform="rotate(-10 880 400)"><path d="m838 369-31 72 48 102 34-13-37-93 25-49" fill="#bd835a"/><path d="m879 383 43 66 88 2 4-29-69-8-31-59" fill="#e5b38b"/><path d="m847 501 8 42 34-13-15-42" fill="#eff4e1"/><path d="m976 419 2 34 36-2-1-29" fill="#f2f6e7"/><path d="m854 535-7 32 46-1 16-13-26-20m121-115 15-18 30 10 4 31-17 11-4-29" fill="#203b4b"/><path d="m834 351-18 47 39 22 28-39 30 17 24-38-48-30" fill="#244f75"/><path d="m838 265-39 48-44 14 7 20 55-13 43-43m46-20 38 23 37-17 11 18-49 27-52-27" fill="#d69c73"/><path d="m850 249-27 18 16 33-7 59 56 18 41-35-22-49 11-26-32-21" fill="#eef5e4"/><path d="m880 250-17 22 8 83 17 22 41-35-22-49 11-26z" fill="#a9c5c1"/><path d="m839 298 58 5 9 15-65-6z" fill="#418ea2"/><path d="m857 225 2 27 22 12 15-20-11-25" fill="#c48961"/><ellipse cx="872" cy="215" rx="25" ry="31" fill="#e0ad84"/><path d="M847 210q-12-41 30-34 29 6 19 37l-9-22-16 9-22-1z" fill="#313333"/><path d="m881 216 7 0m-22 0 5 0m0 16 12-2" stroke="#654b3c" stroke-width="2" fill="none"/></g></g><g transform="translate(1015 565) rotate(12) scale(.8)"><circle r="47" fill="#f2f4df" stroke="#9eb5b2" stroke-width="3"/><path d="m-10-20 24 2 13 21-15 20-24-2-11-21zm-29-6 16-15 11-1-6 18-20 9zm59-17 19 17 6 19-16-5-13-23zm-62 49 20 7 4 23-15-7zm43 35 19-12 20 4-18 12z" fill="#244c5c"/><path d="m-22-3-17-12m53-3 8-16m5 37 15 4m-30 16 8 6m-32-8-11-8" fill="none" stroke="#b2c5bf" stroke-width="2"/></g><g opacity=".23"><path d="M42 340h126v5H42zm-12 30h174v4H30zm0 29h145v4H30z" fill="#c6d9d7"/><path d="M0 0h365L0 700z" fill="#051d24"/></g></svg><div class="card"><div class="big">HALF TIME</div><p id="halfSummary" class="sr-only"></p><div class="match-badges" aria-hidden="true"><div class="badge-team"><div class="round-team-badge" id="halfHomeFlag"></div><b id="halfHomeName"></b></div><strong class="board-goals" id="halfGoals"></strong><div class="badge-team"><div class="round-team-badge away-badge" id="halfAwayFlag"></div><b id="halfAwayName"></b></div></div><p class="break-caption">Half-time break · Teams switch ends</p><div class="scene-actions"><button class="green" id="resume">RESUME GAME</button></div></div></section>
@@ -1002,12 +1052,12 @@ class ActionCamera {
     const vx=Number.isFinite(b.vx)?b.vx:0,vy=Number.isFinite(b.vy)?b.vy:0;
     const carrier=shot.players.find(p=>p.id===b.owner);
     const runLead=carrier?Math.min(carrier.speed||0,150)*.18:0;
-    const leadX=clamp(vx*.22+(carrier?Math.cos(carrier.angle)*runLead:0),-95,95),leadY=clamp(vy*.16+(carrier?Math.sin(carrier.angle)*runLead:0),-48,48);
-    let tx=clamp(b.x*.88+active.x*.12+leadX,125,975);
-    let ty=clamp(b.y*.9+active.y*.1+leadY,155,490);
+    const leadX=clamp(vx*.12+(carrier?Math.cos(carrier.angle)*runLead:0),-65,65),leadY=clamp(vy*.10+(carrier?Math.sin(carrier.angle)*runLead:0),-35,35);
+    let tx=clamp(b.x*.97+active.x*.03+leadX,125,975);
+    let ty=clamp(b.y*.97+active.y*.03+leadY,155,490);
     if(this.preset==='intro'||this.preset==='presentation'){tx=550;ty=318;}
     const portrait=this.height>this.width;
-    const base=portrait?clamp(this.height/570,2.6,3.8):1.85;
+    const base=portrait?clamp(this.height/535,2.8,4.1):clamp(this.height/260,2.05,2.45);
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
     const tz=this.preset==='presentation'?(portrait?1.95:1.12):this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?clamp(this.height*.64/(targetTilt*(Math.abs(b.x-(this.replayGoal??FIELD.left))+100)),portrait?1.7:1.3,portrait?4:3.3):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
@@ -1065,7 +1115,17 @@ function cupFinalists(homeIndex){
   return [homeIndex,...pool.slice(0,7)];
 }
 function opponentFor(homeIndex,roundIndex){return cupFinalists(homeIndex)[[1,2,4][roundIndex]];}
+function setCountryChooser(open,focus=false){
+  $('#countryChooser').classList.toggle('hidden',!open);
+  $('#chooseCountry').setAttribute('aria-expanded',String(open));
+  $('#chooseCountry').textContent=open?'CLOSE COUNTRIES':'CHOOSE COUNTRY';
+  if(focus){
+    if(open)$('#nationGrid').querySelector?.('[data-nation="'+selection+'"]')?.focus();
+    else $('#chooseCountry').focus({preventScroll:true});
+  }
+}
 function show(id){
+  setCountryChooser(false);
   if(id==='team')id='menu';
   if(view!==id){clearTimeout(toastTimer);$('#toast').textContent='';$('#toast').classList.remove('toastOn');}
   view=id;if(id!=='corner')$('#matchStatus').textContent='';updateControlHint();$('#soloPauseHelp').textContent=mode==='local'?'':$('#gameControls').textContent;$('#localPauseHelp').classList.toggle('hidden',mode!=='local');panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
@@ -1088,6 +1148,8 @@ function setTeam(){
   $('#atk').textContent=nation.attack;$('#mid').textContent=nation.midfield;$('#def').textContent=nation.defence;
   $('#atkBar').style.width=nation.attack+'%';$('#midBar').style.width=nation.midfield+'%';$('#defBar').style.width=nation.defence+'%';
   $('#modeText').textContent='INTERNATIONAL SOCCER';
+  $('#selectionPosition').textContent=String(selection+1).padStart(2,'0')+' / '+NATIONS.length;
+  $('#selectionPosition').setAttribute('aria-label',nation.name+', country '+(selection+1)+' of '+NATIONS.length);
 }
 function bracketMarkup(homeIndex,stage,won){
   const draw=cupFinalists(homeIndex),opponents=[draw[1],draw[2],draw[4]],rest=[draw[3],draw[5],draw[6],draw[7]];
@@ -1110,6 +1172,7 @@ function updateTrophy(){
   $('#startMatch').textContent=champion?'PLAY ANOTHER CUP':'START MATCH';
   $('#cupBracket').innerHTML=bracketMarkup(selection,round,champion);
   const draw=cupFinalists(selection);
+  $('#worldRoster').innerHTML=NATIONS.map((n,i)=>'<div class="world-country'+(draw.includes(i)?' finalist':'')+(i===selection?' chosen':'')+'" data-country="'+i+'"><span aria-hidden="true">'+n.flag+'</span><b>'+n.name+'</b><small>'+(i===selection?'YOU':draw.includes(i)?'FINALS':'ROSTER')+'</small></div>').join('');
   const roster=(indices)=>'<div class="country-column">'+indices.map(i=>{
     const n=NATIONS[i];return '<div class="country-row'+(i===selection?' chosen':'')+'"><span>'+n.flag+'</span><b>'+n.name+'</b><em>'+(i===selection?'YOU':!champion&&i===opponentFor(selection,round)?'NEXT':'')+'</em><small>'+n.attack+' / '+n.midfield+' / '+n.defence+'</small></div>';
   }).join('')+'</div>';
@@ -1304,11 +1367,13 @@ document.querySelectorAll('[data-go]').forEach(button=>button.onclick=()=>{
     if(mode==='practice')startMatch();else{updateTrophy();show('trophy');}
   }
 });
+$('#chooseCountry').onclick=()=>setCountryChooser($('#chooseCountry').getAttribute('aria-expanded')!=='true',true);
+$('#nationGrid').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();setCountryChooser(false,true);}});
 $('#nationGrid').addEventListener('click',event=>{
   const button=event.target.closest?.('[data-nation]');if(!button)return;
   const index=Number(button.dataset.nation);if(!Number.isInteger(index)||index<0||index>=NATIONS.length)return;
   selection=index;round=0;champion=false;setTeam();
-  $('#nationGrid').querySelector?.('[data-nation="'+selection+'"]')?.focus({preventScroll:true});
+  setCountryChooser(false,true);
 });
 $('#prev').onclick=()=>{selection=(selection+NATIONS.length-1)%NATIONS.length;round=0;champion=false;setTeam();};
 $('#next').onclick=()=>{selection=(selection+1)%NATIONS.length;round=0;champion=false;setTeam();};

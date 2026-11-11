@@ -379,7 +379,7 @@ test('touch guidance is selected before first input and landscape returns to hor
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});h.app.render(1/60);
  const c=h.app.camera,a=c.project(68,318),b=c.project(1032,318);
  assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<.001);assert.ok(b.x>a.x);
- assert.ok(c.zoom>1.8&&c.zoom<2.1);
+ assert.ok(c.zoom>2.3&&c.zoom<2.5);
  const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.flush();
  assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
 });
@@ -402,7 +402,7 @@ test('portrait keeps both end lines at the frame edges through keeper tracking, 
   }
  }
 });
-test('portrait end-line clamp preserves touch aiming and leaves landscape tracking unchanged',()=>{
+test('portrait end-line clamp preserves touch aiming and landscape bounds',()=>{
  const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
@@ -708,10 +708,10 @@ test('intro, gameplay and replay presets have different viewpoints with invertib
  const introYaw=h.app.camera.yaw;assert.ok(introYaw<0);
  h.flush();for(let i=0;i<100;i++)h.app.render(1/60);
  const c=h.app.camera;assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw)<.01);
- const normalZoom=c.zoom;
+ const normalTilt=c.tilt;
  const m=h.app.match;m.phase='replay';m.replayFrames=[m.snapshot()];m.replayTime=1;
  for(let i=0;i<90;i++)h.app.render(1/60);
- assert.equal(c.preset,'replay');assert.ok(Math.abs(c.yaw)>1.2);assert.ok(c.tilt<.52);assert.ok(c.zoom>normalZoom+.3);
+ assert.equal(c.preset,'replay');assert.ok(Math.abs(c.yaw)>1.2);assert.ok(c.tilt<normalTilt-.2);assert.ok(c.zoom>=1.3&&c.zoom<=3.3);
  for(const p of [{x:200,y:150},{x:550,y:318},{x:920,y:480}]){
   const s=c.project(p.x,p.y),q=c.unproject(s.x,s.y);
   assert.ok(distance(p,q)<.00001);
@@ -953,7 +953,7 @@ test('country grid supports direct choice with pressed state and correct cup opp
  h.click('startMatch');h.flush();assert.equal(h.app.match.home.name,'Japan');
 });
 
-test('portrait action remains legible in CSS pixels while desktop keeps its original scale',()=>{
+test('portrait action remains legible in CSS pixels and desktop returns to the tighter action view',()=>{
  const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const c=h.app.camera,m=h.app.match,canvas=h.elements.get('game');
  for(const rect of [{width:500,height:745},{width:390,height:844},{width:320,height:568}]){
@@ -971,7 +971,7 @@ test('portrait action remains legible in CSS pixels while desktop keeps its orig
  }
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});
  c.ready=false;h.app.render(1/60);
- assert.equal(c.portrait,false);assert.equal(c.zoom,1.85);
+ assert.equal(c.portrait,false);assert.ok(c.zoom>2.3&&c.zoom<2.5);
 });
 
 test('32 unique countries have complete ratings and directly selectable, scroll-preserving controls',()=>{
@@ -1095,5 +1095,66 @@ test('all 32 practice selections remain untimed and return to the same selected 
   assert.equal(h.elements.get('resultHomeName').textContent,NATIONS[i].name);
   h.click('continueCup');assert.equal(h.app.view,'menu');
   assert.equal(h.elements.get('teamName').textContent,NATIONS[i].name);
+ }
+});
+
+test('carousel is the default, chooser toggles accessibly and selection restores the compact view',()=>{
+ const h=uiHarness(html),toggle=h.elements.get('chooseCountry'),chooser=h.elements.get('countryChooser');
+ assert.equal(toggle.getAttribute('aria-expanded'),'false');assert.ok(chooser.classList.contains('hidden'));
+ h.click('next');assert.equal(h.elements.get('teamName').textContent,NATIONS[1].name);
+ assert.equal(h.elements.get('selectionPosition').textContent,'02 / 32');
+ assert.equal(toggle.getAttribute('aria-expanded'),'false');
+ h.click('chooseCountry');assert.equal(toggle.getAttribute('aria-expanded'),'true');assert.ok(!chooser.classList.contains('hidden'));
+ h.elements.get('nationGrid').handlers.click({target:{closest:()=>({dataset:{nation:'31'}})}});
+ assert.equal(h.elements.get('teamName').textContent,NATIONS[31].name);
+ assert.equal(toggle.getAttribute('aria-expanded'),'false');assert.ok(chooser.classList.contains('hidden'));assert.ok(toggle.focused);
+ h.click('chooseCountry');h.elements.get('nationGrid').handlers.keydown({key:'Escape',preventDefault(){}});
+ assert.equal(toggle.getAttribute('aria-expanded'),'false');
+ h.click('chooseCountry');h.chooseMode('multi');assert.equal(toggle.getAttribute('aria-expanded'),'false');
+ h.chooseMode('menu');assert.equal(h.elements.get('teamName').textContent,NATIONS[31].name);
+});
+
+test('dense cup overview lists 32 countries, marks only its eight finalists and updates with selection',()=>{
+ const h=uiHarness(html);
+ for(let i=0;i<32;i++){
+  h.chooseMode('menu');
+  h.elements.get('nationGrid').handlers.click({target:{closest:()=>({dataset:{nation:String(i)}})}});
+  h.chooseMode('cup');
+  const roster=h.elements.get('worldRoster').innerHTML,field=h.app.cupFinalists(i);
+  assert.equal((roster.match(/class="world-country/g)||[]).length,32);
+  assert.equal((roster.match(/class="world-country finalist/g)||[]).length,8);
+  assert.equal((roster.match(/class="world-country finalist chosen"/g)||[]).length,1);
+  for(let n=0;n<32;n++){
+   const row=roster.match(new RegExp('<div class="([^"]+)" data-country="'+n+'">([\\s\\S]*?)</div>'));
+   assert.ok(row);assert.equal(row[1].includes('finalist'),field.includes(n));assert.ok(row[2].includes(NATIONS[n].name));
+  }
+ }
+ assert.ok(html.includes('Play starts at the quarterfinal; no group stage or round of 16 is played.'));
+});
+
+test('tighter gameplay camera tracks moving ground and aerial balls inside desktop and portrait frames',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const canvas=h.elements.get('game'),c=h.app.camera,m=h.app.match;
+ for(const rect of [{width:1440,height:810},{width:844,height:390},{width:500,height:745},{width:390,height:844}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});h.app.render(1/60);
+  const shot=m.snapshot();shot.ball.owner=null;shot.active=9;
+  for(const [from,to] of [[100,1000],[1000,100]]){
+   shot.ball.x=from;shot.ball.y=FIELD.cy;shot.ball.z=0;shot.ball.vx=0;shot.ball.vy=0;
+   shot.players[9].x=from;shot.players[9].y=FIELD.cy;c.update(shot,0,false,true);
+   for(let frame=0;frame<180;frame++){
+    const progress=frame/179;shot.ball.x=from+(to-from)*progress;
+    shot.ball.y=FIELD.cy+190*Math.sin(progress*Math.PI*2);
+    shot.ball.z=42*Math.sin(progress*Math.PI);shot.ball.vx=(to-from)/3;
+    shot.ball.vy=190*Math.PI*2/3*Math.cos(progress*Math.PI*2);
+    // Selected defender can lag behind a free ball without dragging the view away.
+    shot.players[9].x=550;shot.players[9].y=FIELD.cy;
+    c.update(shot,1/60);
+    const p=c.project(shot.ball.x,shot.ball.y,shot.ball.z*.65+4);
+    assert.ok(p.x>c.width*.035&&p.x<c.width*.965,'ball horizontally visible '+JSON.stringify(rect));
+    assert.ok(p.y>c.height*.035&&p.y<c.height*.965,'ball vertically visible '+JSON.stringify(rect));
+    const ground=c.project(shot.ball.x,shot.ball.y),world=c.unproject(ground.x,ground.y);
+    assert.ok(distance(world,shot.ball)<.00001);
+   }
+  }
  }
 });
