@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -2446,4 +2446,124 @@ test('keeper countdown never treats foot-controlled teammate deliveries as handl
  assert.equal(m.handOwner,null);assert.equal(h.elements.get('keeperStatus').textContent,'');
  assert.ok(!h.draws.some(d=>d.method==='fillText'&&String(d.args[0]).startsWith('KEEPER · RELEASE')));
  m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});assert.equal(m.phase,'playing');
+});
+
+test('shot forecast matches actual whole-ball crossing and height in both directions and halves',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120])
+ for(const [range,offset,loft] of [[180,0,false],[180,57,false],[180,90,false],[180,0,true],[320,0,true]]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),range,0,team,period),m=f.m;
+  for(const q of m.players)if(q!==f.p){q.x=550;q.y=110;}m.move=()=>{};
+  const target={x:f.goal+f.d*20,y:318+offset,shot:true},before=JSON.stringify(m.snapshot());
+  const predicted=m.previewKick(f.p,target,1,loft,1/hz);assert.equal(JSON.stringify(m.snapshot()),before);
+  m.kick(f.p,target,1,loft);
+  while(m.pendingKick)m.step(Math.min(1/hz,m.pendingKick.remaining),{dx:0,dy:0});
+  let actual=null;
+  for(let i=0;i<hz*4&&m.phase==='playing';i++){
+   const old={...m.ball};m.step(1/hz,{dx:0,dy:0});
+   if(m.phase!=='playing'){
+    const line=f.goal+f.d*1.5,k=(line-old.x)/(m.ball.x-old.x);
+    actual={x:line,y:old.y+(m.ball.y-old.y)*k,z:old.z+(m.ball.z-old.z)*k};
+   }
+  }
+  assert.ok(actual&&predicted.crossing);
+  assert.ok(Math.abs(predicted.crossing.x-(f.goal+f.d*1.5))<.00001);
+  assert.ok(Math.abs(actual.y-predicted.crossing.y)<.01);
+  assert.ok(Math.abs(actual.z-predicted.crossing.z)<.01,'forecast and flight use the same requested simulation step');
+  assert.equal(m.phase==='goal',predicted.onTarget);assert.equal(m.score[team],predicted.onTarget?1:0);
+ }
+});
+test('whole-ball post margin and airborne high misses are reported honestly',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180),m=f.m;
+ for(const [crossY,label,onTarget] of [[318,'LOW',true],[370,'TIGHT MARGIN',true],[370.6,'WIDE',false]]){
+  const target={x:f.goal+f.d*20,y:318+(crossY-318)*200/181.5,shot:true};
+  const forecast=m.previewKick(f.p,target,1);
+  assert.ok(Math.abs(forecast.crossing.y-crossY)<.001);assert.equal(forecast.label,label);assert.equal(forecast.onTarget,onTarget);
+ }
+ for(const p of m.players){p.x=550;p.y=110;}m.move=()=>{};
+ Object.assign(m.ball,{owner:null,x:f.goal-f.d*60,y:318,z:100,vx:f.d*400,vy:0,vz:0,lock:0,lastTouch:0});
+ m.flight={team:0,shot:true,target:{x:f.goal,y:318}};m.offside=null;
+ const forecast=h.app.shotForecast();assert.equal(forecast.label,'HIGH');assert.equal(forecast.onTarget,false);
+ for(let i=0;i<60&&m.phase==='playing';i++)m.step(1/120,{dx:0,dy:0});
+ assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Goal Kick');assert.equal(m.score[0],0);
+});
+test('moving-camera pointer preview agrees with release and remains fixed during wind-up',()=>{
+ for(const rect of [{width:1100,height:620},{width:500,height:745}])for(const period of [1,2]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,-70,0,period),cam=h.app.camera;
+  h.app.render(0);const origin=cam.project(f.p.x,f.p.y);c.handlers.pointerdown(pointerEvent(h,origin.x,origin.y));
+  let last=null,forecast=null;
+  for(let i=0;i<12;i++){
+   cam.x+=f.d*1.2;cam.y+=.5;
+   const at=cam.project(f.p.x,f.p.y),goal=cam.project(f.goal,363),n=Math.hypot(goal.x-at.x,goal.y-at.y);
+   last={x:origin.x+(goal.x-at.x)/n*200,y:origin.y+(goal.y-at.y)/n*200};
+   c.handlers.pointermove(pointerEvent(h,last.x,last.y));h.app.render(1/60);forecast=h.app.shotForecast();h.draws.length=0;
+   assert.ok(forecast?.crossing);assert.equal(forecast.label,'LOW');
+  }
+  c.handlers.pointerup(pointerEvent(h,last.x,last.y));assert.ok(f.m.pendingKick.shot);
+  const released=h.app.shotForecast();assert.ok(distance(released.crossing,forecast.crossing)<.00001);
+  cam.x+=30;cam.y-=25;cam.zoom*=.95;
+  const afterCamera=h.app.shotForecast();assert.ok(distance(afterCamera.crossing,released.crossing)<.00001);
+  assert.equal(finishShot(f.m,f.p,f.keeper),'goal');
+ }
+});
+function advantageShotFixture(team=0,period=1,range=180,aim=45){
+ const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'local'),range,0,team,period),m=f.m,q=m.players[(1-team)*11+9];
+ q.x=f.p.x-f.d*24;q.y=f.p.y;m.selectPlayer(1-team,q.id);m.random=()=>1;m.protection=0;
+ m.kick(f.p,{x:f.goal+f.d*20,y:318+aim,shot:true},1);advanceToContact(m);
+ const controls={teams:[{dx:0,dy:0},{dx:0,dy:0}]};controls.teams[1-team]={dx:f.d,dy:0};
+ for(let i=0;i<20&&m.phase==='playing'&&!m.advantage;i++)m.step(1/120,controls);
+ return {...f,q,controls};
+}
+test('a real late challenge allows an existing goal-bound shot to score without losing the goal',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const range of [100,180]){
+  const f=advantageShotFixture(team,period,range);assert.ok(f.m.advantage);assert.equal(f.m.lastFoul.reason,'Late challenge');
+  assert.equal(f.m.fouls[1-team],1);assert.equal(f.m.phase,'playing');
+  for(let i=0;i<240&&f.m.phase==='playing';i++)f.m.step(1/120,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  assert.equal(f.m.phase,'goal');assert.equal(f.m.score[team],1);assert.equal(f.m.advantage,null);assert.equal(f.m.restarts,0);
+  f.m.skipReplay();assert.equal(f.m.kickoffOwner,f.m.players[(1-team)*11+9].id);
+ }
+});
+test('a saved or blocked advantage shot recalls the original free kick or penalty exactly once',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const range of [100,180]){
+  const f=advantageShotFixture(team,period,range,0);assert.ok(f.m.advantage);const original={...f.m.advantage.restart};
+  for(let i=0;i<240&&f.m.phase==='playing';i++)f.m.step(1/120,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  assert.equal(f.m.phase,'restart');assert.equal(f.m.restart.type,range===100?'Penalty Kick':'Direct Free Kick');
+  assert.equal(f.m.restart.x,original.x);assert.equal(f.m.restart.y,original.y);assert.equal(f.m.restart.team,team);
+  assert.equal(f.m.fouls[1-team],1);assert.equal(f.m.restarts,1);assert.deepEqual(f.m.score,[0,0]);assert.equal(f.m.advantage,null);
+ }
+});
+test('advantage trial expires, recalls on a miss and does not apply to an already-wide shot',()=>{
+ for(const outcome of ['timeout','out','wide']){
+  const f=advantageShotFixture(0,1,180,outcome==='wide'?90:45);
+  if(outcome==='wide'){assert.equal(f.m.advantage,null);assert.equal(f.m.phase,'restart');continue;}
+  assert.ok(f.m.advantage);f.m.move=()=>{};
+  if(outcome==='timeout'){
+   f.m.ball.vx=0;f.m.ball.vy=0;
+   for(let i=0;i<250&&f.m.phase==='playing';i++)f.m.step(1/120,{dx:0,dy:0});
+  }else{const old={...f.m.ball};f.m.ball.x=FIELD.left-2;f.m.ball.y=450;f.m.checkBoundary(old);}
+  assert.equal(f.m.phase,'restart');assert.equal(f.m.restart.type,'Direct Free Kick');assert.equal(f.m.restart.team,0);
+  assert.equal(f.m.fouls[1],1);assert.equal(f.m.restarts,1);assert.equal(f.m.advantage,null);
+ }
+});
+test('advantage UI announces play-on, freezes during pause and clears after recall or restart',()=>{
+ const h=localHarness(),m=h.app.match,f=advantageShotFixture();
+ Object.assign(m,{players:f.m.players,ball:f.m.ball,flight:f.m.flight,offside:f.m.offside,advantage:f.m.advantage,
+  lastFoul:f.m.lastFoul,elapsed:f.m.elapsed,setPiece:null,restartGuard:null,lastRestart:null,pendingKick:null,phase:'playing',event:f.m.event});
+ h.app.syncMatch();assert.ok(h.elements.get('matchStatus').textContent.includes('Advantage'));
+ h.click('menuBtn');const elapsed=m.elapsed;m.step(1);assert.equal(m.elapsed,elapsed);assert.ok(m.advantage);
+ h.click('resumePause');assert.ok(h.elements.get('matchStatus').textContent.includes('Advantage'));
+ m.recallAdvantage();h.app.syncMatch();assert.ok(h.elements.get('matchStatus').textContent.includes('not realised'));
+ h.click('takeCorner');assert.equal(m.advantage,null);assert.equal(m.setPiece,'Direct Free Kick');
+ h.click('menuBtn');h.click('restartMatch');h.flush();assert.equal(h.app.match.advantage,null);
+ assert.ok(!h.elements.get('matchStatus').textContent.includes('Advantage'));
+});
+
+test('an on-target forecast remains a prediction when a real defender blocks the shot',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180),m=f.m;
+ const target={x:f.goal+f.d*20,y:363,shot:true},forecast=m.previewKick(f.p,target,1);assert.ok(forecast.onTarget);
+ m.kick(f.p,target,1);advanceToContact(m);
+ const defender=m.players[13],n=Math.hypot(m.ball.vx,m.ball.vy);defender.x=m.ball.x+m.ball.vx/n*35;defender.y=m.ball.y+m.ball.vy/n*35;
+ m.move=()=>{};m.offside=null;
+ for(let i=0;i<30&&!m.owner&&m.phase==='playing';i++)m.step(1/120,{dx:0,dy:0});
+ assert.equal(m.owner?.id,defender.id);assert.deepEqual(m.score,[0,0]);
 });
