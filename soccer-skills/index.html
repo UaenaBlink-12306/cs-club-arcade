@@ -812,7 +812,7 @@ class SoccerMatch {
     this.home=home;this.away=away;this.mode=mode;this.seed=seed;
     this.score=[0,0];this.minute=0;this.period=1;this.elapsed=0;this.phase='playing';
     this.active=9;this.activeAway=20;this.players=[];this.history=[];this.replayFrames=[];this.replayTime=0;
-    this.recordAt=0;this.event='Kick off';this.restarts=0;this.tackles=0;this.fouls=[0,0];this.lastFoul=null;this.penaltyRun=null;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];
+    this.recordAt=0;this.event='Kick off';this.restarts=0;this.tackles=0;this.fouls=[0,0];this.lastFoul=null;this.penaltyRun=null;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];this.interceptions=[0,0];
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:0,lock:0};
     for(let team=0;team<2;team++) for(let slot=0;slot<11;slot++){
       this.players.push({id:team*11+slot,team,slot,keeper:slot===0,x:0,y:0,angle:0,speed:0,stride:0,cooldown:0,held:0,think:.1+slot*.03});
@@ -831,11 +831,11 @@ class SoccerMatch {
       const f=formation[p.slot], d=this.direction(p.team);
       p.x=this.ownGoalX(p.team)+d*f[0]*(FIELD.right-FIELD.left);
       p.y=FIELD.top+f[1]*(FIELD.bottom-FIELD.top);
-      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.held=0;p.think=.35+p.slot*.025;
+      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.held=0;p.think=.35+p.slot*.025;
     }
   }
   kickoff(team){
-    this.pendingKick=null;this.restartGuard=null;this.lastRestart=null;this.offside=null;this.handOwner=null;this.penaltyRun=null;this.lastFoul=null;
+    this.pendingKick=null;this.restartGuard=null;this.lastRestart=null;this.offside=null;this.handOwner=null;this.penaltyRun=null;this.lastFoul=null;this.flight=null;
     this.resetFormation();
     for(const p of this.players) if(!p.keeper){
       // Each team begins in its own half.
@@ -929,6 +929,7 @@ class SoccerMatch {
     if(this.period===1){this.phase='half';this.event='Half time';}else this.finish();
   }
   stopForRestart(restart,reason='BALL OUT'){
+    this.flight=null;
     if(this.penaltyRun?.extended&&this.penaltyRun.released&&restart.type!=='Penalty Kick'){this.endPeriod();return true;}
     this.penaltyRun=restart.type==='Penalty Kick'?{team:restart.team,period:this.period,released:false,extended:this.mode!=='practice'&&this.minute>=(this.period===1?45:90)}:null;
     this.pendingKick=null;this.restartGuard=null;this.setPiece=null;this.lastRestart=null;this.offside=null;this.handOwner=null;
@@ -946,6 +947,7 @@ class SoccerMatch {
     if(this.penaltyRun?.extended&&this.penaltyRun.released){this.endPeriod();return true;}
     if(this.lastRestart?.taker===p.id)return this.indirect(1-p.team,p,'Second touch — indirect free kick');
     if(this.offside?.team===p.team&&this.offside.ids.includes(p.id))return this.indirect(1-p.team,p,'Offside — indirect free kick');
+    if(!p.keeper&&this.ball.lastTouch!==p.team)this.interceptions[p.team]++;
     const catches=p.keeper&&this.inPenalty(p,p.team)&&this.ball.lastTouch!==p.team;
     if(catches){this.saves[p.team]++;p.saveAt=this.elapsed;this.event='Goalkeeper save';}
     this.giveBall(p);
@@ -957,13 +959,14 @@ class SoccerMatch {
       .reduce((a,p)=>!a||distance(p,target)<distance(a,target)?p:a,null);
   }
   giveBall(p){
+    this.flight=null;
     if(this.penaltyRun?.released)this.penaltyRun=null;
     this.restartGuard=null;this.setPiece=null;this.lastRestart=null;this.offside=null;this.handOwner=null;
     this.possessionSerial=(this.possessionSerial||0)+1;p.kickAt=-100;p.strikeId=0;p.receiveAt=this.elapsed;
     this.kickoffGrace=0;this.kickoffOwner=null;
     if(this.pendingKick&&this.pendingKick.player!==p.id)this.pendingKick=null;
     this.ball.owner=p.id;this.ball.lastTouch=p.team;this.ball.z=0;this.ball.vx=0;this.ball.vy=0;this.ball.vz=0;
-    p.held=0;p.think=Math.max(p.think,.25);this.protection=.55;
+    p.held=0;p.think=Math.max(p.think,.25);this.protection=.8;
     if(p.team===0)this.active=p.id;
     else if(this.mode==='local')this.activeAway=p.id;
     this.followBall();
@@ -971,7 +974,13 @@ class SoccerMatch {
   followBall(){
     const p=this.owner;if(!p)return;
     if(this.restartGuard){Object.assign(this.ball,{x:this.restartGuard.x,y:this.restartGuard.y,z:this.setPiece==='Throw-in'?30:0,vx:0,vy:0,vz:0});return;}
-    this.ball.x=p.x+Math.cos(p.angle)*10;this.ball.y=p.y+Math.sin(p.angle)*10;this.ball.z=0;
+    const k=this.pendingKick;
+    let angle=p.angle;
+    if(k?.player===p.id){
+      const t=clamp(1-k.remaining/k.duration,0,1),e=t*t*(3-2*t);
+      angle=k.fromBallAngle+Math.atan2(Math.sin(p.angle-k.fromBallAngle),Math.cos(p.angle-k.fromBallAngle))*e;
+    }
+    this.ball.x=p.x+Math.cos(angle)*10;this.ball.y=p.y+Math.sin(angle)*10;this.ball.z=0;
   }
   move(p,tx,ty,speed,dt){
     tx=clamp(tx,FIELD.left+12,FIELD.right-12);ty=clamp(ty,FIELD.top+12,FIELD.bottom-12);
@@ -980,7 +989,7 @@ class SoccerMatch {
       tx=clamp(tx,Math.min(own+d*8,own+d*(RULES.penaltyDepth-5)),Math.max(own+d*8,own+d*(RULES.penaltyDepth-5)));
       ty=clamp(ty,FIELD.cy-RULES.penaltyHalf+5,FIELD.cy+RULES.penaltyHalf-5);
     }
-    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.78*dt,len);
+    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.78*(this.elapsed<(p.challengeUntil||0)?.7:1)*dt,len);
     p.speed=dt>0?step/dt:0;
     if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);p.stride+=step*.095;}
   }
@@ -991,8 +1000,8 @@ class SoccerMatch {
     if(this.setPiece==='Penalty Kick'&&(target.x-p.x)*this.direction(p.team)<=1)return false;
     if(this.restartGuard?.type==='Throw-in'&&(target.y-this.restartGuard.y)*(this.restartGuard.y===FIELD.top?1:-1)<=1)return false;
     const shot=!target.pass&&!(Number.isInteger(target.id)&&target.team===p.team)&&Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110;
-    const duration=shot?.105:.075;
-    this.pendingKick={id:this.strikeSequence=(this.strikeSequence||0)+1,possession:this.possessionSerial,player:p.id,target:{x:target.x,y:target.y,pass:target.pass===true||(Number.isInteger(target.id)&&target.team===p.team)},power:clamp(power,.15,1),loft,remaining:duration,duration,started:this.elapsed,fromAngle:p.visualAngle??p.angle};
+    const duration=shot?.14:.075;
+    this.pendingKick={id:this.strikeSequence=(this.strikeSequence||0)+1,possession:this.possessionSerial,player:p.id,shot,target:{x:target.x,y:target.y,pass:target.pass===true||(Number.isInteger(target.id)&&target.team===p.team)},power:clamp(power,.15,1),loft,remaining:duration,duration,started:this.elapsed,fromBallAngle:Math.atan2(this.ball.y-p.y,this.ball.x-p.x),fromAngle:p.visualAngle??p.angle};
     p.angle=Math.atan2(dy,dx);p.speed=0;
     return true;
   }
@@ -1012,12 +1021,13 @@ class SoccerMatch {
       team:p.team,ids:this.players.filter(q=>q.team===p.team&&q.id!==p.id&&
         (q.x-550)*d>0&&q.x*d>this.ball.x*d+.1&&q.x*d>defenders[1]+.1).map(q=>q.id)
     };
+    this.flight={id:action.id,team:p.team,shot:shot&&!throwing,started:this.elapsed,target:{x:target.x,y:target.y}};
     this.lastRestart=restart?{type:restart.type,team:p.team,taker:p.id}:null;
     this.restartGuard=null;this.handOwner=null;
     p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
     this.possessionSerial=(this.possessionSerial||0)+1;
     Object.assign(this.ball,{owner:null,x:restart?restart.x:p.x+dx/len*10,y:restart?restart.y:p.y+dy/len*10,z:throwing?30:0,
-      vx:dx/len*speed,vy:dy/len*speed,vz:throwing?85+60*power:loft&&restart?.type!=='Penalty Kick'?185+90*power:0,lastTouch:p.team,lock:.10});
+      vx:dx/len*speed,vy:dy/len*speed,vz:throwing?85+60*power:loft&&restart?.type!=='Penalty Kick'?185+90*power:0,lastTouch:p.team,lock:shot?0:.04});
     this.kickoffGrace=0;this.kickoffOwner=null;
     p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;p.strikeId=action.id;p.throwAt=throwing?this.elapsed:-100;
     if(shot&&!throwing)this.shots[p.team]++;else this.passes[p.team]++;
@@ -1116,13 +1126,21 @@ class SoccerMatch {
       if(this.ball.owner===p.id){this.aiBallCarrier(p,dt);continue;}
       const d=this.direction(p.team),own=this.ownGoalX(p.team);
       if(p.keeper){
-        const goalThreat=Math.abs(this.ball.x-own)<240;
-        const ty=clamp(this.ball.y+this.ball.vy*.10,FIELD.cy-52,FIELD.cy+52);
-        const tx=own+d*(goalThreat?28:18);
-        this.move(p,tx,ty,118,dt);continue;
+        const flight=this.flight,reacting=flight?.shot&&flight.team!==p.team&&this.ball.owner===null;
+        if(reacting&&this.elapsed-flight.started<.20){p.speed=0;continue;}
+        const prediction=reacting?this.ball.y+this.ball.vy*.09:FIELD.cy+(this.ball.y-FIELD.cy)*.45;
+        const ty=clamp(prediction,FIELD.cy-46,FIELD.cy+46),tx=own+d*18;
+        if(reacting&&Math.abs(this.ball.x-own)<115&&Math.abs(ty-p.y)>10&&p.diveFlight!==flight.id){
+          p.diveFlight=flight.id;p.diveAt=this.elapsed;p.saveAt=this.elapsed;
+        }
+        this.move(p,tx,ty,reacting?92:100,dt);continue;
       }
       owner=this.owner;
       if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)){
+        if(owner&&owner.team!==p.team&&p.id!==chasers[p.team][0]){
+          // One presses; the second defender protects a passing lane instead of stacking onto the carrier.
+          this.move(p,this.ball.x-d*60,clamp(this.ball.y+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25),85,dt);continue;
+        }
         if(owner&&this.kickoffGrace>0&&owner.id===this.kickoffOwner){
           const dx=p.x-owner.x,dy=p.y-owner.y,len=Math.hypot(dx,dy)||1;
           this.move(p,owner.x+dx/len*70,owner.y+dy/len*70,90,dt);continue;
@@ -1163,8 +1181,11 @@ class SoccerMatch {
       this.followBall();
       if(this.protection<=0&&this.handOwner!==owner.id&&!this.setPiece&&!(this.kickoffGrace>0&&owner.id===this.kickoffOwner)){
         const defender=this.nearest(1-owner.team,owner);
-        if(distance(defender,owner)<25&&distance(defender,this.ball)<23&&defender.cooldown<=0&&this.random()<dt*5){
-          owner.cooldown=.65;this.tackles++;this.giveBall(defender);this.event=defender.team===0?'Possession won':'Tackled — win it back';
+        if(distance(defender,owner)<25&&distance(defender,this.ball)<18&&defender.cooldown<=0&&this.random()<dt*4){
+          defender.cooldown=.6;defender.challengeUntil=this.elapsed+.6;
+          if(this.random()<.8){
+            owner.cooldown=.65;this.tackles++;this.giveBall(defender);this.event=defender.team===0?'Possession won':'Tackled — win it back';
+          }
         }
       }
     }else{
@@ -1173,15 +1194,36 @@ class SoccerMatch {
       if(b.z>0||b.vz>0)b.vz-=700*dt;
       if(b.z===0&&b.vz<0){b.vz=Math.abs(b.vz)>100?-b.vz*.22:0;b.vx*=.94;b.vy*=.94;}
       const drag=Math.exp(-(b.z>0?.18:.75)*dt);b.vx*=drag;b.vy*=drag;
-      if(this.checkBoundary(old))return;
       if(b.lock<=0){
-        const candidates=this.players.filter(p=>{
+        const vx=b.x-old.x,vy=b.y-old.y,a=vx*vx+vy*vy;
+        let exit=1;
+        for(const [axis,line,sign] of [['x',FIELD.left-RULES.radius,-1],['x',FIELD.right+RULES.radius,1],['y',FIELD.top-RULES.radius,-1],['y',FIELD.bottom+RULES.radius,1]]){
+          if((b[axis]-line)*sign>0&&b[axis]!==old[axis])exit=Math.min(exit,clamp((line-old[axis])/(b[axis]-old[axis]),0,1));
+        }
+        const candidates=[];
+        for(const p of this.players){
+          if(p.cooldown>0)continue;
           const hands=p.keeper&&this.inPenalty(p,p.team)&&b.lastTouch!==p.team;
-          return p.cooldown<=0&&b.z<(hands?48:16)&&distance(p,b)<(hands?23:19);
-        })
-          .sort((a,p)=>distance(a,b)-distance(p,b));
-        if(candidates.length&&this.receiveBall(candidates[0]))return;
+          const dive=this.elapsed-(p.diveAt??-100),normalReach=hands?(dive>.035&&dive<.30?18:14):19;
+          const fastShot=this.flight?.shot&&Math.hypot(b.vx,b.vy)>180;
+          const reach=fastShot&&this.flight.team!==p.team&&!p.keeper?8:normalReach;
+          let t=1;
+          if(fastShot){
+            const dx=old.x-p.x,dy=old.y-p.y,c=dx*dx+dy*dy-reach*reach,beta=2*(dx*vx+dy*vy),disc=beta*beta-4*a*c;
+            if(c<=0)t=0;
+            else if(a>1e-8&&disc>=0)t=(-beta-Math.sqrt(disc))/(2*a);
+            else continue;
+          }else if(distance(p,b)>=reach)continue;
+          if(t<0||t>exit||t>1||old.z+(b.z-old.z)*t>=(hands?48:16))continue;
+          candidates.push({p,t});
+        }
+        candidates.sort((a,c)=>a.t-c.t||distance(a.p,b)-distance(c.p,b));
+        if(candidates.length){
+          const {p,t}=candidates[0];b.x=old.x+vx*t;b.y=old.y+vy*t;b.z=old.z+(b.z-old.z)*t;
+          if(this.receiveBall(p))return;
+        }
       }
+      if(!this.owner&&this.checkBoundary(old))return;
     }
     if(this.owner&&this.checkBoundary(this.ball))return;
     if(this.pendingKick){
@@ -1368,6 +1410,10 @@ class ActionCamera {
     const leadX=clamp(vx*.07+(carrier?Math.cos(carrier.angle)*runLead:0),-40,40),leadY=clamp(vy*.07+(carrier?Math.sin(carrier.angle)*runLead:0),-24,24);
     let tx=clamp(b.x*.97+active.x*.03+leadX,125,975);
     let ty=clamp(b.y*.97+active.y*.03+leadY,155,490);
+    if(shot.aim&&this.preset==='gameplay'){
+      tx=clamp(tx+clamp((shot.aim.x-b.x)*.30,-55,55),125,975);
+      ty=clamp(ty+clamp((shot.aim.y-b.y)*.35,-60,60),155,490);
+    }
     if(this.preset==='intro'||this.preset==='presentation'){tx=550;ty=318;}
     const portrait=this.height>this.width;
     const base=portrait?Math.max(clamp(this.height/410,3.8,5.8),this.width/(this.cssWidth||this.width)*1.8):clamp(this.height/150,3.6,4.25);
@@ -1412,7 +1458,7 @@ function updateControlHint(){
     return;
   }
   updateCanvasInstructions(mode==='practice'?'Soccer pitch — untimed practice':'Soccer pitch — single-player cup',
-    'At kick-off, aim and release to kick the stationary ball into play. During play: Hold and drag to run; drag farther for a stronger pass, then release to kick. After possession changes, keep holding to run and drag afresh to aim a new kick. WASD or arrow keys move. Space shoots, E passes, Tab switches player, and Escape pauses. The outlined arrow marks your controlled player; the filled ground ring marks possession.');
+    'At kick-off, aim and release to kick the stationary ball into play. During play: Hold and drag to run; drag farther for more power, then release to kick. Near goal, aim toward a corner of the net to shoot; the SHOT/PASS power preview shows your action. After possession changes, keep holding to run and drag afresh to aim a new kick. WASD or arrow keys move. Space shoots, E passes, Tab switches player, and Escape pauses. The outlined arrow marks your controlled player; the filled ground ring marks possession.');
   const touch=touchControls||!!window.matchMedia?.('(pointer: coarse)').matches||!!window.navigator?.maxTouchPoints;
   $('#hint').textContent=touch?'Hold + drag to run · Release to pass or shoot · Tap a teammate to select':'Hold + drag to run · Release to kick · WASD / arrows · Space: shoot · E: pass';
 }
@@ -1637,22 +1683,41 @@ canvas.addEventListener('pointermove',event=>{
   if(drag.armed){drag.moveDx=drag.screenDx;drag.moveDy=drag.screenDy;}
   updateDrag();
 });
+function pointerAim(aim,screenDx=aim.screenDx,screenDy=aim.screenDy){
+  const p=match.players[aim.player],vector=camera.vector(p,screenDx,screenDy);
+  const dx=vector.x,dy=vector.y,len=Math.hypot(dx,dy),screenLength=Math.hypot(screenDx,screenDy);
+  const power=clamp(screenLength/(Math.min(W,H)*.32),.15,1);
+  let target={x:p.x+dx,y:p.y+dy},shot=false;
+  const receiver=match.players.filter(q=>q.team===p.team&&q.id!==p.id&&distance(q,p)>25)
+    .sort((a,b)=>distance(a,target)-distance(b,target))[0];
+  if(receiver&&distance(receiver,target)<Math.max(18,len*.12))target={x:receiver.x,y:receiver.y,pass:true};
+  else{
+    const goal=match.goalX(p.team),d=match.direction(p.team),forward=dx*d,range=(goal-p.x)*d;
+    if(forward>3&&range>0&&range<=360&&power>=.35&&match.setPiece!=='Throw-in'){
+      // Intersect the screen aiming ray with the projected goal line. The angled camera is
+      // not affine, so extending a short unprojected ground vector can bend a wide-angle shot.
+      const at=camera.project(p.x,p.y),cross=y=>{
+        const q=camera.project(goal,y);return (q.x-at.x)*screenDy-(q.y-at.y)*screenDx;
+      };
+      let low=FIELD.cy-FIELD.goalHalf-45,high=FIELD.cy+FIELD.goalHalf+45,left=cross(low),right=cross(high);
+      if(left*right<=0){
+        for(let i=0;i<20;i++){const mid=(low+high)/2,value=cross(mid);if(left*value<=0){high=mid;right=value;}else{low=mid;left=value;}}
+        const atGoal=(low+high)/2;
+        target={x:goal+d*20,y:p.y+(atGoal-p.y)*(goal+d*20-p.x)/(goal-p.x)};shot=true;
+      }
+    }
+  }
+  return {target,power,shot,len,screenLength};
+}
 function releaseDrag(event,cancel=false){
   if(!drag||event.pointerId!==drag.id)return;
   if(cancel){cancelDrag();return;}
   updateDrag();if(!drag)return;
   const aim=drag;cancelDrag();
   if(!aim.armed||match?.phase!=='playing')return;
-  const q=point(event),p=match.players[aim.player],screenLength=Math.hypot(q.x-aim.start.x,q.y-aim.start.y);
-  const vector=camera.vector(p,q.x-aim.start.x,q.y-aim.start.y),dx=vector.x,dy=vector.y,len=Math.hypot(dx,dy);
-  if(screenLength>=12&&len>=5&&match.ball.owner===p.id&&aim.possession===match.possessionSerial){
-    const power=clamp(screenLength/(Math.min(W,H)*.32),.15,1);
-    let target={x:p.x+dx,y:p.y+dy};
-    // A small receiving assist keeps a clearly aimed teammate pass from missing by a pixel.
-    const receiver=match.players.filter(q=>q.team===p.team&&q.id!==p.id&&distance(q,p)>25)
-      .sort((a,b)=>distance(a,target)-distance(b,target))[0];
-    if(receiver&&distance(receiver,target)<Math.max(18,len*.12))target={x:receiver.x,y:receiver.y,pass:true};
-    match.kick(p,target,power,!!match.setPiece&&match.setPiece!=='Kick-off');
+  const q=point(event),p=match.players[aim.player],intent=pointerAim(aim,q.x-aim.start.x,q.y-aim.start.y);
+  if(intent.screenLength>=12&&intent.len>=5&&match.ball.owner===p.id&&aim.possession===match.possessionSerial){
+    match.kick(p,intent.target,intent.power,!intent.shot&&!!match.setPiece&&match.setPiece!=='Kick-off');
   }
 }
 canvas.addEventListener('pointerup',event=>releaseDrag(event));
@@ -1960,8 +2025,8 @@ function field(){
 function strikePose(t){
   const ease=x=>x*x*(3-2*x);
   if(t<=0||t>=1)return 0;
-  if(t<.12)return -.42*ease(t/.12);
-  if(t<.3)return -.42+1.27*ease((t-.12)/.18);
+  if(t<.18)return -.5*ease(t/.18);
+  if(t<.3)return -.5+1.35*ease((t-.18)/.12);
   if(t<.48)return .85+.15*ease((t-.3)/.18);
   return 1-ease((t-.48)/.52);
 }
@@ -1970,7 +2035,8 @@ function playerPose(p,ball){
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
   const baseRunning=clamp(p.speed/110,0,1),stride=Math.sin(p.stride*(.92+(p.id%4)*.055)+p.id*.47),kick=p.strike!==undefined?strikePose(p.strike):Math.sin((1-(p.kick||0))*Math.PI)*(p.kick>0?1:0);
   const throwing=p.throwing?1:0;
-  const running=baseRunning*(1-clamp(Math.abs(kick)*1.4,0,1));
+  const planting=p.strikePhase==='windup'||(p.strikePhase==='follow'&&p.strike<.85);
+  const running=planting?0:baseRunning*(1-clamp(Math.abs(kick)*1.4,0,1));
   const save=(p.save||0)>0?Math.sin((1-p.save)*Math.PI):0;
   const ready=p.keeper&&ball&&ball.owner!==p.id&&distance(p,ball)<200?1:0;
   const reach=p.keeper&&ball?clamp((camera.project(ball.x,ball.y).x-a.x)/50,-1,1):fx;
@@ -2096,6 +2162,10 @@ function drawPlayer(p,marker,ball){
 }
 function drawBall(b){
   const foot=camera.project(b.x,b.y),at=camera.project(b.x,b.y,b.z*RULES.heightScale+RULES.radius);
+  if(b.owner===null&&Math.hypot(b.vx||0,b.vy||0)>180){
+    const tail=camera.project(b.x-b.vx*.025,b.y-b.vy*.025,b.z*RULES.heightScale+RULES.radius);
+    ctx.strokeStyle='#f4f7de65';ctx.lineWidth=2*at.scale;ctx.beginPath();ctx.moveTo(tail.x,tail.y);ctx.lineTo(at.x,at.y);ctx.stroke();
+  }
   // Keep the ball legible in CSS pixels on narrow displays; physics radius is unchanged.
   const radius=camera.portrait?Math.max(RULES.radius*at.scale,3*W/canvas.getBoundingClientRect().width):Math.max(RULES.radius*at.scale,2.5*W/canvas.getBoundingClientRect().width);
   ctx.fillStyle='rgba(18,48,37,'+clamp(.32-b.z*.003,.08,.32)+')';ctx.beginPath();ctx.ellipse(foot.x+2,foot.y+2,(2+b.z*.012)*foot.scale,(1+b.z*.006)*foot.scale,0,0,Math.PI*2);ctx.fill();
@@ -2140,6 +2210,11 @@ function render(dt=0){
     const last=match.replayFrames[match.replayFrames.length-1].ball;
     camera.replayGoal=Number.isInteger(match.scorer)?match.goalX(match.scorer):(last.x<550?FIELD.left:FIELD.right);
   }
+  if(shot&&match?.phase==='playing'){
+    const preview=drag?.armed&&match.ball.owner===drag.player?pointerAim(drag):null;
+    const aim=preview?.shot?preview.target:match.pendingKick?.shot?match.pendingKick.target:match.flight?.shot?match.flight.target:null;
+    if(aim&&Math.abs(match.goalX(match.owner?.team??match.flight?.team??0)-shot.ball.x)<=360)shot={...shot,aim};
+  }
   if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
@@ -2150,11 +2225,20 @@ function render(dt=0){
     notice.style.left=clamp(p.x/W*100,25,75)+'%';notice.style.top=clamp(p.y/H*100,20,75)+'%';
   }
   if(drag?.armed&&match?.phase==='playing'){
-    const p=match.players[drag.player],len=Math.hypot(drag.dx,drag.dy);
-    if(len>6){
-      groundPath([[p.x,p.y],[p.x+drag.dx,p.y+drag.dy]],null,'#30efff',2);
-      const target=camera.project(p.x+drag.dx,p.y+drag.dy);
+    const p=match.players[drag.player],intent=pointerAim(drag),owned=match.ball.owner===p.id;
+    if(intent.len>6){
+      const end=owned?intent.target:{x:p.x+drag.dx,y:p.y+drag.dy};
+      groundPath([[p.x,p.y],[end.x,end.y]],null,'#30efff',1.4);
+      const target=camera.project(end.x,end.y);
       ctx.strokeStyle='#a4ffff';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(target.x,target.y,7*target.scale,4*target.scale,0,0,Math.PI*2);ctx.stroke();
+      if(owned){
+        const at=camera.project(p.x,p.y,31),unit=W/canvas.getBoundingClientRect().width;
+        const x=clamp(at.x,70*unit,W-70*unit),y=clamp(at.y,65*unit,H-45*unit),width=72*unit;
+        ctx.fillStyle='#102c22e8';ctx.fillRect(x-width/2-5*unit,y-15*unit,width+10*unit,23*unit);
+        label((intent.shot?'SHOT':'PASS')+' '+Math.round(intent.power*100)+'%',x,y-3*unit,11*unit,'#d8ffec');
+        ctx.fillStyle='#2d655a';ctx.fillRect(x-width/2,y+3*unit,width,3*unit);
+        ctx.fillStyle='#43e8dd';ctx.fillRect(x-width/2,y+3*unit,width*intent.power,3*unit);
+      }
     }
   }
   const entities=shot.players.map(p=>({y:camera.project(p.x,p.y).y,player:p}));
