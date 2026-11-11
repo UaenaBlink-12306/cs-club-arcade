@@ -728,6 +728,10 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
  .trophy-content>.finalist-details{grid-column:1;grid-row:6}
  #trophy .trophy-content>.stats{grid-column:2;grid-row:6}
 }
+
+@keyframes footballPanelIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.panel:not(.hidden):not(#replay):not(#corner){animation:footballPanelIn .16s ease-out}
+@media(prefers-reduced-motion:reduce){.panel:not(.hidden){animation:none}button,#toast{transition:none}}
 </style>
 </head>
 <body>
@@ -820,10 +824,11 @@ class SoccerMatch {
       const f=formation[p.slot], d=this.direction(p.team);
       p.x=this.ownGoalX(p.team)+d*f[0]*(FIELD.right-FIELD.left);
       p.y=FIELD.top+f[1]*(FIELD.bottom-FIELD.top);
-      p.angle=d<0?Math.PI:0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.held=0;p.think=.35+p.slot*.025;
+      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.held=0;p.think=.35+p.slot*.025;
     }
   }
   kickoff(team){
+    this.pendingKick=null;
     this.resetFormation();
     for(const p of this.players) if(!p.keeper){
       // Each team begins in its own half.
@@ -839,6 +844,7 @@ class SoccerMatch {
       .reduce((a,p)=>!a||distance(p,target)<distance(a,target)?p:a,null);
   }
   giveBall(p){
+    if(this.pendingKick&&this.pendingKick.player!==p.id)this.pendingKick=null;
     this.ball.owner=p.id;this.ball.lastTouch=p.team;this.ball.z=0;this.ball.vx=0;this.ball.vy=0;this.ball.vz=0;
     p.held=0;p.think=Math.max(p.think,.25);this.protection=.55;
     if(p.team===0)this.active=p.id;
@@ -847,22 +853,33 @@ class SoccerMatch {
   }
   followBall(){
     const p=this.owner;if(!p)return;
-    this.ball.x=p.x+Math.cos(p.angle)*15;this.ball.y=p.y+Math.sin(p.angle)*15;this.ball.z=0;
+    this.ball.x=p.x+Math.cos(p.angle)*10;this.ball.y=p.y+Math.sin(p.angle)*10;this.ball.z=0;
   }
   move(p,tx,ty,speed,dt){
     tx=clamp(tx,FIELD.left+12,FIELD.right-12);ty=clamp(ty,FIELD.top+12,FIELD.bottom-12);
-    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*dt,len);
+    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.84*dt,len);
     p.speed=dt>0?step/dt:0;
-    if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);p.stride+=step*.12;}
+    if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);p.stride+=step*.095;}
   }
   kick(p,target,power=.65,loft=false){
+    if(this.phase!=='playing'||!p||!target||this.ball.owner!==p.id||this.pendingKick)return false;
+    const dx=target.x-p.x,dy=target.y-p.y;
+    if(!Number.isFinite(dx)||!Number.isFinite(dy)||Math.hypot(dx,dy)<5)return false;
+    const shot=Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110;
+    const duration=shot?.105:.075;
+    this.pendingKick={player:p.id,target:{x:target.x,y:target.y},power,loft,remaining:duration,duration,started:this.elapsed,fromAngle:p.visualAngle??p.angle};
+    p.angle=Math.atan2(dy,dx);p.speed=0;
+    return true;
+  }
+  releaseKick(action){
+    const p=this.players[action.player],target=action.target,power=action.power,loft=action.loft;
     if(this.phase!=='playing'||this.ball.owner!==p.id)return false;
     const dx=target.x-p.x,dy=target.y-p.y,len=Math.hypot(dx,dy);
     if(len<5)return false;
     const shot=Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110;
-    const speed=shot?440+220*power:clamp(len*1.3,95,470);
-    p.angle=Math.atan2(dy,dx);
-    Object.assign(this.ball,{owner:null,x:p.x+dx/len*18,y:p.y+dy/len*18,z:0,
+    const speed=shot?370+180*power:clamp(len*1.3,95,470)*.86;
+    p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
+    Object.assign(this.ball,{owner:null,x:p.x+dx/len*10,y:p.y+dy/len*10,z:0,
       vx:dx/len*speed,vy:dy/len*speed,vz:loft?185+90*power:0,lastTouch:p.team,lock:.10});
     p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;
     if(shot)this.shots[p.team]++;else this.passes[p.team]++;
@@ -918,7 +935,10 @@ class SoccerMatch {
     if(this.phase==='goal'){this.phaseTime-=dt;if(this.phaseTime<=0){this.phase='replay';this.replayTime=0;}return;}
     if(this.phase==='replay'){this.replayTime+=dt;if(this.replayTime>=4.2)this.skipReplay();return;}
     if(this.phase!=='playing')return;
-    dt=Math.min(dt,1/30);this.elapsed+=dt;this.minute+=dt*.6;
+    dt=Math.min(dt,1/30);
+    // Split exactly at contact so 30/60/120 Hz callers launch at the same time.
+    if(this.pendingKick&&this.pendingKick.remaining<dt-1e-8){const first=this.pendingKick.remaining;this.step(first,input);this.step(dt-first,input);return;}
+    this.elapsed+=dt;this.minute+=dt*.6;
     this.protection=Math.max(0,(this.protection||0)-dt);this.ball.lock=Math.max(0,this.ball.lock-dt);
     let owner=this.owner;if(owner)owner.held+=dt;
     if(owner?.team===0)this.active=owner.id;
@@ -929,6 +949,7 @@ class SoccerMatch {
       .sort((a,b)=>distance(a,this.ball)-distance(b,this.ball)).slice(0,2).map(p=>p.id));
     for(const p of this.players){
       p.cooldown=Math.max(0,p.cooldown-dt);
+      if(this.pendingKick?.player===p.id){p.speed=0;continue;}
       const control=localInputs?(p.id===this.activeFor(p.team)?localInputs[p.team]:null):(p.team===0&&p.id===this.active?input:null);
       if(control){
         if(this.setPiece&&this.ball.owner===p.id){p.speed=0;continue;}
@@ -990,6 +1011,23 @@ class SoccerMatch {
       }
     }
     if(this.owner&&this.checkBoundary(this.ball))return;
+    if(this.pendingKick){
+      const action=this.pendingKick;
+      if(this.ball.owner!==action.player)this.pendingKick=null;
+      else{
+        action.remaining=Math.max(0,action.remaining-dt);
+        if(action.remaining<=1e-8){this.pendingKick=null;this.releaseKick(action);}
+      }
+    }
+    for(const p of this.players){
+      p.gaitSpeed=(p.gaitSpeed||0)+(p.speed-(p.gaitSpeed||0))*(1-Math.exp(-dt*14));
+      const delta=Math.atan2(Math.sin(p.angle-(p.visualAngle??p.angle)),Math.cos(p.angle-(p.visualAngle??p.angle)));
+      p.visualAngle=(p.visualAngle??p.angle)+delta*(1-Math.exp(-dt*18));
+      if(this.pendingKick?.player===p.id){
+        const k=this.pendingKick,t=clamp(1-k.remaining/k.duration,0,1),e=t*t*(3-2*t);
+        p.visualAngle=k.fromAngle+Math.atan2(Math.sin(p.angle-k.fromAngle),Math.cos(p.angle-k.fromAngle))*e;
+      }
+    }
     this.recordAt+=dt;
     if(this.recordAt>=.05){this.recordAt=0;this.history.push(this.snapshot());if(this.history.length>65)this.history.shift();}
     if(this.mode!=='practice'){
@@ -1032,6 +1070,7 @@ class SoccerMatch {
   resumeHalf(){if(this.phase!=='half')return;this.period=2;this.kickoff(1);this.event='Second half — switch ends';}
 
   finish(){
+    this.pendingKick=null;
     if(this.mode==='cup'&&this.score[0]===this.score[1]){
       this.penalties={score:[0,0],taken:[0,0],turn:0,history:[],done:false};
       this.phase='penalties';this.event='Level after 90 minutes — penalty shootout';
@@ -1061,7 +1100,7 @@ class SoccerMatch {
     const candidates=this.players.filter(p=>p.team===team&&!p.keeper).sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
     this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id);
   }
-  snapshot(){return {players:this.players.map(p=>({id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.angle,stride:p.stride,speed:p.speed,kick:clamp(1-(this.elapsed-(p.kickAt??-100))/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)})),ball:{...this.ball},active:this.active,activeAway:this.activeAway};}
+  snapshot(){return {players:this.players.map(p=>({id:p.id,team:p.team,keeper:p.keeper,x:p.x,y:p.y,angle:p.visualAngle??p.angle,stride:p.stride,speed:p.gaitSpeed??p.speed,strike:this.pendingKick?.player===p.id ? .3*clamp(1-this.pendingKick.remaining/this.pendingKick.duration,0,1):(this.elapsed-(p.kickAt??-100)<.34?.3+.7*clamp((this.elapsed-p.kickAt)/.34,0,1):0),kick:clamp(1-(this.elapsed-(p.kickAt??-100))/.38,0,1),save:clamp(1-(this.elapsed-(p.saveAt??-100))/.65,0,1)})),ball:{...this.ball},active:this.active,activeAway:this.activeAway};}
 }
 
 // END SOCCER ENGINE
@@ -1663,10 +1702,18 @@ function field(){
   perimeterBoards();
 }
 
+function strikePose(t){
+  const ease=x=>x*x*(3-2*x);
+  if(t<=0||t>=1)return 0;
+  if(t<.12)return -.42*ease(t/.12);
+  if(t<.3)return -.42+1.27*ease((t-.12)/.18);
+  if(t<.48)return .85+.15*ease((t-.3)/.18);
+  return 1-ease((t-.48)/.52);
+}
 function playerPose(p,ball){
   const a=camera.project(p.x,p.y),b=camera.project(p.x+Math.cos(p.angle)*12,p.y+Math.sin(p.angle)*12);
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
-  const running=clamp(p.speed/110,0,1),stride=Math.sin(p.stride*(.92+(p.id%4)*.055)+p.id*.47),kick=Math.sin((1-(p.kick||0))*Math.PI)*(p.kick>0?1:0);
+  const running=clamp(p.speed/110,0,1),stride=Math.sin(p.stride*(.92+(p.id%4)*.055)+p.id*.47),kick=p.strike!==undefined?strikePose(p.strike):Math.sin((1-(p.kick||0))*Math.PI)*(p.kick>0?1:0);
   const save=(p.save||0)>0?Math.sin((1-p.save)*Math.PI):0;
   const ready=p.keeper&&ball&&ball.owner!==p.id&&distance(p,ball)<200?1:0;
   const reach=p.keeper&&ball?clamp((camera.project(ball.x,ball.y).x-a.x)/50,-1,1):fx;
@@ -1798,7 +1845,7 @@ function replaySample(frames,t){
   const blend=(x,y)=>x+(y-x)*mix;
   return {...a,players:a.players.map((p,i)=>{
     const q=b.players[i];return {...p,x:blend(p.x,q.x),y:blend(p.y,q.y),stride:blend(p.stride,q.stride),speed:blend(p.speed,q.speed),
-      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
+      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike:blend(p.strike||0,q.strike>0?q.strike:p.strike>0?1:0),kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
   }),ball:{...a.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
 }
 function render(dt=0){
