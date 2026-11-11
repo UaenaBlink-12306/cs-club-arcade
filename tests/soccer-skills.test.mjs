@@ -151,7 +151,7 @@ test('selected nation propagates through selection, loading, HUD and results for
   assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[n].name);
   assert.equal(h.elements.get('loadingFlag').textContent,NATIONS[n].flag);
   h.flush();
-  assert.equal(h.elements.get('homeName').textContent,NATIONS[n].code);
+  assert.equal(h.elements.get('homeName').textContent,NATIONS[n].name);
   assert.equal(h.elements.get('homeFlag').textContent,NATIONS[n].flag);
   h.app.match.score=[2,1];h.app.match.finish();h.app.syncMatch();
   assert.ok(h.elements.get('resultMsg').textContent.includes(NATIONS[n].name+' wins!'));
@@ -378,8 +378,8 @@ test('touch guidance is selected before first input and landscape returns to hor
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:739});h.app.render(1/60);
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720});h.app.render(1/60);
  const c=h.app.camera,a=c.project(68,318),b=c.project(1032,318);
- assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<.001);assert.ok(b.x>a.x);
- assert.ok(c.zoom>2.3&&c.zoom<2.5);
+ assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<c.height*.6);assert.ok(b.x>a.x);
+ assert.ok(c.zoom>4&&c.zoom<4.3);
  const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.flush();
  assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
 });
@@ -707,7 +707,7 @@ test('intro, gameplay and replay presets have different viewpoints with invertib
  h.app.render(.1);assert.equal(h.app.camera.preset,'intro');
  const introYaw=h.app.camera.yaw;assert.ok(introYaw<0);
  h.flush();for(let i=0;i<100;i++)h.app.render(1/60);
- const c=h.app.camera;assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw)<.01);
+ const c=h.app.camera;assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw+.12)<.01);
  const normalTilt=c.tilt;
  const m=h.app.match;m.phase='replay';m.replayFrames=[m.snapshot()];m.replayTime=1;
  for(let i=0;i<90;i++)h.app.render(1/60);
@@ -717,7 +717,7 @@ test('intro, gameplay and replay presets have different viewpoints with invertib
   assert.ok(distance(p,q)<.00001);
  }
  m.scorer=0;h.click('skipReplay');for(let i=0;i<120;i++)h.app.render(1/60);
- assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw)<.01);
+ assert.equal(c.preset,'gameplay');assert.ok(Math.abs(c.yaw+.12)<.01);
 });
 test('replay interpolation uses recorded positions and never changes the live match',()=>{
  const h=localHarness(),m=h.app.match,a=m.snapshot(),b=m.snapshot();
@@ -931,7 +931,7 @@ test('player mesh has real depth, finite face normals and rotates with player he
   }
  }
  const heights=a.flatMap(f=>f.points.map(p=>p[2]));
- assert.ok(Math.max(...heights)>35);assert.ok(Math.min(...heights)<2);
+ assert.ok(Math.max(...heights)>21&&Math.max(...heights)<24);assert.ok(Math.min(...heights)<2);
 });
 test('kick and goalkeeper poses change mesh geometry without changing the match snapshot',()=>{
  const h=localHarness(),m=h.app.match,p=m.snapshot().players[9],ball=m.ball;
@@ -964,18 +964,20 @@ test('portrait action remains legible in CSS pixels and desktop returns to the t
   canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
   m.players[9].x=550;m.players[9].y=318;m.giveBall(m.players[9]);
   c.ready=false;h.draws.length=0;h.app.render(1/60);
-  const foot=c.project(550,318),head=c.project(550,318,40);
-  assert.ok((foot.y-head.y)*rect.width/1100>=38,'central player should be at least 38 CSS pixels tall');
-  const ball=c.project(m.ball.x,m.ball.y,m.ball.z*.65+4);
+  const body=h.app.playerMesh(m.players[9],h.app.playerPose(m.players[9],m.ball));
+  const height=Math.max(...body.flatMap(f=>f.points.map(p=>p[2])));
+  const foot=c.project(550,318),head=c.project(550,318,height);
+  assert.ok((foot.y-head.y)*rect.width/1100 >=36,'central player should be at least 36 CSS pixels tall');
+  const ball=c.project(m.ball.x,m.ball.y,m.ball.z*.65+1.5);
   const sphere=h.draws.find(d=>d.method==='arc'&&Math.abs(d.args[0]-ball.x)<.001&&Math.abs(d.args[1]-ball.y)<.001);
   assert.ok(sphere,'ball is rendered at its projected position');
-  assert.ok(sphere.args[2]*2*rect.width/1100>=9.999,'ball should be at least 10 CSS pixels across');
+  assert.ok(sphere.args[2]*2*rect.width/1100>=5.999,'ball should be at least 6 CSS pixels across');
   const world=c.unproject(ball.x,c.project(m.ball.x,m.ball.y).y);
   assert.ok(Math.abs(world.x-m.ball.x)<.001&&Math.abs(world.y-m.ball.y)<.001);
  }
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});
  c.ready=false;h.app.render(1/60);
- assert.equal(c.portrait,false);assert.ok(c.zoom>2.3&&c.zoom<2.5);
+ assert.equal(c.portrait,false);assert.ok(c.zoom>4&&c.zoom<4.3);
 });
 
 test('32 unique countries have complete ratings and directly selectable, scroll-preserving controls',()=>{
@@ -1022,7 +1024,7 @@ test('every country completes a stable QF to semifinal to final path with no dup
    h.click('startMatch');assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[home].name);h.flush();
    assert.equal(h.app.match.home.code,NATIONS[home].code);
    assert.equal(h.app.match.away.code,NATIONS[opponent].code);faced.push(opponent);
-   assert.equal(h.elements.get('awayName').textContent,NATIONS[opponent].code);
+   assert.equal(h.elements.get('awayName').textContent,NATIONS[opponent].name);
    h.click('menuBtn');h.click('restartMatch');h.flush();
    assert.equal(h.app.match.away.code,NATIONS[opponent].code);
    h.app.match.score=[2,1];h.app.match.finish();h.app.syncMatch();
@@ -1058,8 +1060,8 @@ test('every country propagates through either local player dropdown, loading, HU
   const expectedHome=side==='Home'?n:otherIndex,expectedAway=side==='Away'?n:otherIndex;
   assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[expectedHome].name);
   assert.ok(h.elements.get('loadText').textContent.includes(NATIONS[expectedHome].name+' vs '+NATIONS[expectedAway].name));h.flush();
-  assert.equal(h.elements.get('homeName').textContent,NATIONS[expectedHome].code);
-  assert.equal(h.elements.get('awayName').textContent,NATIONS[expectedAway].code);
+  assert.equal(h.elements.get('homeName').textContent,NATIONS[expectedHome].name);
+  assert.equal(h.elements.get('awayName').textContent,NATIONS[expectedAway].name);
   assert.equal(h.elements.get('homeFlag').textContent,NATIONS[expectedHome].flag);
   assert.equal(h.elements.get('awayFlag').textContent,NATIONS[expectedAway].flag);
   h.app.match.phase='half';h.app.syncMatch();
@@ -1161,4 +1163,33 @@ test('tighter gameplay camera tracks moving ground and aerial balls inside deskt
    }
   }
  }
+});
+
+test('landscape framing matches the circle-width target with smaller field-relative humanoids',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const c=h.app.camera,m=h.app.match,canvas=h.elements.get('game');
+ for(const rect of [{width:1440,height:810},{width:1280,height:720},{width:844,height:390}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  m.players[9].x=550;m.players[9].y=318;m.giveBall(m.players[9]);c.ready=false;h.app.render(1/60);
+  const a=c.project(484,318),b=c.project(616,318),fraction=Math.abs(b.x-a.x)/c.width;
+  assert.ok(fraction>.42&&fraction<.53,'center circle occupies roughly half the landscape viewport');
+  assert.ok(Math.abs(a.y-b.y)>10,'landscape pitch has a diagonal sideline composition');
+  const mesh=h.app.playerMesh(m.players[9],h.app.playerPose(m.players[9],m.ball));
+  const height=Math.max(...mesh.flatMap(f=>f.points.map(p=>p[2])));
+  assert.ok(height/132>.15&&height/132<.19,'body scale is measured against the center-circle diameter');
+  const foot=c.project(550,318),head=c.project(550,318,height);
+  const cssHeight=(foot.y-head.y)*rect.width/1100;
+  assert.ok(cssHeight>50&&cssHeight<140,'tighter crop preserves a readable viewport-sized humanoid');
+ }
+});
+
+test('desktop country columns include a central original trophy without changing the eight-team draw',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');
+ const roster=h.elements.get('worldRoster').innerHTML;
+ assert.equal((roster.match(/class="roster-column"/g)||[]).length,4);
+ assert.equal((roster.match(/class="world-country/g)||[]).length,32);
+ assert.ok(roster.includes('class="roster-cup"'));
+ assert.ok(roster.includes('id="overviewGold"'));assert.ok(!roster.includes('id="cupGold"'));
+ assert.ok(h.elements.get('cupBracket').innerHTML.includes('id="cupGold"'));
+ assert.equal((h.elements.get('cupEntrants').innerHTML.match(/class="country-row/g)||[]).length,8);
 });
