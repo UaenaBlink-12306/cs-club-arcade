@@ -947,3 +947,24 @@ test('country grid supports direct choice with pressed state and correct cup opp
  assert.equal((h.elements.get('cupEntrants').innerHTML.match(/<em>NEXT<\/em>/g)||[]).length,1);
  h.click('startMatch');h.flush();assert.equal(h.app.match.home.name,'Japan');
 });
+
+test('portrait action remains legible in CSS pixels while desktop keeps its original scale',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const c=h.app.camera,m=h.app.match,canvas=h.elements.get('game');
+ for(const rect of [{width:500,height:745},{width:390,height:844},{width:320,height:568}]){
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  m.players[9].x=550;m.players[9].y=318;m.giveBall(m.players[9]);
+  c.ready=false;h.draws.length=0;h.app.render(1/60);
+  const foot=c.project(550,318),head=c.project(550,318,40);
+  assert.ok((foot.y-head.y)*rect.width/1100>=38,'central player should be at least 38 CSS pixels tall');
+  const ball=c.project(m.ball.x,m.ball.y,m.ball.z*.65+4);
+  const sphere=h.draws.find(d=>d.method==='arc'&&Math.abs(d.args[0]-ball.x)<.001&&Math.abs(d.args[1]-ball.y)<.001);
+  assert.ok(sphere,'ball is rendered at its projected position');
+  assert.ok(sphere.args[2]*2*rect.width/1100>=9.999,'ball should be at least 10 CSS pixels across');
+  const world=c.unproject(ball.x,c.project(m.ball.x,m.ball.y).y);
+  assert.ok(Math.abs(world.x-m.ball.x)<.001&&Math.abs(world.y-m.ball.y)<.001);
+ }
+ canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});
+ c.ready=false;h.app.render(1/60);
+ assert.equal(c.portrait,false);assert.equal(c.zoom,1.85);
+});
