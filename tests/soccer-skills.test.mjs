@@ -2755,3 +2755,43 @@ test('catching during a keeper dive preserves its animation envelope rather than
  assert.equal(m.owner.id,p.id);assert.equal(p.saveAt,1.8);assert.equal(p.saveSide,-.7);
  assert.equal(m.snapshot().players[p.id].save,before);
 });
+
+test('saved shots clear forecast text at contact and ease camera bounds without hiding keeper or ball',()=>{
+ for(const [width,height] of [[1180,757],[500,757]])for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const h=uiHarness(html),canvas=h.elements.get('game');canvas.getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,0,team,period),cam=h.app.camera;
+  cam.ready=false;h.app.render(0);h.draws.length=0;
+  f.m.kick(f.p,{x:f.goal+f.d*20,y:318},.85);
+  let savedAt=null,windupText=false,flight=false,maxJump=0;
+  for(let i=0;i<hz*2;i++){
+   const beforeSave=f.m.saves[1-team],pos={x:f.keeper.x,y:f.keeper.y},before=cam.project(pos.x,pos.y);
+   f.m.step(1/hz,{dx:0,dy:0});h.app.syncMatch();h.app.render(1/hz);
+   const after=cam.project(pos.x,pos.y);
+   if(f.m.saves[1-team]>beforeSave)savedAt=i;
+   const labels=h.draws.filter(x=>x.method==='fillText'&&String(x.args[0]).includes('IF CLEAR'));
+   if(f.m.pendingKick){windupText=windupText||labels.length>0;assert.ok(h.app.shotForecast());}
+   else{assert.equal(labels.length,0,'released shot must not cover save animation');if(!f.m.flight?.shot)assert.equal(h.app.shotForecast(),null);}
+   if(f.m.flight?.shot)flight=true;
+   if(savedAt!==null){
+    maxJump=Math.max(maxJump,Math.hypot(after.x-before.x,after.y-before.y)*width/1100);
+    for(const z of [0,22]){
+     const q=cam.project(f.keeper.x,f.keeper.y,z);assert.ok(q.x>0&&q.x<cam.width&&q.y>0&&q.y<cam.height,'keeper remains framed');
+    }
+    const q=cam.project(f.m.ball.x,f.m.ball.y);assert.ok(q.x>0&&q.x<cam.width&&q.y>0&&q.y<cam.height,'saved ball remains framed');
+   }
+   h.draws.length=0;if(savedAt!==null&&i-savedAt>=Math.floor(.5*hz))break;
+  }
+  assert.ok(windupText&&flight&&savedAt!==null);assert.ok(maxJump<360/hz,'bounded save framing shift '+maxJump+' at '+hz+' Hz');
+ }
+});
+test('expired shooting context clears smoothly and resets on a fresh kickoff camera',()=>{
+ const h=uiHarness(html),canvas=h.elements.get('game');canvas.getBoundingClientRect=()=>({left:0,top:0,width:500,height:757});
+ h.chooseMode('practice');h.flush();const m=h.app.match,c=h.app.camera,s=m.snapshot();s.ball.x=FIELD.left+18;s.ball.y=FIELD.cy;s.shootingGoal=FIELD.left;
+ c.update(s,0,false,true);assert.equal(c.goalBlend,1);
+ delete s.shootingGoal;const before={x:c.x,y:c.y,zoom:c.zoom};c.update(s,0);
+ assert.equal(c.x,before.x);assert.equal(c.y,before.y);assert.equal(c.zoom,before.zoom);
+ for(let i=0;i<60;i++)c.update(s,1/60);
+ assert.equal(c.goalBlend,0);const bounds=c.portraitBounds(c.zoom);assert.ok(c.x>=bounds[0]&&c.x<=bounds[1]);
+ s.shootingGoal=FIELD.left;c.update(s,1/60);delete s.shootingGoal;c.update(s,0,false,true);
+ assert.equal(c.goalBlend,0);assert.equal(c.goalContext,null);
+});

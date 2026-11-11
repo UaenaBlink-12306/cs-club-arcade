@@ -128,3 +128,12 @@ This pass changes presentation and recorded pose data. Movement response, posses
 - New pose channels are reset at kickoff and interpolated in replays. The mesh face count is unchanged for each player type; no external artwork, dependencies or extra mesh subdivisions were added.
 
 Validation uses production JavaScript in the existing DOM/canvas event harness: continuous gait boundaries, near-stationary stance feet, run-to-kick continuity, contact boot position, lean settling, finite geometry across animation phases, replay channels and keeper direction. The existing passing/shot/ownership/rules/local-mode regressions remain required. Browser plugin and executor were unavailable; no screenshot, physical-touch, subjective smoothness or numerical frame-rate claim is made. Desktop/portrait visual review remains necessary.
+
+
+## Save-view follow-up (2026-11-11)
+
+- The conditional shot forecast is now a pre-contact aid: aiming and wind-up retain the trajectory and `IF CLEAR` labels, while actual ball contact clears them. Flight and save animations are no longer covered by the projected goal-plane caption.
+- Shooting camera context relaxes over 700 ms after the shot/possession context ends. Both the target framing and portrait end-line bounds use that fade, including the clamp applied after zoom interpolation. This removes the discontinuous bounds change at a save; kickoff/reset clears the context immediately.
+- A central-shot fixture at 500×757 reproduced a 155.12 CSS-pixel frame-to-frame camera displacement at the upper-goal save on the prior build. The same fixed-world-point projection moved at most 3.81 CSS pixels per frame after the change at 60 Hz. These are simulated projection measurements, not browser frame-rate measurements.
+- Regression coverage exercises actual saves at both goals, both halves, 30/60/120 Hz and 1180×757/500×757 viewports. It checks forecast presence before contact, absence through flight/save, bounded camera shifts and continued keeper/head/ball visibility. Existing selection-marker, follow-through, aiming and passing tests remain required.
+- Browser/physical-touch visual QA remains external to this environment. Independent review should check the released shot, keeper action and gradual return to normal framing.
