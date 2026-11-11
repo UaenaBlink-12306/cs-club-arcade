@@ -837,6 +837,7 @@ class SoccerMatch {
     const taker=this.players[team*11+9];taker.x=550;taker.y=318;
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:team,lock:0};
     this.giveBall(taker);this.active=team===0?taker.id:this.nearest(0,this.ball).id;this.activeAway=team===1?taker.id:this.nearest(1,this.ball).id;
+    this.kickoffOwner=taker.id;this.kickoffGrace=this.mode==='local'||team===0?2:0;
     this.phase='playing';this.phaseTime=0;this.setPiece=null;this.history=[];this.recordAt=0;
   }
   nearest(team,target,exclude=null){
@@ -844,6 +845,7 @@ class SoccerMatch {
       .reduce((a,p)=>!a||distance(p,target)<distance(a,target)?p:a,null);
   }
   giveBall(p){
+    this.kickoffGrace=0;this.kickoffOwner=null;
     if(this.pendingKick&&this.pendingKick.player!==p.id)this.pendingKick=null;
     this.ball.owner=p.id;this.ball.lastTouch=p.team;this.ball.z=0;this.ball.vx=0;this.ball.vy=0;this.ball.vz=0;
     p.held=0;p.think=Math.max(p.think,.25);this.protection=.55;
@@ -857,7 +859,7 @@ class SoccerMatch {
   }
   move(p,tx,ty,speed,dt){
     tx=clamp(tx,FIELD.left+12,FIELD.right-12);ty=clamp(ty,FIELD.top+12,FIELD.bottom-12);
-    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.84*dt,len);
+    const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.78*dt,len);
     p.speed=dt>0?step/dt:0;
     if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);p.stride+=step*.095;}
   }
@@ -881,6 +883,7 @@ class SoccerMatch {
     p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
     Object.assign(this.ball,{owner:null,x:p.x+dx/len*10,y:p.y+dy/len*10,z:0,
       vx:dx/len*speed,vy:dy/len*speed,vz:loft?185+90*power:0,lastTouch:p.team,lock:.10});
+    this.kickoffGrace=0;this.kickoffOwner=null;
     p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;
     if(shot)this.shots[p.team]++;else this.passes[p.team]++;
     this.setPiece=null;
@@ -939,6 +942,7 @@ class SoccerMatch {
     // Split exactly at contact so 30/60/120 Hz callers launch at the same time.
     if(this.pendingKick&&this.pendingKick.remaining<dt-1e-8){const first=this.pendingKick.remaining;this.step(first,input);this.step(dt-first,input);return;}
     this.elapsed+=dt;this.minute+=dt*.6;
+    this.kickoffGrace=Math.max(0,(this.kickoffGrace||0)-dt);
     this.protection=Math.max(0,(this.protection||0)-dt);this.ball.lock=Math.max(0,this.ball.lock-dt);
     let owner=this.owner;if(owner)owner.held+=dt;
     if(owner?.team===0)this.active=owner.id;
@@ -969,6 +973,10 @@ class SoccerMatch {
       }
       owner=this.owner;
       if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)){
+        if(owner&&this.kickoffGrace>0&&owner.id===this.kickoffOwner){
+          const dx=p.x-owner.x,dy=p.y-owner.y,len=Math.hypot(dx,dy)||1;
+          this.move(p,owner.x+dx/len*70,owner.y+dy/len*70,90,dt);continue;
+        }
         const lead=owner?.team!==p.team&&owner?18:0;
         this.move(p,clamp(this.ball.x+this.ball.vx*.13+d*lead,FIELD.left+14,FIELD.right-14),
           clamp(this.ball.y+this.ball.vy*.13,FIELD.top+14,FIELD.bottom-14),p.team===0||this.mode==='local'?128:115,dt);
@@ -991,7 +999,7 @@ class SoccerMatch {
     owner=this.owner;
     if(owner){
       this.followBall();
-      if(this.protection<=0&&!this.setPiece){
+      if(this.protection<=0&&!this.setPiece&&!(this.kickoffGrace>0&&owner.id===this.kickoffOwner)){
         const defender=this.nearest(1-owner.team,owner);
         if(distance(defender,owner)<25&&defender.cooldown<=0&&this.random()<dt*5){
           owner.cooldown=.65;this.tackles++;this.giveBall(defender);this.event=defender.team===0?'Possession won':'Tackled — win it back';
@@ -1158,7 +1166,7 @@ class ActionCamera {
     const vx=Number.isFinite(b.vx)?b.vx:0,vy=Number.isFinite(b.vy)?b.vy:0;
     const carrier=shot.players.find(p=>p.id===b.owner);
     const runLead=carrier?Math.min(carrier.speed||0,150)*.18:0;
-    const leadX=clamp(vx*.12+(carrier?Math.cos(carrier.angle)*runLead:0),-65,65),leadY=clamp(vy*.10+(carrier?Math.sin(carrier.angle)*runLead:0),-35,35);
+    const leadX=clamp(vx*.07+(carrier?Math.cos(carrier.angle)*runLead:0),-40,40),leadY=clamp(vy*.07+(carrier?Math.sin(carrier.angle)*runLead:0),-24,24);
     let tx=clamp(b.x*.97+active.x*.03+leadX,125,975);
     let ty=clamp(b.y*.97+active.y*.03+leadY,155,490);
     if(this.preset==='intro'||this.preset==='presentation'){tx=550;ty=318;}
@@ -1166,7 +1174,9 @@ class ActionCamera {
     const base=portrait?Math.max(clamp(this.height/410,3.8,5.8),this.width/(this.cssWidth||this.width)*1.8):clamp(this.height/150,3.6,4.25);
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
-    const tz=this.preset==='presentation'?(portrait?1.95:1.12):this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?clamp(this.height*.64/(targetTilt*(Math.abs(b.x-(this.replayGoal??FIELD.left))+100)),portrait?1.7:1.3,portrait?4:3.3):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
+    let tz=this.preset==='presentation'?(portrait?1.95:1.12):this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?clamp(this.height*.64/(targetTilt*(Math.abs(b.x-(this.replayGoal??FIELD.left))+100)),portrait?1.7:1.3,portrait?4:3.3):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
+    // Keep scale steady through the wind-up and contact; never freeze ball tracking.
+    if(this.ready&&!snap&&this.preset==='gameplay'&&shot.players.some(p=>p.strike>0&&p.strike<.65))tz=this.zoom;
     if(this.preset==='replay'){
       const goal=this.replayGoal??FIELD.left,inward=goal===FIELD.left?1:-1;
       tx=goal+inward*this.height*.32/(tz*targetTilt);
@@ -1175,7 +1185,7 @@ class ActionCamera {
     if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(tz);tx=clamp(tx,low,high);}
     const pan=1-Math.exp(-Math.max(0,dt)*5.5),zoom=1-Math.exp(-Math.max(0,dt)*2.8);
     if(!this.ready||snap){this.x=tx;this.y=ty;this.zoom=tz;this.ready=true;}
-    else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=(tz-this.zoom)*zoom;}
+    else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=this.preset==='gameplay'?clamp((tz-this.zoom)*zoom,-.16*dt,.16*dt):(tz-this.zoom)*zoom;}
     // Re-clamp against the interpolated zoom too, including resize and replay.
     if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(this.zoom);this.x=clamp(this.x,low,high);}
   }
@@ -1306,7 +1316,8 @@ function startMatch(){
     if(progress<100)loadTimer=setTimeout(advance,150);
     else{
       match=new SoccerMatch(home,away,mode,23+selection*7+round*17);
-      const fromIntro=camera.preset==='intro';resizeView();if(!fromIntro){camera.ready=false;camera.update(match.snapshot(),0,false,true);}
+      // Establish the live camera under the loading overlay before enabling input.
+      resizeView();camera.ready=false;camera.update(match.snapshot(),0,false,true);
       lastEvent='';accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
       updateControlHint();
       toast(mode==='local'?'Player 1: white / cyan. Player 2: blue / orange.':mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the '+(camera.portrait?'top':'left')+' goal!');
@@ -1336,6 +1347,9 @@ function syncMatch(){
   const panelFor={playing:'match',goal:'goal',replay:'replay',half:'half',restart:'corner',full:'full',paused:'pause',penalties:'penalties'};
   const next=panelFor[match.phase];
   if(view!==next){
+    if(next==='match'&&['half','goal','replay'].includes(view)){
+      resizeView();camera.ready=false;camera.update(match.snapshot(),0,false,true);
+    }
     show(next);
     if(match.phase==='full')result();
     if(match.phase==='restart'){

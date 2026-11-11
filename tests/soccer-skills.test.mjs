@@ -118,7 +118,7 @@ test('touchline exit, attacking miss, and defender touch produce different resta
 });
 test('defenders win possession rather than simply following stationary dots',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2]),p=m.owner,defender=m.players[20];
- defender.x=p.x+15;defender.y=p.y;m.protection=0;m.random=()=>0;
+ m.giveBall(p);defender.x=p.x+15;defender.y=p.y;m.protection=0;m.random=()=>0;
  m.step(1/60,{dx:0,dy:0});
  assert.equal(m.owner.team,1);assert.equal(m.tackles,1);
 });
@@ -501,7 +501,7 @@ test('both teams move simultaneously with separate keys; idle active players rem
  const b1={x:p1.x,y:p1.y},b2={x:p2.x,y:p2.y};
  h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowDown'));
  for(let i=0;i<30;i++)m.step(1/60,h.app.input());
- assert.ok(p1.y<b1.y-55);assert.ok(p2.y>b2.y+55);
+ assert.ok(p1.y<b1.y-50);assert.ok(p2.y>b2.y+50);
  h.window.handlers.keyup(keyEvent('w'));const stop={x:p1.x,y:p1.y};
  for(let i=0;i<15;i++)m.step(1/60,h.app.input());
  assert.ok(distance(p1,stop)<.001);assert.ok(p2.y>b2.y+75);
@@ -1264,4 +1264,62 @@ test('movement starts and stops immediately while visual gait and heading ease b
  m.step(1/60,{dx:0,dy:0});assert.ok(distance(p,stop)<.001);
  assert.ok(p.gaitSpeed>0&&p.gaitSpeed<running);
  assert.ok(Number.isFinite(m.snapshot().players[p.id].angle));
+});
+
+test('human kickoff offers two seconds to aim, then normal tackling resumes',()=>{
+ for(const [mode,team] of [['cup',0],['practice',0],['local',0],['local',1]]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);m.kickoff(team);
+  const p=m.owner,defender=m.players[(1-team)*11+9];
+  m.random=()=>0;
+  const idle={dx:0,dy:0,teams:[{dx:0,dy:0},{dx:0,dy:0}]};
+  for(let i=0;i<108;i++)m.step(1/60,idle);
+  assert.equal(m.owner.id,p.id);assert.equal(m.tackles,0);
+  if(mode!=='local')assert.ok(distance(defender,p)>45,'AI leaves space for the opening aim');
+  else assert.ok(distance(defender,p)<=45,'the second human retains control of their stationary defender');
+  for(let i=0;i<18;i++)m.step(1/60,idle);
+  assert.equal(m.kickoffGrace,0);
+  defender.x=p.x+15;defender.y=p.y;defender.cooldown=0;m.protection=0;
+  m.step(1/60,idle);
+  assert.equal(m.owner.team,1-team);assert.equal(m.tackles,1);
+ }
+});
+test('kickoff grace ends at contact and does not carry into later possessions',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.owner;
+ m.kick(p,{x:350,y:318},.6);assert.ok(m.kickoffGrace>0);
+ advanceToContact(m);assert.equal(m.kickoffGrace,0);
+ m.giveBall(p);assert.equal(m.kickoffGrace,0);assert.equal(m.protection,.55);
+ m.kickoff(0);assert.equal(m.kickoffGrace,2);
+ m.giveBall(m.players[20]);assert.equal(m.kickoffGrace,0);
+ m.kickoff(1);assert.equal(m.kickoffGrace,0,'solo AI kickoff gets no extra immunity');
+});
+test('the first shot starts from a settled camera and does not zoom during contact',()=>{
+ for(const rect of [{width:1440,height:810},{width:500,height:745}]){
+  const h=uiHarness(html),canvas=h.elements.get('game');
+  canvas.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.app.render(.1);assert.equal(h.app.camera.preset,'intro');
+  h.flush();const m=h.app.match,c=h.app.camera;
+  assert.equal(c.preset,'gameplay');
+  assert.ok(c.zoom>3.5);assert.ok(Math.abs(c.yaw-(c.portrait?0:-.12))<.00001);
+  const zoom=c.zoom;h.window.handlers.keydown({key:' ',target:{tagName:'CANVAS'},preventDefault(){},repeat:false});
+  let maxCameraTravel=0;
+  for(let frame=0;frame<30;frame++){
+   const x=c.x,y=c.y,beforeZoom=c.zoom;
+   m.step(1/60,h.app.input());h.app.render(1/60);
+   const displacement=Math.hypot(c.x-x,c.y-y)*c.zoom;
+   maxCameraTravel=Math.max(maxCameraTravel,displacement);
+   assert.ok(Math.abs(c.zoom-beforeZoom)<=.16/60+.000001);
+   if(m.pendingKick||m.snapshot().players[9].strike<.65&&m.snapshot().players[9].strike>0)assert.ok(Math.abs(c.zoom-zoom)<.00001);
+   const ball=c.project(m.ball.x,m.ball.y,m.ball.z*.65+1.5);
+   assert.ok(ball.x>0&&ball.x<c.width&&ball.y>0&&ball.y<c.height);
+  }
+  assert.ok(maxCameraTravel<c.width*.065,'opening camera must not lurch across the viewport');
+ }
+});
+test('replay and halftime return directly to a settled kickoff camera before input',()=>{
+ const h=localHarness(),m=h.app.match,c=h.app.camera;
+ m.phase='half';h.app.syncMatch();h.app.render(.1);assert.equal(c.preset,'presentation');
+ h.click('resume');assert.equal(c.preset,'gameplay');assert.equal(m.kickoffGrace,2);
+ m.scorer=0;m.phase='replay';m.replayFrames=[m.snapshot()];h.app.syncMatch();h.app.render(.1);
+ assert.equal(c.preset,'replay');h.click('skipReplay');assert.equal(c.preset,'gameplay');
+ assert.ok(Math.abs(c.yaw+.12)<.00001);assert.equal(m.kickoffGrace,2);
 });
