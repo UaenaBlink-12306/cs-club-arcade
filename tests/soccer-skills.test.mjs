@@ -2261,3 +2261,72 @@ test('goal guidance respects possession, both local sides, misses and replay vis
  const f=placeShot(solo.app.match,359,0,1);solo.app.camera.update(f.m.snapshot(),0,false,true);
  assert.equal(solo.app.goalAimGuide(f.p),null,'opponent possession must not advertise player aim guidance');
 });
+
+test('a nearby team-mate beside the launch path no longer traps a fast shot at contact',()=>{
+ for(const hz of [30,60,120])for(const team of [0,1])for(const period of [1,2]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),180,0,team,period);
+  const q=f.m.players[team*11+6];q.x=f.p.x+f.d*8;q.y=f.p.y+15;
+  f.m.kick(f.p,{x:f.goal+f.d*20,y:FIELD.cy+45},1);
+  while(f.m.pendingKick)f.m.step(Math.min(1/hz,f.m.pendingKick.remaining),{dx:0,dy:0});
+  assert.equal(f.m.shots[team],1);
+  for(let i=0;i<Math.ceil(hz*.08);i++)f.m.step(1/hz,{dx:0,dy:0});
+  assert.ok(f.m.ball.owner!==q.id,'a shot beside a team-mate must clear the receiving halo');
+  assert.ok(Math.hypot(f.m.ball.vx,f.m.ball.vy)>300);
+ }
+});
+test('stationary bodies of either team still block fast shots while adjacent bodies do not',()=>{
+ for(const hz of [30,60,120])for(const shotTeam of [0,1])for(const blockerTeam of [0,1])for(const period of [1,2])for(const offset of [0,7,12]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),180,0,shotTeam,period),m=f.m;
+  for(const q of m.players){q.x=550;q.y=110;}
+  const blocker=m.players[blockerTeam*11+6],x=f.goal-f.d*100;blocker.x=x;blocker.y=318+offset;blocker.cooldown=0;
+  m.move=()=>{};m.offside=null;m.lastRestart=null;
+  m.flight={id:1,team:shotTeam,shot:true,started:0,target:{x:f.goal,y:318}};
+  Object.assign(m.ball,{owner:null,x:x-f.d*12,y:318,z:0,vx:f.d*550,vy:0,vz:0,lastTouch:shotTeam,lock:0});
+  for(let i=0;i<Math.ceil(hz*.07)&&!m.owner;i++)m.step(1/hz,{dx:0,dy:0});
+  if(offset<8){assert.equal(m.owner?.id,blocker.id);assert.equal(m.interceptions[blockerTeam],shotTeam===blockerTeam?0:1);}
+  else{assert.equal(m.owner,null);assert.ok((m.ball.x-x)*f.d>8);}
+ }
+});
+test('pointer preview, pending kick and contact agree for a goal, save, wide miss and deliberate pass',()=>{
+ for(const rect of [{width:1100,height:620},{width:500,height:745}])for(const period of [1,2])
+ for(const outcome of ['goal','save','miss','pass']){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,outcome==='miss'?-118:0,0,period),receiver=f.m.players[6];
+  for(const q of f.m.players)if(q!==f.p&&!q.keeper){q.x=q.team===1?f.goal-f.d*30:550;q.y=q.team===1?FIELD.top+20:FIELD.bottom-20;}
+  if(outcome==='pass'){receiver.x=f.p.x+f.d*60;receiver.y=f.p.y-30;}
+  h.app.render(0);h.app.camera.update(f.m.snapshot(),0,false,true);const cam=h.app.camera;
+  const from=cam.project(f.p.x,f.p.y),dest=outcome==='pass'?cam.project(receiver.x,receiver.y):cam.project(f.goal,outcome==='goal'?363:outcome==='miss'?408:318);
+  const n=Math.hypot(dest.x-from.x,dest.y-from.y),length=outcome==='pass'?n:Math.min(cam.width,cam.height)*.32;
+  const end={x:from.x+(dest.x-from.x)/n*length,y:from.y+(dest.y-from.y)/n*length};
+  c.handlers.pointerdown(pointerEvent(h,from.x,from.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+  const preview=h.app.pointerAim(h.app.drag);assert.equal(preview.shot,outcome!=='pass');
+  const guide=h.app.goalAimGuide(f.p,preview);if(guide&&preview.shot)assert.equal(guide.wide,outcome==='miss');
+  c.handlers.pointerup(pointerEvent(h,end.x,end.y));assert.equal(f.m.pendingKick.shot,preview.shot);
+  if(outcome==='pass'){
+   advanceToContact(f.m);assert.equal(f.m.passes[0],1);assert.equal(f.m.shots[0],0);
+   for(let i=0;i<240&&!f.m.owner&&f.m.phase==='playing';i++)f.m.step(1/120,{dx:0,dy:0});
+   assert.equal(f.m.owner?.id,receiver.id);
+  }else{assert.equal(finishShot(f.m,f.p,f.keeper),outcome);assert.equal(f.m.shots[0],1);}
+ }
+});
+test('a deliberately far-wide pointer ray stays a pass in preview and at contact',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180),cam=h.app.camera,c=h.elements.get('game');
+ cam.update(f.m.snapshot(),0,false,true);
+ const from=cam.project(f.p.x,f.p.y),dest=cam.project(f.goal,FIELD.cy+180),n=Math.hypot(dest.x-from.x,dest.y-from.y);
+ const end={x:from.x+(dest.x-from.x)/n*200,y:from.y+(dest.y-from.y)/n*200};
+ c.handlers.pointerdown(pointerEvent(h,from.x,from.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+ const intent=h.app.pointerAim(h.app.drag);assert.equal(intent.shot,false);assert.ok(intent.target.pass);
+ c.handlers.pointerup(pointerEvent(h,end.x,end.y));assert.equal(f.m.pendingKick.shot,false);
+ advanceToContact(f.m);assert.equal(f.m.passes[0],1);assert.equal(f.m.shots[0],0);
+});
+test('goal aim label avoids a nearby player while post markers retain exact rays and contrast backing',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,359),cam=h.app.camera;
+ cam.update(f.m.snapshot(),0,false,true);const initial=h.app.goalAimGuide(f.p),q=f.m.players[6];
+ const body=cam.unproject(initial.title.x,initial.title.y);q.x=body.x;q.y=body.y;
+ const guide=h.app.goalAimGuide(f.p);assert.ok(guide.title.overlap===0);
+ assert.ok(Math.hypot(guide.title.x-initial.title.x,guide.title.y-initial.title.y)>10);
+ assert.ok(Math.hypot(guide.a.x-initial.a.x,guide.a.y-initial.a.y)<.00001,'moving text must not distort post rays');
+ h.draws.length=0;h.app.render(0);
+ assert.ok(h.draws.some(d=>d.method==='arc'&&Math.abs(d.args[2]-6*guide.unit)<.00001),'post dots need a dark contrast disc');
+ assert.ok(h.draws.some(d=>d.method==='fillRect'&&Math.abs(d.args[2]-guide.title.width)<.00001),'label needs an opaque backing');
+});
