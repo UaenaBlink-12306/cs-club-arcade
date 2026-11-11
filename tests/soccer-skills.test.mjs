@@ -1323,3 +1323,58 @@ test('replay and halftime return directly to a settled kickoff camera before inp
  assert.equal(c.preset,'replay');h.click('skipReplay');assert.equal(c.preset,'gameplay');
  assert.ok(Math.abs(c.yaw+.12)<.00001);assert.equal(m.kickoffGrace,2);
 });
+
+function runIdleFrames(h,clock,seconds,check=()=>{}){
+ const count=Math.round(seconds*30);
+ for(let frame=0;frame<count;frame++){
+  clock.time+=1000/30;h.tick(clock.time);h.draws.length=0;check(frame);
+ }
+}
+test('actual idle frame loop never auto-kicks at practice or cup kickoff, including Restart Match',()=>{
+ for(const mode of ['practice','cup']){
+  const h=uiHarness(html),clock={time:0};
+  h.chooseMode(mode);if(mode==='cup')h.click('startMatch');h.flush();
+  for(let run=0;run<2;run++){
+   const m=h.app.match,taker=m.owner,start={x:taker.x,y:taker.y};
+   runIdleFrames(h,clock,1.8,()=>{
+    assert.deepEqual(h.app.input(),{dx:0,dy:0});
+    assert.equal(m.owner.id,taker.id);assert.equal(m.pendingKick,null);
+    assert.deepEqual(m.passes,[0,0]);assert.deepEqual(m.shots,[0,0]);
+    assert.ok(distance(taker,start)<.001,'idle taker does not run automatically');
+    assert.equal(h.app.camera.preset,'gameplay');
+   });
+   runIdleFrames(h,clock,1.2,()=>{
+    assert.equal(m.passes[0],0);assert.equal(m.shots[0],0);
+    assert.ok(m.pendingKick?.player!==taker.id);
+   });
+   h.click('menuBtn');h.click('restartMatch');h.flush();
+  }
+ }
+});
+test('releasing a movement key keeps possession idle until an intentional shot',()=>{
+ const h=uiHarness(html),clock={time:0};h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.owner;
+ for(const q of m.players)if(q!==p){q.x=950;q.y=100+q.id*3;}
+ m.protection=10;
+ h.window.handlers.keydown({key:'ArrowLeft',target:{tagName:'CANVAS'},repeat:false,preventDefault(){}});
+ runIdleFrames(h,clock,1.5);
+ assert.ok(p.x<420);h.window.handlers.keyup({key:'ArrowLeft'});
+ const stop={x:p.x,y:p.y};
+ runIdleFrames(h,clock,3,()=>{
+  assert.equal(m.owner.id,p.id);assert.ok(distance(p,stop)<.001);
+  assert.equal(m.pendingKick,null);assert.equal(m.passes[0],0);assert.equal(m.shots[0],0);
+ });
+ h.window.handlers.keydown({key:' ',target:{tagName:'CANVAS'},repeat:false,preventDefault(){}});
+ assert.ok(m.pendingKick);
+ runIdleFrames(h,clock,.2);assert.equal(m.shots[0],1);assert.equal(m.passes[0],0);
+});
+test('idle human controls leave opposition shooting and off-ball teammate AI operational',()=>{
+ const h=uiHarness(html),clock={time:0};h.chooseMode('practice');h.flush();
+ const m=h.app.match,opponent=m.players[20];
+ opponent.x=820;opponent.y=FIELD.cy;m.giveBall(opponent);
+ const before=m.snapshot();
+ runIdleFrames(h,clock,1);
+ assert.ok(m.shots[1]>0,'opponent decides to shoot without human input');
+ assert.equal(m.shots[0],0);assert.equal(m.passes[0],0);
+ assert.ok(m.players.filter(p=>!p.keeper&&p.id!==m.active&&distance(p,before.players[p.id])>5).length>=6,'off-ball players still steer');
+});

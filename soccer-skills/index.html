@@ -1449,7 +1449,8 @@ function input(){
   if(drag){const len=Math.hypot(drag.dx,drag.dy);return {dx:len>6?drag.dx/len:0,dy:len>6?drag.dy/len:0};}
   const dx=Number(keys.has('d')||keys.has('arrowright'))-Number(keys.has('a')||keys.has('arrowleft'));
   const dy=Number(keys.has('s')||keys.has('arrowdown'))-Number(keys.has('w')||keys.has('arrowup'));
-  if(!dx&&!dy)return null;
+  // Idle is still human control; null hands the selected player to the engine AI.
+  if(!dx&&!dy)return {dx:0,dy:0};
   const v=camera.vector(match.players[match.active],dx*10,dy*10),len=Math.hypot(v.x,v.y);
   return {dx:v.x/len,dy:v.y/len};
 }
