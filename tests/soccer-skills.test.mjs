@@ -1500,3 +1500,19 @@ test('receiving pose cushions contact then settles without delaying movement or 
  assert.equal(m.snapshot().players[p.id].receive,0);
  m.kickoff(0);assert.ok(m.snapshot().players.every(q=>q.receive===0));
 });
+
+test('replay suppresses decorative board lettering while keeping skip and return to play functional',()=>{
+ const h=uiHarness(html);h.app.render(1/60);
+ const slogan=d=>d.method==='fillText'&&['PLAY TOGETHER','SOCCER SKILLS'].includes(d.args[0]);
+ assert.ok(h.draws.some(slogan),'stadium lettering is retained outside replay');
+ h.chooseMode('practice');h.flush();
+ const m=h.app.match;m.scorer=0;m.phase='replay';
+ const recorded=m.snapshot();recorded.ball.x=FIELD.left-1;recorded.ball.y=FIELD.cy;
+ m.replayFrames=[recorded];m.replayTime=.5;h.app.syncMatch();
+ h.draws.length=0;h.app.render(1/60);
+ assert.equal(h.app.view,'replay');assert.equal(h.draws.some(slogan),false);
+ assert.ok(h.elements.get('attackDirection').classList.contains('hidden'));
+ assert.ok(h.draws.some(d=>d.method==='fill'),'replay scene continues to render');
+ h.click('skipReplay');assert.equal(m.phase,'playing');assert.equal(h.app.view,'match');
+ assert.ok(!h.elements.get('attackDirection').classList.contains('hidden'));
+});

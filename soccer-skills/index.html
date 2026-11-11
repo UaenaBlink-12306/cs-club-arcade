@@ -732,6 +732,9 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 @keyframes footballPanelIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 .panel:not(.hidden):not(#replay):not(#corner){animation:footballPanelIn .16s ease-out}
 @media(prefers-reduced-motion:reduce){.panel:not(.hidden){animation:none}button,#toast{transition:none}}
+
+/* Compact caption backing separates replay text from moving stadium detail. */
+#replay h2{background:#102c22;color:#f4f7e7;padding:5px 8px;border-radius:2px;font-size:12px;line-height:16px;max-width:210px;text-shadow:none;pointer-events:none}
 </style>
 </head>
 <body>
@@ -1259,6 +1262,7 @@ function show(id){
   view=id;if(id!=='corner')$('#matchStatus').textContent='';updateControlHint();$('#soloPauseHelp').textContent=mode==='local'?'':$('#gameControls').textContent;$('#localPauseHelp').classList.toggle('hidden',mode!=='local');panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
   $('#hud').classList.toggle('hidden',!['match','goal','replay','half','corner','pause','penalties'].includes(id));
   $('#hint').classList.toggle('hidden',id!=='match');
+  $('#attackDirection').classList.toggle('hidden',id==='replay');
   if(id!=='match'){drag=null;keys.clear();}
 }
 function toast(message){
@@ -1675,7 +1679,8 @@ function perimeterBoards(){
       const end=Math.min(x+150,f.right+50);
       groundPath([[x,y],[end,y],[end,y,17],[x,y,17]],i%2?'#3b4c54':'#627a79','#a5e4cf',.7);
       const p=camera.project((x+end)/2,y,5);
-      if(visibleGround((x+end)/2,y))label(i%2?'PLAY TOGETHER':'SOCCER SKILLS',p.x,p.y,8*p.scale,'#eeffec');
+      // Decorative lettering competes with replay captions as the camera swings behind goal.
+      if(match?.phase!=='replay'&&visibleGround((x+end)/2,y))label(i%2?'PLAY TOGETHER':'SOCCER SKILLS',p.x,p.y,8*p.scale,'#eeffec');
     }
   }
   for(const x of [f.left-55,f.right+55]){
