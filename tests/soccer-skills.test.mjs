@@ -860,7 +860,7 @@ test('behind-goal replay keeps recorded action and the goal in frame at both end
    }
    assert.ok(c.tilt<(c.portrait?.55:.35));
    const totalYaw=c.yaw+(c.portrait?Math.PI/2:0);
-   assert.ok(Math.abs(totalYaw-(goal===FIELD.left?-Math.PI/2:Math.PI/2))<.01);
+   assert.ok(Math.abs(totalYaw-(goal===FIELD.left?-Math.PI/2+.28:Math.PI/2-.28))<.01);
    c.update(m.snapshot(),1/60,false);assert.equal(c.preset,'gameplay');
   }
  }
@@ -873,4 +873,36 @@ test('composed interval art and sculptural trophy retain accessible team and sco
  h.chooseMode('menu');h.chooseMode('cup');
  const cup=h.elements.get('cupBracket').innerHTML;
  assert.ok(cup.includes('International Cup trophy'));assert.ok(cup.includes('cx="90" cy="55" r="40"'));
+});
+
+test('country columns list the actual eight finalists once and identify the selected team',()=>{
+ const h=uiHarness(html);h.click('next');h.chooseMode('cup');
+ const roster=h.elements.get('cupEntrants').innerHTML;
+ assert.equal((roster.match(/class="country-row/g)||[]).length,8);
+ assert.equal((roster.match(/class="country-row chosen"/g)||[]).length,1);
+ for(const nation of NATIONS){
+  assert.equal((roster.match(new RegExp('<b>'+nation.name+'</b>','g'))||[]).length,1);
+ }
+ assert.ok(roster.includes('86 / 84 / 82'));
+ h.click('startMatch');h.flush();h.app.match.score=[1,0];h.app.match.finish();h.app.syncMatch();h.click('continueCup');
+ assert.equal(h.app.round,1);assert.ok(h.elements.get('cupEntrants').innerHTML.includes('<b>Argentina</b>'));
+});
+test('oblique replay visibly separates the two goalposts in depth while preserving projection inversion',()=>{
+ const h=localHarness(),c=h.app.camera;
+ for(const goal of [FIELD.left,FIELD.right]){
+  c.replayGoal=goal;c.preset='gameplay';
+  const shot=h.app.match.snapshot();shot.ball.x=goal+(goal===FIELD.left?100:-100);shot.ball.y=318;
+  c.update(shot,1/60,true);
+  const a=c.project(goal,FIELD.cy-FIELD.goalHalf),b=c.project(goal,FIELD.cy+FIELD.goalHalf);
+  assert.ok(Math.abs(a.y-b.y)>10,'goal view should be oblique rather than straight-on');
+  const point=c.project(shot.ball.x,shot.ball.y),world=c.unproject(point.x,point.y);
+  assert.ok(distance(world,shot.ball)<.0001);
+ }
+});
+test('player cadence varies by identity without altering simulation positions',()=>{
+ const h=localHarness(),m=h.app.match,base=m.snapshot().players[9],ball=m.ball;
+ const a=h.app.playerPose({...base,id:9,speed:110,stride:1},ball);
+ const b=h.app.playerPose({...base,id:10,speed:110,stride:1},ball);
+ assert.ok(Math.abs(a.stride-b.stride)>.01);
+ const before=m.snapshot();h.app.render(1/60);assert.deepEqual(m.snapshot(),before);
 });
