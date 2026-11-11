@@ -2567,3 +2567,30 @@ test('an on-target forecast remains a prediction when a real defender blocks the
  for(let i=0;i<30&&!m.owner&&m.phase==='playing';i++)m.step(1/120,{dx:0,dy:0});
  assert.equal(m.owner?.id,defender.id);assert.deepEqual(m.score,[0,0]);
 });
+
+test('player shot forecast clears the selection arrow and paints after players in desktop and portrait',()=>{
+ for(const rect of [{width:1100,height:620},{width:500,height:745}])for(const period of [1,2])for(const aim of [45,90]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,...rect});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,0,0,period),cam=h.app.camera;
+  cam.ready=false;h.app.render(0);
+  const from=cam.project(f.p.x,f.p.y),goal=cam.project(f.goal,318+aim),n=Math.hypot(goal.x-from.x,goal.y-from.y),length=Math.min(cam.width,cam.height)*.32;
+  const end={x:from.x+(goal.x-from.x)/n*length,y:from.y+(goal.y-from.y)/n*length};
+  c.handlers.pointerdown(pointerEvent(h,from.x,from.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+  const before=h.app.shotForecast(),state=JSON.stringify(f.m.snapshot());
+  h.draws.length=0;h.app.render(0);
+  assert.equal(JSON.stringify(f.m.snapshot()),state,'HUD layout must not change the simulation');
+  assert.ok(distance(before.crossing,h.app.shotForecast().crossing)<.00001,'HUD layout must not change aim');
+  const power=h.draws.findIndex(d=>d.method==='fillText'&&String(d.args[0]).startsWith('SHOT '));
+  assert.ok(power>=0);const text=h.draws[power].args,unit=1100/rect.width;
+  const forecast=h.draws.findIndex(d=>d.method==='fillText'&&String(d.args[0]).includes('IF CLEAR')&&Math.abs(d.args[1]-text[1])<.001&&Math.abs(d.args[2]-text[2]-24*unit)<.001);
+  assert.ok(forecast>power,'the player-level forecast remains visible beside its power label');
+  const arrow=cam.project(f.p.x,f.p.y,28),bounds={left:arrow.x-3.4*arrow.scale,right:arrow.x+3.4*arrow.scale,top:arrow.y-2.4*arrow.scale,bottom:arrow.y+3.4*arrow.scale};
+  const panel={left:text[1]-66*unit,right:text[1]+66*unit,top:text[2]-12*unit,bottom:text[2]+29*unit};
+  assert.ok(panel.right<=bounds.left-6*unit||panel.left>=bounds.right+6*unit||panel.bottom<=bounds.top-6*unit||panel.top>=bounds.bottom+6*unit,'HUD must leave a visible gap around the arrow');
+  assert.ok(panel.left>=0&&panel.right<=cam.width&&panel.top>=0&&panel.bottom<=cam.height);
+  const triangle=h.draws.findIndex(d=>d.method==='moveTo'&&Math.abs(d.args[0]-arrow.x)<.001&&Math.abs(d.args[1]-arrow.y-3*arrow.scale)<.001);
+  assert.ok(triangle>=0&&power>triangle+5,JSON.stringify({rect,period,aim,power,triangle,arrow,active:f.m.active,player:f.p.id,near:h.draws.filter(d=>d.method==='moveTo'&&Math.abs(d.args[0]-arrow.x)<.001).slice(-5)}));
+  c.handlers.pointerup(pointerEvent(h,end.x,end.y));assert.ok(f.m.pendingKick.shot);
+  assert.equal(finishShot(f.m,f.p,f.keeper),aim===45?'goal':'miss');
+ }
+});

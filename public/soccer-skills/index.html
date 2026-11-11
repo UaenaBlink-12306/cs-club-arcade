@@ -2450,6 +2450,37 @@ function drawShotForecast(prediction){
   }
   ctx.restore();
 }
+function playerAimLayout(p,withForecast){
+  const unit=W/canvas.getBoundingClientRect().width,arrow=camera.project(p.x,p.y,28);
+  const half=(withForecast?66:46)*unit,bottom=(withForecast?26:8)*unit;
+  // Reserve the arrow's stroked triangle plus a CSS-pixel gap at every zoom.
+  const marker={left:arrow.x-3.4*arrow.scale-8*unit,right:arrow.x+3.4*arrow.scale+8*unit,
+    top:arrow.y-2.4*arrow.scale-8*unit,bottom:arrow.y+3.4*arrow.scale+8*unit};
+  const options=[
+    {x:arrow.x,y:marker.top-bottom},
+    {x:marker.right+half,y:arrow.y},
+    {x:marker.left-half,y:arrow.y},
+    {x:arrow.x,y:marker.bottom+15*unit}
+  ].map(q=>{
+    const x=clamp(q.x,half+8*unit,W-half-8*unit),y=clamp(q.y,80*unit,H-bottom-16*unit);
+    const rect={left:x-half,right:x+half,top:y-15*unit,bottom:y+bottom};
+    const overlap=Math.max(0,Math.min(rect.right,marker.right)-Math.max(rect.left,marker.left))*
+      Math.max(0,Math.min(rect.bottom,marker.bottom)-Math.max(rect.top,marker.top));
+    return {x,y,unit,rect,overlap};
+  });
+  return options.reduce((best,q)=>q.overlap<best.overlap?q:best);
+}
+function drawPlayerAimHUD(p,intent,forecast){
+  const prediction=intent.shot?forecast:null,{x,y,unit}=playerAimLayout(p,!!prediction),width=72*unit;
+  ctx.fillStyle='#102c22';ctx.fillRect(x-width/2-5*unit,y-15*unit,width+10*unit,23*unit);
+  label((intent.shot?'SHOT':'PASS')+' '+Math.round(intent.power*100)+'%',x,y-3*unit,11*unit,'#d8ffec');
+  ctx.fillStyle='#2d655a';ctx.fillRect(x-width/2,y+3*unit,width,3*unit);
+  ctx.fillStyle='#43e8dd';ctx.fillRect(x-width/2,y+3*unit,width*intent.power,3*unit);
+  if(prediction){
+    ctx.fillStyle='#102c22';ctx.fillRect(x-66*unit,y+9*unit,132*unit,17*unit);
+    label(prediction.label+' · IF CLEAR',x,y+21*unit,9*unit,prediction.onTarget&&!prediction.marginal?'#8ef5ff':'#ffd087');
+  }
+}
 function render(dt=0){
   resizeView();updateDrag();
   let shot=match?match.snapshot():(view==='loading'?introShot:null);
@@ -2472,7 +2503,7 @@ function render(dt=0){
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
-  const forecast=shotForecast();
+  const forecast=shotForecast();let aimHUD=null;
   if(match?.phase==='restart'){
     if(match.restart.reason&&match.lastFoul)groundArc(match.lastFoul.x,match.lastFoul.y,14,0,Math.PI*2,'#ffce64');
     if(match.restart.offside)groundArc(match.restart.offside.x,match.restart.offside.y,12,0,Math.PI*2,'#ffce64');
@@ -2488,15 +2519,7 @@ function render(dt=0){
         const target=camera.project(end.x,end.y);
         ctx.strokeStyle='#a4ffff';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(target.x,target.y,7*target.scale,4*target.scale,0,0,Math.PI*2);ctx.stroke();
       }
-      if(owned){
-        const at=camera.project(p.x,p.y,31),unit=W/canvas.getBoundingClientRect().width;
-        const x=clamp(at.x,70*unit,W-70*unit),y=clamp(at.y,65*unit,H-45*unit),width=72*unit;
-        ctx.fillStyle='#102c22e8';ctx.fillRect(x-width/2-5*unit,y-15*unit,width+10*unit,23*unit);
-        label((intent.shot?'SHOT':'PASS')+' '+Math.round(intent.power*100)+'%',x,y-3*unit,11*unit,'#d8ffec');
-        ctx.fillStyle='#2d655a';ctx.fillRect(x-width/2,y+3*unit,width,3*unit);
-        ctx.fillStyle='#43e8dd';ctx.fillRect(x-width/2,y+3*unit,width*intent.power,3*unit);
-        if(intent.shot&&forecast){ctx.fillStyle='#102c22f5';ctx.fillRect(x-60*unit,y+9*unit,120*unit,17*unit);label(forecast.label+' · IF CLEAR',x,y+21*unit,9*unit,forecast.onTarget&&!forecast.marginal?'#8ef5ff':'#ffd087');}
-      }
+      if(owned)aimHUD={player:p,intent};
     }
   }
   const entities=shot.players.map(p=>({y:camera.project(p.x,p.y).y,player:p}));
@@ -2506,6 +2529,7 @@ function render(dt=0){
   const light=ctx.createLinearGradient(0,0,W,H);
   light.addColorStop(0,'#d4f5cf05');light.addColorStop(.5,'#fff9cd00');light.addColorStop(1,'#173a4b0c');
   ctx.fillStyle=light;ctx.fillRect(0,0,W,H);
+  if(aimHUD)drawPlayerAimHUD(aimHUD.player,aimHUD.intent,forecast);
   drawShotForecast(forecast);
   const keeperClock=keeperCountdown();
   if(keeperClock){
