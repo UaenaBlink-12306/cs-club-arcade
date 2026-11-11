@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,input,bracketMarkup,replaySample};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,input,bracketMarkup,cupFinalists,opponentFor,replaySample};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -681,11 +681,16 @@ test('one compact selector directly launches practice, cup and local setup',()=>
  h.chooseMode('menu');h.chooseMode('cup');assert.equal(h.app.view,'trophy');
  h.chooseMode('team');assert.equal(h.app.view,'menu');h.chooseMode('multi');assert.equal(h.app.view,'local');
 });
-test('eight-team bracket has every nation once in quarterfinals and actual future opponents on each branch',()=>{
+test('eight-team bracket has unique finalists from the 32-country roster and actual future opponents on each branch',()=>{
  const h=uiHarness(html);
  for(let n=0;n<NATIONS.length;n++){
   const qf=h.app.bracketMarkup(n,0,false);
-  for(const nation of NATIONS)assert.equal((qf.match(new RegExp('title="'+nation.name+'"','g'))||[]).length,1);
+  const field=h.app.cupFinalists(n);
+  assert.equal(field.length,8);assert.equal(new Set(field).size,8);assert.equal(field[0],n);
+  const actual=[...qf.matchAll(/title="([^"]+)"/g)].map(m=>m[1]);
+  assert.equal(actual.length,8);assert.equal(new Set(actual).size,8);
+  assert.deepEqual(actual,[field[0],field[1],field[2],field[3],field[4],field[5],field[6],field[7]].map(i=>NATIONS[i].name));
+  for(let r=0;r<3;r++)assert.equal(h.app.opponentFor(n,r),field[[1,2,4][r]]);
   assert.equal((qf.match(/class="bracket-match"/g)||[]).length,7);
  }
  h.chooseMode('cup');
@@ -880,8 +885,8 @@ test('country columns list the actual eight finalists once and identify the sele
  const roster=h.elements.get('cupEntrants').innerHTML;
  assert.equal((roster.match(/class="country-row/g)||[]).length,8);
  assert.equal((roster.match(/class="country-row chosen"/g)||[]).length,1);
- for(const nation of NATIONS){
-  assert.equal((roster.match(new RegExp('<b>'+nation.name+'</b>','g'))||[]).length,1);
+ for(const index of h.app.cupFinalists(1)){
+  assert.equal((roster.match(new RegExp('<b>'+NATIONS[index].name+'</b>','g'))||[]).length,1);
  }
  assert.ok(roster.includes('86 / 84 / 82'));
  h.click('startMatch');h.flush();h.app.match.score=[1,0];h.app.match.finish();h.app.syncMatch();h.click('continueCup');
@@ -936,7 +941,7 @@ test('kick and goalkeeper poses change mesh geometry without changing the match 
 });
 test('country grid supports direct choice with pressed state and correct cup opponent status',()=>{
  const h=uiHarness(html),grid=h.elements.get('nationGrid');
- assert.equal((grid.innerHTML.match(/data-nation=/g)||[]).length,8);
+ assert.equal((grid.innerHTML.match(/data-nation=/g)||[]).length,32);
  grid.handlers.click({target:{closest:()=>({dataset:{nation:'3'}})}});
  assert.equal(h.elements.get('teamName').textContent,'Japan');
  assert.ok(grid.innerHTML.includes('data-nation="3" aria-label="Choose Japan" aria-pressed="true"'));
@@ -967,4 +972,128 @@ test('portrait action remains legible in CSS pixels while desktop keeps its orig
  canvas.getBoundingClientRect=()=>({left:0,top:0,width:1440,height:810});
  c.ready=false;h.app.render(1/60);
  assert.equal(c.portrait,false);assert.equal(c.zoom,1.85);
+});
+
+test('32 unique countries have complete ratings and directly selectable, scroll-preserving controls',()=>{
+ assert.equal(NATIONS.length,32);
+ for(const key of ['name','code','flag'])assert.equal(new Set(NATIONS.map(n=>n[key])).size,32);
+ const h=uiHarness(html),grid=h.elements.get('nationGrid');
+ for(let i=0;i<32;i++){
+  const n=NATIONS[i];assert.ok(n.name&&n.flag&&/^[A-Z]{3}$/.test(n.code));
+  for(const key of ['attack','midfield','defence'])assert.ok(Number.isInteger(n[key])&&n[key]>=0&&n[key]<=100);
+  grid.scrollTop=120+i;
+  grid.handlers.click({target:{closest:()=>({dataset:{nation:String(i)}})}});
+  assert.equal(grid.scrollTop,120+i);
+  assert.equal((grid.innerHTML.match(/aria-pressed="true"/g)||[]).length,1);
+  assert.ok(grid.innerHTML.includes('data-nation="'+i+'" aria-label="Choose '+n.name+'" aria-pressed="true"'));
+  assert.ok(grid.innerHTML.includes('<b>'+n.name+'</b>'));
+  assert.ok(grid.innerHTML.includes(n.attack+' / '+n.midfield+' / '+n.defence));
+  assert.equal(h.elements.get('teamName').textContent,n.name);
+  assert.equal(h.elements.get('teamFlag').textContent,n.flag);
+  assert.equal(h.elements.get('atk').textContent,n.attack);
+  assert.equal(h.elements.get('mid').textContent,n.midfield);
+  assert.equal(h.elements.get('def').textContent,n.defence);
+ }
+ h.click('next');assert.equal(h.elements.get('teamName').textContent,NATIONS[0].name);
+ h.click('prev');assert.equal(h.elements.get('teamName').textContent,NATIONS[31].name);
+});
+
+test('every country completes a stable QF to semifinal to final path with no duplicate finalists',()=>{
+ const allOpponents=new Set();
+ for(let home=0;home<32;home++){
+  const h=uiHarness(html),grid=h.elements.get('nationGrid');
+  grid.handlers.click({target:{closest:()=>({dataset:{nation:String(home)}})}});
+  h.chooseMode('cup');
+  const originalRoster=h.elements.get('cupEntrants').innerHTML;
+  const field=h.app.cupFinalists(home),faced=[];
+  field.slice(1).forEach(i=>allOpponents.add(i));
+  for(let r=0;r<3;r++){
+   assert.equal(h.app.round,r);
+   const bracket=h.elements.get('cupBracket').innerHTML,opponent=h.app.opponentFor(home,r);
+   const roster=h.elements.get('cupEntrants').innerHTML;
+   assert.equal((roster.match(/class="country-row/g)||[]).length,8);
+   for(const i of field)assert.ok(roster.includes('<b>'+NATIONS[i].name+'</b>'));
+   assert.equal((roster.match(/<em>NEXT<\/em>/g)||[]).length,1);
+   assert.ok(bracket.includes('title="'+NATIONS[opponent].name+'"'));
+   h.click('startMatch');assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[home].name);h.flush();
+   assert.equal(h.app.match.home.code,NATIONS[home].code);
+   assert.equal(h.app.match.away.code,NATIONS[opponent].code);faced.push(opponent);
+   assert.equal(h.elements.get('awayName').textContent,NATIONS[opponent].code);
+   h.click('menuBtn');h.click('restartMatch');h.flush();
+   assert.equal(h.app.match.away.code,NATIONS[opponent].code);
+   h.app.match.score=[2,1];h.app.match.finish();h.app.syncMatch();
+   assert.equal(h.elements.get('resultHomeName').textContent,NATIONS[home].name);
+   assert.equal(h.elements.get('resultAwayName').textContent,NATIONS[opponent].name);
+   h.click('continueCup');
+  }
+  assert.equal(new Set(faced).size,3);assert.ok(!faced.includes(home));assert.ok(h.app.champion);
+  h.click('startMatch');h.flush();assert.equal(h.app.round,0);assert.equal(h.app.champion,false);
+  h.app.match.score=[0,1];h.app.match.finish();h.app.syncMatch();h.click('continueCup');
+  assert.equal(h.app.round,0);assert.equal(h.app.champion,false);
+  assert.equal(h.elements.get('cupEntrants').innerHTML,originalRoster);
+ }
+ assert.equal(allOpponents.size,32,'all selectable countries can participate in generated fields');
+});
+
+test('every country propagates through either local player dropdown, loading, HUD, halftime, results and rematch',()=>{
+ for(const side of ['Home','Away'])for(let n=0;n<32;n++){
+  const h=uiHarness(html);h.chooseMode('multi');
+  // Move the other player away first so any of the 32 countries can be selected.
+  const other=side==='Home'?'Away':'Home',otherSelect=h.elements.get('local'+other+'Select');
+  const otherIndex=(n+1)%32;
+  // Use the arrows if the requested other country is currently held by this player.
+  if(Number(h.elements.get('local'+side+'Select').value)===otherIndex)h.click('local'+side+'Next');
+  otherSelect.handlers.change({target:{value:String(otherIndex)}});
+  const select=h.elements.get('local'+side+'Select');
+  assert.equal((select.innerHTML.match(/<option /g)||[]).length,32);
+  select.handlers.change({target:{value:String(n)}});
+  assert.equal(select.value,String(n));
+  assert.ok(h.elements.get('local'+side).textContent.includes(NATIONS[n].name));
+  assert.ok(h.elements.get('local'+side+'Rating').textContent.includes(String(NATIONS[n].attack)));
+  h.click('startLocal');
+  const expectedHome=side==='Home'?n:otherIndex,expectedAway=side==='Away'?n:otherIndex;
+  assert.equal(h.elements.get('loadingTitle').textContent,NATIONS[expectedHome].name);
+  assert.ok(h.elements.get('loadText').textContent.includes(NATIONS[expectedHome].name+' vs '+NATIONS[expectedAway].name));h.flush();
+  assert.equal(h.elements.get('homeName').textContent,NATIONS[expectedHome].code);
+  assert.equal(h.elements.get('awayName').textContent,NATIONS[expectedAway].code);
+  assert.equal(h.elements.get('homeFlag').textContent,NATIONS[expectedHome].flag);
+  assert.equal(h.elements.get('awayFlag').textContent,NATIONS[expectedAway].flag);
+  h.app.match.phase='half';h.app.syncMatch();
+  assert.equal(h.elements.get('halfHomeName').textContent,NATIONS[expectedHome].name);
+  assert.equal(h.elements.get('halfAwayName').textContent,NATIONS[expectedAway].name);
+  h.click('resume');h.app.match.score=[1,2];h.app.match.finish();h.app.syncMatch();
+  assert.equal(h.elements.get('resultHomeName').textContent,NATIONS[expectedHome].name);
+  assert.equal(h.elements.get('resultAwayName').textContent,NATIONS[expectedAway].name);
+  h.click('rematchLocal');h.flush();
+  assert.equal(h.app.match.home.name,NATIONS[expectedHome].name);
+  assert.equal(h.app.match.away.name,NATIONS[expectedAway].name);
+ }
+});
+
+test('local country inputs reject duplicate or invalid teams and roster selection survives returning to solo',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');
+ const home=h.elements.get('localHomeSelect'),away=h.elements.get('localAwaySelect');
+ for(const value of [away.value,'','-1','32','NaN','1.5']){
+  home.handlers.change({target:{value}});assert.equal(home.value,'0');assert.equal(away.value,'2');
+ }
+ away.handlers.change({target:{value:'31'}});
+ home.handlers.change({target:{value:'30'}});
+ h.chooseMode('menu');
+ assert.equal(h.elements.get('teamName').textContent,NATIONS[30].name);
+ h.chooseMode('practice');h.flush();
+ assert.equal(h.app.match.home.name,NATIONS[30].name);assert.ok(h.app.match.away.code!==h.app.match.home.code);
+});
+
+test('all 32 practice selections remain untimed and return to the same selected country',()=>{
+ for(let i=0;i<32;i++){
+  const h=uiHarness(html);
+  h.elements.get('nationGrid').handlers.click({target:{closest:()=>({dataset:{nation:String(i)}})}});
+  h.chooseMode('practice');h.flush();const m=h.app.match;
+  assert.equal(m.home.name,NATIONS[i].name);assert.equal(m.mode,'practice');
+  m.minute=120;m.step(1/60);assert.equal(m.phase,'playing');
+  h.click('menuBtn');h.click('finishPractice');
+  assert.equal(h.elements.get('resultHomeName').textContent,NATIONS[i].name);
+  h.click('continueCup');assert.equal(h.app.view,'menu');
+  assert.equal(h.elements.get('teamName').textContent,NATIONS[i].name);
+ }
 });
