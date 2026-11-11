@@ -1461,7 +1461,7 @@ class SoccerMatch {
     this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id);
   }
   snapshot(){
-    return {players:this.players.map(p=>{
+    return {at:this.elapsed,players:this.players.map(p=>{
       const action=this.pendingKick;
       const winding=action?.player===p.id&&action.possession===this.possessionSerial&&this.ball.owner===p.id&&['playing','paused'].includes(this.phase);
       const age=this.elapsed-(p.kickAt??-100),following=age>=0&&age<.34;
@@ -2435,18 +2435,76 @@ function radar(shot){
 function replaySample(frames,t){
   if(frames.length<=1)return frames[0];
   const position=clamp(t,0,1)*(frames.length-1),index=Math.floor(position),a=frames[index],b=frames[Math.min(index+1,frames.length-1)],mix=position-index;
-  const blend=(x,y)=>x+(y-x)*mix;
+  const blend=(x,y)=>x+(y-x)*mix,span=Number.isFinite(a.at)&&Number.isFinite(b.at)?b.at-a.at:0;
+  const at=span>0?blend(a.at,b.at):null;
+  // Remaining-time channels jump from zero to one at an event. Interpolating that
+  // jump directly creates a full receiving/save pose before the recorded contact.
+  const envelope=(p,q,key,duration)=>{
+    const from=p[key]||0,to=q[key]||0;
+    if(span>0&&to>from+1e-6){
+      const start=b.at-(1-to)*duration;
+      return at<start?0:clamp(1-(at-start)/duration,0,1);
+    }
+    return blend(from,to);
+  };
   const contact=a.players.find(p=>p.strikePhase==='windup'&&b.players.some(q=>q.id===p.id&&q.strikeId===p.strikeId&&q.strikePhase==='follow'));
   const after=contact?b.players.find(p=>p.id===contact.id):null;
   const contactMix=contact?clamp((.3-contact.strike)/(after.strike-contact.strike),0,1):.5;
-  return {...a,active:mix>=contactMix?b.active:a.active,activeAway:mix>=contactMix?b.activeAway:a.activeAway,players:a.players.map((p,i)=>{
+  const receiver=b.players.find(p=>p.id===b.ball.owner);
+  const receivingMix=!contact&&span>0&&a.ball.owner!==b.ball.owner&&receiver?.receive>0?
+    clamp((b.at-(1-receiver.receive)*.18-a.at)/span,0,1):contactMix;
+  return {...a,...(at!==null?{at}:{}),active:mix>=receivingMix?b.active:a.active,activeAway:mix>=receivingMix?b.activeAway:a.activeAway,players:a.players.map((p,i)=>{
     const q=b.players.find(q=>q.id===p.id)||p;
     const sameStrike=p.strikeId&&p.strikeId===q.strikeId;
     const strike=sameStrike?blend(p.strike||0,q.strike||0):p.strikePhase==='follow'?blend(p.strike||0,1):p.strikePhase==='windup'?0:p.strikePhase===undefined?blend(p.strike||0,q.strike||0):0;
     return {...p,strikePhase:strike>0?(strike<.3?'windup':'follow'):'idle',strikeId:strike>0?p.strikeId:0,x:blend(p.x,q.x),y:blend(p.y,q.y),stride:blend(p.stride,q.stride),speed:blend(p.speed,q.speed),
-      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike,saveSide:blend(p.saveSide||0,q.saveSide||0),bodyLean:blend(p.bodyLean||0,q.bodyLean||0),turnLean:blend(p.turnLean||0,q.turnLean||0),strikeRun:blend(p.strikeRun||0,q.strikeRun||0),tackle:blend(p.tackle||0,q.tackle||0),fouled:blend(p.fouled||0,q.fouled||0),receive:blend(p.receive||0,q.receive||0),kick:blend(p.kick||0,q.kick||0),save:blend(p.save||0,q.save||0)};
-  }),ball:{...a.ball,owner:mix>=contactMix?b.ball.owner:a.ball.owner,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
+      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike,saveSide:blend(p.saveSide||0,q.saveSide||0),bodyLean:blend(p.bodyLean||0,q.bodyLean||0),turnLean:blend(p.turnLean||0,q.turnLean||0),strikeRun:blend(p.strikeRun||0,q.strikeRun||0),tackle:envelope(p,q,'tackle',.36),fouled:envelope(p,q,'fouled',.6),receive:envelope(p,q,'receive',.18),kick:blend(p.kick||0,q.kick||0),save:envelope(p,q,'save',.65)};
+  }),ball:{...a.ball,owner:mix>=receivingMix?b.ball.owner:a.ball.owner,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
 }
+
+let aimPanelRects=[];
+function aimPanelObstacles(){
+  if(!match)return [];
+  const unit=W/canvas.getBoundingClientRect().width,obstacles=match.players.map(p=>{
+    const foot=camera.project(p.x,p.y),head=camera.project(p.x,p.y,26);
+    const half=Math.max(12*unit,(p.keeper?13:9)*foot.scale);
+    return {left:foot.x-half,right:foot.x+half,top:head.y-7*unit,bottom:foot.y+7*unit,hard:p.keeper};
+  });
+  const ball=camera.project(match.ball.x,match.ball.y,match.ball.z*RULES.heightScale+RULES.radius),r=11*unit;
+  obstacles.push({left:ball.x-r,right:ball.x+r,top:ball.y-r,bottom:ball.y+r,hard:true});
+  for(const id of [match.active,...(mode==='local'?[match.activeAway]:[])]){
+    const p=match.players[id];if(!p)continue;const a=camera.project(p.x,p.y,28);
+    obstacles.push({left:a.x-3.4*a.scale-8*unit,right:a.x+3.4*a.scale+8*unit,
+      top:a.y-2.4*a.scale-8*unit,bottom:a.y+3.4*a.scale+8*unit,hard:true});
+  }
+  return obstacles.concat(aimPanelRects);
+}
+function placeAimPanel(anchor,width,above,below,preferred=[]){
+  const unit=W/canvas.getBoundingClientRect().width,half=width/2,gap=5*unit,obstacles=aimPanelObstacles();
+  const bounds={left:half+8*unit,right:W-half-8*unit,top:78*unit+above,bottom:H-18*unit-below};
+  const choices=preferred.concat([anchor]);
+  for(const r of obstacles){
+    choices.push({x:anchor.x,y:r.top-below-gap},{x:anchor.x,y:r.bottom+above+gap},
+      {x:r.left-half-gap,y:anchor.y},{x:r.right+half+gap,y:anchor.y});
+  }
+  const evaluate=q=>{
+    const x=clamp(q.x,bounds.left,bounds.right),y=clamp(q.y,bounds.top,bounds.bottom);
+    const rect={left:x-half,right:x+half,top:y-above,bottom:y+below};
+    let overlap=0,hard=0;
+    for(const r of obstacles){
+      const area=Math.max(0,Math.min(rect.right,r.right)-Math.max(rect.left,r.left))*Math.max(0,Math.min(rect.bottom,r.bottom)-Math.max(rect.top,r.top));
+      overlap+=area;if(r.hard)hard+=area;
+    }
+    return {x,y,width,unit,rect,overlap,hard,travel:Math.hypot(x-anchor.x,y-anchor.y)};
+  };
+  let results=choices.map(evaluate);
+  if(!results.some(q=>q.overlap===0)){
+    for(let y=bounds.top;y<=bounds.bottom;y+=28*unit)for(const x of [bounds.left,W/2,bounds.right])results.push(evaluate({x,y}));
+  }
+  results.sort((a,b)=>a.hard-b.hard||a.overlap-b.overlap||a.travel-b.travel);
+  return results[0];
+}
+
 function goalAimGuide(p,intent=null,prediction=null){
   if(!p||match?.phase!=='playing'||match.setPiece==='Throw-in'||mode!=='local'&&p.team!==0)return null;
   const goal=match.goalX(p.team),range=(goal-p.x)*match.direction(p.team);
@@ -2477,21 +2535,9 @@ function goalAimGuide(p,intent=null,prediction=null){
   }
   const labelWidth=(wide||aimLabel==='HIGH'?110:90)*unit;
   const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-  const bodies=match.players.map(q=>{
-    const foot=camera.project(q.x,q.y),head=camera.project(q.x,q.y,26);
-    return {left:foot.x-11*unit,right:foot.x+11*unit,top:head.y-5*unit,bottom:foot.y+6*unit};
-  });
-  const choices=[
-    {x:mx,y:Math.min(a.y,b.y)-16*unit},{x:mx,y:Math.max(a.y,b.y)+29*unit},
-    {x:mx-85*unit,y:my},{x:mx+85*unit,y:my},
-    {x:mx,y:Math.min(a.y,b.y)-48*unit},{x:mx,y:Math.max(a.y,b.y)+61*unit}
-  ].map(q=>{
-    const x=clamp(q.x,labelWidth/2+8*unit,W-labelWidth/2-8*unit),y=clamp(q.y,78*unit,H-30*unit);
-    const rect={left:x-labelWidth/2,right:x+labelWidth/2,top:y-12*unit,bottom:y+5*unit};
-    const overlap=bodies.reduce((sum,r)=>sum+Math.max(0,Math.min(rect.right,r.right)-Math.max(rect.left,r.left))*Math.max(0,Math.min(rect.bottom,r.bottom)-Math.max(rect.top,r.top)),0);
-    return {x,y,width:labelWidth,rect,overlap};
-  });
-  const title=choices.reduce((best,q)=>q.overlap<best.overlap?q:best);
+  const title=placeAimPanel({x:mx,y:Math.min(a.y,b.y)-16*unit},labelWidth,12*unit,5*unit,[
+    {x:mx,y:Math.max(a.y,b.y)+29*unit},{x:mx-85*unit,y:my},{x:mx+85*unit,y:my}
+  ]);
   return {origin,a,b,aim,wide,warning,aimLabel,unit,scale,title};
 }
 function drawGoalAimGuide(guide){
@@ -2504,7 +2550,7 @@ function drawGoalAimGuide(guide){
   ctx.lineWidth=2*unit;ctx.strokeStyle='#d7ffff';ctx.stroke();
   for(const p of [a,b]){ctx.fillStyle='#072925';ctx.beginPath();ctx.arc(p.x,p.y,6*unit,0,Math.PI*2);ctx.fill();ctx.fillStyle='#d7ffff';ctx.beginPath();ctx.arc(p.x,p.y,3.5*unit,0,Math.PI*2);ctx.fill();}
   if(aim){ctx.fillStyle='#072925';ctx.beginPath();ctx.arc(aim.x,aim.y,6.5*unit,0,Math.PI*2);ctx.fill();ctx.fillStyle=warning?'#ffbe62':'#46f7b1';ctx.beginPath();ctx.arc(aim.x,aim.y,4*unit,0,Math.PI*2);ctx.fill();}
-  const {x,y,width}=title;
+  const {x,y,width}=title;aimPanelRects.push({...title.rect,hard:true});
   ctx.fillStyle='#092e28';ctx.fillRect(x-width/2,y-12*unit,width,17*unit);
   label(wide?'GOAL AIM · WIDE':aimLabel==='HIGH'?'GOAL AIM · HIGH':'GOAL AIM',x,y,10*unit,'#d7ffff');
   ctx.restore();
@@ -2534,7 +2580,8 @@ function drawShotForecast(prediction){
     if(at.x>20*unit&&at.x<W-20*unit&&at.y>85*unit&&at.y<H-35*unit){
       ctx.fillStyle='#102d28';ctx.beginPath();ctx.arc(at.x,at.y,8*unit,0,Math.PI*2);ctx.fill();
       ctx.strokeStyle=color;ctx.lineWidth=2*unit;ctx.beginPath();ctx.arc(at.x,at.y,5*unit,0,Math.PI*2);ctx.stroke();
-      const x=clamp(at.x,86*unit,W-86*unit),y=clamp(at.y+25*unit,100*unit,H-25*unit);
+      const panel=placeAimPanel({x:at.x,y:at.y+25*unit},164*unit,13*unit,5*unit),{x,y}=panel;
+      aimPanelRects.push({...panel.rect,hard:true});
       ctx.fillStyle='#102d28f5';ctx.fillRect(x-82*unit,y-13*unit,164*unit,18*unit);
       label(prediction.label+' · IF CLEAR',x,y,10*unit,color);
     }
@@ -2544,26 +2591,14 @@ function drawShotForecast(prediction){
 function playerAimLayout(p,withForecast){
   const unit=W/canvas.getBoundingClientRect().width,arrow=camera.project(p.x,p.y,28);
   const half=(withForecast?66:46)*unit,bottom=(withForecast?26:8)*unit;
-  // Reserve the arrow's stroked triangle plus a CSS-pixel gap at every zoom.
-  const marker={left:arrow.x-3.4*arrow.scale-8*unit,right:arrow.x+3.4*arrow.scale+8*unit,
-    top:arrow.y-2.4*arrow.scale-8*unit,bottom:arrow.y+3.4*arrow.scale+8*unit};
-  const options=[
-    {x:arrow.x,y:marker.top-bottom},
-    {x:marker.right+half,y:arrow.y},
-    {x:marker.left-half,y:arrow.y},
-    {x:arrow.x,y:marker.bottom+15*unit}
-  ].map(q=>{
-    const x=clamp(q.x,half+8*unit,W-half-8*unit),y=clamp(q.y,80*unit,H-bottom-16*unit);
-    const rect={left:x-half,right:x+half,top:y-15*unit,bottom:y+bottom};
-    const overlap=Math.max(0,Math.min(rect.right,marker.right)-Math.max(rect.left,marker.left))*
-      Math.max(0,Math.min(rect.bottom,marker.bottom)-Math.max(rect.top,marker.top));
-    return {x,y,unit,rect,overlap};
-  });
-  return options.reduce((best,q)=>q.overlap<best.overlap?q:best);
+  const top=arrow.y-2.4*arrow.scale-8*unit;
+  return placeAimPanel({x:arrow.x,y:top-bottom},half*2,15*unit,bottom);
 }
+
 function drawPlayerAimHUD(p,intent,forecast){
   const prediction=intent.shot?forecast:null,receiver=match.players[intent.target.receiverId],caption=prediction?prediction.label+' · IF CLEAR':receiver?'PASS TO #'+(receiver.slot+1):null;
-  const {x,y,unit}=playerAimLayout(p,!!caption),width=72*unit;
+  const panel=playerAimLayout(p,!!caption),{x,y,unit}=panel,width=72*unit;
+  aimPanelRects.push({...panel.rect,hard:true});
   ctx.fillStyle='#102c22';ctx.fillRect(x-width/2-5*unit,y-15*unit,width+10*unit,23*unit);
   label((intent.shot?'SHOT':'PASS')+' '+Math.round(intent.power*100)+'%',x,y-3*unit,11*unit,'#d8ffec');
   ctx.fillStyle='#2d655a';ctx.fillRect(x-width/2,y+3*unit,width,3*unit);
@@ -2595,6 +2630,7 @@ function render(dt=0){
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
+  aimPanelRects=[];
   const forecast=shotForecast();let aimHUD=null;
   if(match?.phase==='restart'){
     if(match.restart.reason&&match.lastFoul)groundArc(match.lastFoul.x,match.lastFoul.y,14,0,Math.PI*2,'#ffce64');

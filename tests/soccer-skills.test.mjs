@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -2794,4 +2794,55 @@ test('expired shooting context clears smoothly and resets on a fresh kickoff cam
  assert.equal(c.goalBlend,0);const bounds=c.portraitBounds(c.zoom);assert.ok(c.x>=bounds[0]&&c.x<=bounds[1]);
  s.shootingGoal=FIELD.left;c.update(s,1/60);delete s.shootingGoal;c.update(s,0,false,true);
  assert.equal(c.goalBlend,0);assert.equal(c.goalContext,null);
+});
+
+test('aim captions avoid the keeper, ball and each other while camera and keeper move in portrait and desktop',()=>{
+ for(const [width,height] of [[500,757],[1180,757]])for(const period of [1,2])for(const offset of [-35,0,35]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,0,0,period),cam=h.app.camera;cam.ready=false;h.app.render(0);
+  const from=cam.project(f.p.x,f.p.y),goal=cam.project(f.goal,318+offset),len=Math.hypot(goal.x-from.x,goal.y-from.y),power=Math.min(cam.width,cam.height)*.32;
+  const end={x:from.x+(goal.x-from.x)/len*power,y:from.y+(goal.y-from.y)/len*power};
+  c.handlers.pointerdown(pointerEvent(h,from.x,from.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+  for(let frame=0;frame<12;frame++){
+   f.keeper.y=318+Math.sin(frame*.35)*22;h.draws.length=0;h.app.render(1/60);
+   const foot=cam.project(f.keeper.x,f.keeper.y),head=cam.project(f.keeper.x,f.keeper.y,26),unit=1100/width;
+   const keeper={left:foot.x-13*foot.scale,right:foot.x+13*foot.scale,top:head.y-5*unit,bottom:foot.y+5*unit};
+   const ball=cam.project(f.m.ball.x,f.m.ball.y),ballBox={left:ball.x-8*unit,right:ball.x+8*unit,top:ball.y-8*unit,bottom:ball.y+8*unit};
+   const overlap=(a,b)=>Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+   const panels=[];
+   for(let i=0;i<h.draws.length;i++){
+    const d=h.draws[i];if(d.method!=='fillText'||!(/IF CLEAR|GOAL AIM|^SHOT /.test(String(d.args[0]))))continue;
+    const bg=h.draws[i-1];assert.equal(bg.method,'fillRect');const [x,y,w,height]=bg.args;
+    const rect={left:x,right:x+w,top:y,bottom:y+height};
+    assert.equal(overlap(rect,keeper),0,'caption covers keeper');assert.equal(overlap(rect,ballBox),0,'caption covers ball');
+    for(const old of panels)assert.equal(overlap(rect,old),0,'captions overlap');
+    assert.ok(rect.left>=0&&rect.right<=cam.width&&rect.top>=0&&rect.bottom<=cam.height);panels.push(rect);
+   }
+   assert.ok(panels.length>=2,'power and forecast remain visible');h.draws.length=0;
+  }
+  c.handlers.pointerup(pointerEvent(h,end.x,end.y));assert.ok(f.m.pendingKick?.shot,'layout preserves release action');
+ }
+});
+test('replay event envelopes begin at recorded contact instead of animating before it',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.players[6];
+ m.elapsed=1;m.ball.owner=null;const before=m.snapshot();
+ m.elapsed=1.04;m.giveBall(p);p.tackleAt=m.elapsed;p.saveAt=m.elapsed;p.foulAt=m.elapsed;
+ m.elapsed=1.05;const after=m.snapshot();
+ const early=h.app.replaySample([before,after],.4),late=h.app.replaySample([before,after],.9);
+ const e=early.players[p.id],l=late.players[p.id];
+ for(const key of ['receive','tackle','save','fouled'])assert.equal(e[key],0,key+' must not anticipate its event');
+ assert.equal(early.ball.owner,null);assert.equal(late.ball.owner,p.id);assert.equal(late.active,p.id);
+ assert.ok(l.receive>.9);assert.ok(h.app.playerPose(l,late.ball).receive<.05,'pose begins gently after contact');
+ const edge1=h.app.replaySample([before,after],.8-1e-5),edge2=h.app.replaySample([before,after],.8+1e-5);
+ assert.ok(Math.abs(h.app.playerPose(edge1.players[p.id],edge1.ball).receive-h.app.playerPose(edge2.players[p.id],edge2.ball).receive)<.001);
+ assert.equal(after.players[p.id].receive,m.snapshot().players[p.id].receive,'replay must not mutate live state');
+});
+test('replay envelopes still decay continuously across ordinary recorded frames',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.players[6];
+ m.elapsed=2;m.giveBall(p);p.saveAt=2;p.tackleAt=2;p.foulAt=2;m.elapsed=2.06;const a=m.snapshot();m.elapsed=2.11;const b=m.snapshot();
+ for(const fraction of [0,.25,.5,.75,1]){
+  const s=h.app.replaySample([a,b],fraction),q=s.players[p.id],time=2.06+.05*fraction;
+  for(const [key,duration] of [['receive',.18],['save',.65],['tackle',.36],['fouled',.6]])assert.ok(Math.abs(q[key]-(1-(time-2)/duration))<1e-8);
+  assert.equal(s.ball.owner,p.id);
+ }
 });
