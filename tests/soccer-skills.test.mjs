@@ -58,7 +58,7 @@ test('all 22 players move during play, including the active player and both team
 });
 test('active player responds to directional input and dribbles the owned ball',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2]),p=m.owner,start={x:p.x,y:p.y};
- m.protection=3;
+ m.giveBall(p);m.protection=3;
  for(let i=0;i<30;i++)m.step(1/60,{dx:0,dy:1});
  assert.ok(p.y-start.y>55&&p.y-start.y<65);assert.equal(m.ball.owner,p.id);assert.ok(distance(p,m.ball)<17);
 });
@@ -94,11 +94,11 @@ test('ball physics use elapsed seconds and remain stable at 30/60/120 Hz',()=>{
 });
 test('corners position a taker correctly and wait for human release',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2]);
- Object.assign(m.ball,{owner:null,x:FIELD.left-1,y:FIELD.top+10,z:0,lastTouch:1});
+ Object.assign(m.ball,{owner:null,x:FIELD.left-4,y:FIELD.top+10,z:0,lastTouch:1});
  m.checkBoundary({x:FIELD.left+10,y:FIELD.top+10,z:0});
  assert.equal(m.restart.type,'Corner Kick');assert.equal(m.restart.team,0);
  m.takeRestart();const p=m.owner,spot={x:p.x,y:p.y};
- assert.equal(p.x,FIELD.left+20);assert.equal(p.y,FIELD.top+20);
+ assert.equal(p.x,FIELD.left+6);assert.equal(p.y,FIELD.top+6);
  for(let i=0;i<180;i++)m.step(1/60);
  assert.equal(m.phase,'playing');assert.equal(m.ball.owner,p.id);assert.ok(distance(p,spot)<.01);
  for(let i=0;i<30;i++)m.step(1/60,{dx:1,dy:1});
@@ -107,9 +107,9 @@ test('corners position a taker correctly and wait for human release',()=>{
 });
 test('touchline exit, attacking miss, and defender touch produce different restarts',()=>{
  for(const fixture of [
-  {x:500,y:FIELD.top-2,last:0,type:'Throw-in',team:1},
-  {x:FIELD.left-2,y:120,last:0,type:'Goal Kick',team:1},
-  {x:FIELD.left-2,y:120,last:1,type:'Corner Kick',team:0}]){
+  {x:500,y:FIELD.top-4,last:0,type:'Throw-in',team:1},
+  {x:FIELD.left-4,y:120,last:0,type:'Goal Kick',team:1},
+  {x:FIELD.left-4,y:120,last:1,type:'Corner Kick',team:0}]){
   const m=new SoccerMatch(NATIONS[0],NATIONS[2]);
   Object.assign(m.ball,{owner:null,x:fixture.x,y:fixture.y,z:0,lastTouch:fixture.last});
   m.checkBoundary({x:500,y:318,z:0});
@@ -144,9 +144,9 @@ test('penalty sudden death requires both sides to take equal attempts',()=>{
  m.takePenalty(0);assert.equal(m.phase,'full');assert.equal(m.winner(),0);
 });
 test('halftime swaps directions and practice never ends on the match clock',()=>{
- const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.minute=44.999;m.step(1/60);
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.giveBall(m.owner);m.minute=44.999;m.step(1/60);
  assert.equal(m.phase,'half');m.resumeHalf();assert.equal(m.direction(0),1);assert.equal(m.phase,'playing');
- const practice=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');practice.minute=100;practice.step(1/60);
+ const practice=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');practice.giveBall(practice.owner);practice.minute=100;practice.step(1/60);
  assert.equal(practice.phase,'playing');assert.ok(practice.minute>100);
 });
 test('selected nation propagates through selection, loading, HUD and results for all nations',()=>{
@@ -180,7 +180,7 @@ test('practice skips cup setup; cup advances QF to SF to final and a loss resets
 });
 test('pointer hold moves the active player; release kicks; cancellation does not kick',()=>{
  const h=uiHarness(html);h.chooseMode('practice');h.flush();
- const c=h.elements.get('game'),m=h.app.match,p=m.owner;m.protection=4;
+ const c=h.elements.get('game'),m=h.app.match,p=m.owner;m.giveBall(p);m.protection=4;
  const event=(x,y)=>({clientX:x,clientY:y,pointerId:1,preventDefault(){}});
  const start={x:p.x,y:p.y};
  c.handlers.pointerdown(event(p.x,p.y));c.handlers.pointermove(event(p.x,p.y+80));
@@ -193,6 +193,7 @@ test('pointer hold moves the active player; release kicks; cancellation does not
 });
 test('rendering, pause, resume and replay do not advance the paused simulation',()=>{
  const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
+ h.app.match.giveBall(h.app.match.owner);
  h.tick(16);h.tick(32);h.click('menuBtn');const minute=h.app.match.minute;
  h.tick(100);h.tick(200);assert.equal(h.app.match.minute,minute);
  h.click('resumePause');h.tick(300);assert.ok(h.app.match.minute>minute);
@@ -203,12 +204,12 @@ test('local multiplayer has distinct setup and never claims online play',()=>{
  const h=uiHarness(html);h.chooseMode('multi');assert.equal(h.app.view,'local');assert.equal(h.app.match,null);
  assert.ok(html.includes('LOCAL TWO PLAYER'));assert.ok(html.includes('Keyboard required.'));
  h.click('startLocal');h.flush();assert.equal(h.app.match.mode,'local');
- assert.ok(h.elements.get('hint').textContent.includes('P2: Arrows'));
+ assert.ok(h.elements.get('hint').textContent.includes('F pass / G shoot'));
 });
 
 test('a 0–0 regulation finish never declares the selected team the winner',()=>{
  const h=uiHarness(html);h.chooseMode('cup');h.click('startMatch');h.flush();
- h.app.match.period=2;h.app.match.minute=89.999;h.app.match.step(1/60);h.app.syncMatch();
+ h.app.match.giveBall(h.app.match.owner);h.app.match.period=2;h.app.match.minute=89.999;h.app.match.step(1/60);h.app.syncMatch();
  assert.equal(h.app.view,'penalties');assert.equal(h.app.match.winner(),null);
  assert.ok(!h.elements.get('resultMsg').textContent.includes('Congratulations'));
 });
@@ -388,7 +389,7 @@ test('touch guidance is selected before first input and landscape returns to hor
  assert.equal(c.portrait,false);assert.ok(Math.abs(a.y-b.y)<c.height*.6);assert.ok(b.x>a.x);
  assert.ok(c.zoom>4&&c.zoom<4.3);
  const desktop=uiHarness(html);desktop.chooseMode('practice');desktop.flush();
- assert.ok(desktop.elements.get('hint').textContent.includes('WASD'));
+ assert.ok(desktop.elements.get('hint').textContent.includes('Aim + release to kick'));
 });
 
 test('portrait keeps both end lines at the frame edges through keeper tracking, fast balls and replay zoom',()=>{
@@ -555,7 +556,7 @@ test('local goals score correctly at both ends in both halves and restart with t
  for(const period of [1,2])for(const team of [0,1]){
   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
   const side=m.goalX(team),d=m.direction(team);
-  Object.assign(m.ball,{owner:null,x:side+d,y:318,z:0,lastTouch:team});
+  Object.assign(m.ball,{owner:null,x:side+d*4,y:318,z:0,lastTouch:team});
   m.checkBoundary({x:side-d*10,y:318,z:0});
   assert.equal(m.phase,'goal');assert.equal(m.score[team],1);assert.equal(m.score[1-team],0);
   m.skipReplay();assert.equal(m.owner.team,1-team);assert.equal(m.activeFor(1-team),m.owner.id);
@@ -563,9 +564,9 @@ test('local goals score correctly at both ends in both halves and restart with t
 });
 test('local halftime switches ends and local wins, losses and draws do not enter the cup',()=>{
  for(const score of [[2,1],[1,2],[1,1]]){
-  const h=localHarness(),m=h.app.match;m.minute=44.999;m.step(1/60);h.app.syncMatch();
+  const h=localHarness(),m=h.app.match;m.giveBall(m.owner);m.minute=44.999;m.step(1/60);h.app.syncMatch();
   assert.equal(h.app.view,'half');h.click('resume');assert.equal(m.period,2);assert.equal(m.direction(0),1);assert.equal(m.direction(1),-1);
-  m.score=score;m.period=2;m.minute=89.999;m.step(1/60);h.app.syncMatch();assert.equal(h.app.view,'full');
+  m.score=score;m.period=2;m.giveBall(m.owner);m.minute=89.999;m.step(1/60);h.app.syncMatch();assert.equal(h.app.view,'full');
   assert.ok(!m.penalties);
   const text=h.elements.get('resultMsg').textContent;
   assert.ok(score[0]===score[1]?text.startsWith('Draw'):text.startsWith('Player '+(score[0]>score[1]?1:2)));
@@ -622,7 +623,7 @@ test('local keyboard shots physically cross the correct goal line for either pla
 test('receiving a real short pass transfers control to either team receiver',()=>{
  for(const team of [0,1]){
   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.players[team*11+9],receiver=m.players[team*11+6];
-  for(const q of m.players){q.x=950;q.y=110;}
+  for(const q of m.players){q.x=q.team===team?950:(team===0?100:1000);q.y=110;}
   p.x=500;p.y=318;receiver.x=team===0?420:580;receiver.y=318;
   m.giveBall(p);m.kick(p,receiver,.3);advanceToContact(m);
   for(let frame=0;frame<120&&!m.owner;frame++)m.step(1/60);
@@ -638,13 +639,12 @@ test('a real local tackle transfers possession and the selected player to the wi
   m.step(1/60);assert.equal(m.owner.id,defender.id);assert.equal(m.activeFor(1-team),defender.id);assert.equal(m.tackles,1);
  }
 });
-test('an entire no-input local match completes as a draw without AI shooting or penalties',()=>{
- const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');
- for(let i=0;i<10000&&m.phase!=='full';i++){
-  if(m.phase==='half')m.resumeHalf();if(m.phase==='restart')m.takeRestart();
-  m.step(1/60);
- }
- assert.equal(m.phase,'full');assert.equal(m.minute,90);assert.deepEqual(m.score,[0,0]);assert.deepEqual(m.shots,[0,0]);assert.equal(m.winner(),null);
+test('an untouched local kickoff waits indefinitely without dribbling, clock advance or AI kicks',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),before=m.snapshot();
+ for(let i=0;i<1000;i++)m.step(1/60);
+ assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Kick-off');assert.equal(m.minute,0);
+ assert.deepEqual(m.score,[0,0]);assert.deepEqual(m.shots,[0,0]);assert.deepEqual(m.passes,[0,0]);
+ assert.equal(m.owner.id,before.ball.owner);assert.equal(m.ball.x,550);assert.equal(m.ball.y,FIELD.cy);
 });
 
 test('Choose Your Team after quitting local returns to the solo cup flow',()=>{
@@ -1266,23 +1266,24 @@ test('movement starts and stops immediately while visual gait and heading ease b
  assert.ok(Number.isFinite(m.snapshot().players[p.id].angle));
 });
 
-test('human kickoff offers two seconds to aim, then normal tackling resumes',()=>{
- for(const [mode,team] of [['cup',0],['practice',0],['local',0],['local',1]]){
-  const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);m.kickoff(team);
-  const p=m.owner,defender=m.players[(1-team)*11+9];
-  m.random=()=>0;
-  const idle={dx:0,dy:0,teams:[{dx:0,dy:0},{dx:0,dy:0}]};
-  for(let i=0;i<108;i++)m.step(1/60,idle);
-  assert.equal(m.owner.id,p.id);assert.equal(m.tackles,0);
-  if(mode!=='local')assert.ok(distance(defender,p)>45,'AI leaves space for the opening aim');
-  else assert.ok(distance(defender,p)<=45,'the second human retains control of their stationary defender');
-  for(let i=0;i<18;i++)m.step(1/60,idle);
-  assert.equal(m.kickoffGrace,0);
-  defender.x=p.x+15;defender.y=p.y;defender.cooldown=0;m.protection=0;
-  m.step(1/60,idle);
-  assert.equal(m.owner.team,1-team);assert.equal(m.tackles,1);
+test('kickoff positioning and stationary ball survive input and AI until explicit contact',()=>{
+ for(const mode of ['cup','practice','local'])for(const team of [0,1])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);m.period=period;m.kickoff(team);
+  const p=m.owner,idle={dx:1,dy:1,teams:[{dx:1,dy:1},{dx:-1,dy:-1}]};
+  // Solo opposition is intentionally AI-controlled; test its pre-contact interval.
+  for(let i=0;i<(team===1&&mode!=='local'?30:300);i++)m.step(1/60,idle);
+  assert.equal(m.setPiece,'Kick-off');assert.equal(m.ball.x,550);assert.equal(m.ball.y,318);
+  assert.equal(p.x,550);assert.equal(p.y,318);assert.equal(m.minute,0);
+  for(const q of m.players)if(q.id!==p.id){
+   assert.ok((q.x-550)*m.direction(q.team)<=.001,'own half until contact');
+   if(q.team!==team)assert.ok(distance(q,m.ball)>=66);
+  }
+  assert.ok(m.kick(p,{x:550+m.direction(team)*80,y:380},.6));advanceToContact(m);
+  assert.equal(m.setPiece,null);assert.equal(m.restartGuard,null);assert.equal(m.ball.owner,null);
+  m.step(1/60,idle);assert.ok(m.minute>0);
  }
 });
+
 test('kickoff grace ends at contact and does not carry into later possessions',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.owner;
  m.kick(p,{x:350,y:318},.6);assert.ok(m.kickoffGrace>0);
@@ -1353,7 +1354,7 @@ test('actual idle frame loop never auto-kicks at practice or cup kickoff, includ
 });
 test('releasing a movement key keeps possession idle until an intentional shot',()=>{
  const h=uiHarness(html),clock={time:0};h.chooseMode('practice');h.flush();
- const m=h.app.match,p=m.owner;
+ const m=h.app.match,p=m.owner;m.giveBall(p);
  for(const q of m.players)if(q!==p){q.x=950;q.y=100+q.id*3;}
  m.protection=10;
  h.window.handlers.keydown({key:'ArrowLeft',target:{tagName:'CANVAS'},repeat:false,preventDefault(){}});
@@ -1405,7 +1406,7 @@ test('tackles cancel wind-up, while pass follow-through stays on its kicker rath
  assert.equal(pass.m.snapshot().players[receiver.id].strikePhase,'idle');
  assert.equal(pass.m.snapshot().players[pass.p.id].strikePhase,'follow','legitimate contact follow-through remains on the original kicker');
 });
-test('pointer aiming cancels on teammate possession, opponent possession, reacquisition or selection change',()=>{
+test('pointer capture persists across possession and selection changes but stale release cannot kick',()=>{
  for(const transition of ['teammate','opponent','reacquire','selection']){
   const h=uiHarness(html);h.chooseMode('practice');h.flush();
   const m=h.app.match,c=h.elements.get('game'),p=m.owner;
@@ -1416,7 +1417,7 @@ test('pointer aiming cancels on teammate possession, opponent possession, reacqu
   if(transition==='reacquire'){m.giveBall(m.players[20]);m.giveBall(p);}
   if(transition==='selection')m.active=6;
   h.app.input();
-  assert.equal(c.hasPointerCapture(7),false);
+  assert.equal(c.hasPointerCapture(7),true);
   c.handlers.pointerup(event(at.x-120,at.y));
   assert.equal(m.pendingKick,null);assert.deepEqual(m.shots,[0,0]);assert.deepEqual(m.passes,[0,0]);
  }
@@ -1515,4 +1516,226 @@ test('replay suppresses decorative board lettering while keeping skip and return
  assert.ok(h.draws.some(d=>d.method==='fill'),'replay scene continues to render');
  h.click('skipReplay');assert.equal(m.phase,'playing');assert.equal(h.app.view,'match');
  assert.ok(!h.elements.get('attackDirection').classList.contains('hidden'));
+});
+
+function restartFixture(type,team=0,period=1){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+ const x=type==='Goal Kick'?m.ownGoalX(team):m.goalX(team);
+ m.phase='restart';m.restart={type,team,x:x+(x===FIELD.left?6:-6),y:type==='Goal Kick'?FIELD.cy:FIELD.top};
+ m.takeRestart();return m;
+}
+test('goal-kick box exclusion holds for both sides and halves while teammates may receive inside',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const m=restartFixture('Goal Kick',team,period),taker=m.owner,d=m.direction(team);
+  const opponent=m.players[(1-team)*11+9],teammate=m.players[team*11+6];
+  teammate.x=m.ownGoalX(team)+d*85;teammate.y=FIELD.cy+40;
+  const idle={teams:[{dx:0,dy:0},{dx:0,dy:0}]};
+  for(let i=0;i<120;i++){
+   opponent.x=taker.x+d*10;opponent.y=taker.y;m.selectPlayer(1-team,opponent.id);
+   m.step(1/60,idle);
+   assert.ok(m.players.filter(p=>p.team!==team).every(p=>!m.inPenalty(p,team)));
+   assert.equal(m.ball.x,m.restartGuard.x);assert.equal(m.ball.y,m.restartGuard.y);
+   assert.equal(m.owner.id,taker.id);
+  }
+  teammate.x=m.ownGoalX(team)+d*85;teammate.y=FIELD.cy+40;m.enforceRestart();
+  assert.ok(m.inPenalty(teammate,team),'teammates are allowed inside the box');
+  assert.ok(m.kick(taker,teammate,.5));advanceToContact(m);
+  assert.equal(m.restartGuard,null);assert.equal(m.offside,null);
+  teammate.x=m.ball.x+d*22;teammate.y=m.ball.y;m.ball.lock=0;
+  assert.equal(m.receiveBall(teammate),false);assert.equal(m.owner.id,teammate.id);
+ }
+});
+test('an early goal-kick entrant is removed before contact and cannot steal or launch the ball',()=>{
+ const m=restartFixture('Goal Kick'),p=m.owner,q=m.players[20];
+ m.kick(p,{x:800,y:360},.6);q.x=p.x;q.y=p.y;m.protection=0;m.random=()=>0;
+ advanceToContact(m);assert.ok(!m.inPenalty(q,0));assert.equal(m.tackles,0);assert.equal(m.passes[0],1);
+ // Once kicked, normal opponent control is allowed back into the box.
+ q.x=m.ownGoalX(0)+m.direction(0)*120;q.y=318;m.activeAway=q.id;
+ m.step(1/60,{teams:[{dx:0,dy:0},{dx:-m.direction(0),dy:0}]});assert.ok(m.inPenalty(q,0));
+});
+test('corner and throw-in positions and spacing are enforced through keyboard movement until release',()=>{
+ for(const type of ['Corner Kick','Throw-in'])for(const team of [0,1]){
+  const m=restartFixture(type,team),p=m.owner;
+  for(const q of m.players)if(q.team!==team){q.x=p.x;q.y=p.y;}
+  for(let i=0;i<60;i++)m.step(1/60,{teams:[{dx:-1,dy:-1},{dx:-1,dy:-1}]});
+  const r=m.restartGuard;
+  if(type==='Corner Kick'){
+   assert.ok(Math.hypot(r.x-(r.x<550?FIELD.left:FIELD.right),r.y-FIELD.top)<=12);
+   assert.ok(m.players.filter(q=>q.team!==team).every(q=>distance(q,r)>=78-.01));
+  }else{
+   assert.equal(r.y,FIELD.top);
+   assert.ok(m.players.filter(q=>q.team!==team).every(q=>distance(q,r)>=19-.01));
+   assert.equal(m.kick(p,{x:p.x+30,y:FIELD.top-100},.5),false,'outward throw rejected');
+  }
+  assert.equal(m.ball.x,r.x);assert.equal(m.ball.y,r.y);
+ }
+});
+test('whole-ball crossing and first diagonal boundary determine stoppage and ownership',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2]),side=m.goalX(team),d=m.direction(team);m.giveBall(m.owner);
+  Object.assign(m.ball,{owner:null,x:side+d*.01,y:318,z:0,lastTouch:team});
+  assert.equal(m.checkBoundary({x:side-d*10,y:318,z:0}),false);assert.deepEqual(m.score,[0,0]);
+  m.ball.x=side+d*3.01;assert.equal(m.checkBoundary({x:side+d*.01,y:318,z:0}),true);assert.equal(m.score[team],1);
+ }
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.giveBall(m.owner);
+ Object.assign(m.ball,{owner:null,x:FIELD.left-20,y:FIELD.top-40,z:0,lastTouch:0});
+ m.checkBoundary({x:FIELD.left+80,y:FIELD.top+10,z:0});
+ assert.equal(m.restart.type,'Throw-in');assert.equal(m.restart.team,1);
+ assert.ok(Math.abs(m.restart.x-(FIELD.left+57))<.001);
+});
+test('a throw-in or indirect free kick cannot score directly; direct own-goal restarts award corners',()=>{
+ for(const type of ['Throw-in','Indirect Free Kick','Goal Kick','Corner Kick','Kick-off'])
+ for(const ownGoal of [false,true])for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.giveBall(m.owner);
+  const side=ownGoal?m.ownGoalX(team):m.goalX(team),d=side===FIELD.left?-1:1;
+  m.lastRestart={type,team,taker:team*11+9};
+  Object.assign(m.ball,{owner:null,x:side+d*4,y:318,z:0,lastTouch:team});
+  m.checkBoundary({x:side-d*8,y:318,z:0});
+  const denied=ownGoal||type==='Throw-in'||type==='Indirect Free Kick';
+  assert.equal(m.phase,denied?'restart':'goal');
+  if(denied){assert.equal(m.restart.type,ownGoal?'Corner Kick':'Goal Kick');assert.equal(m.restart.team,1-team);}
+  else assert.equal(m.score[team],1);
+ }
+});
+test('all restarts award an indirect free kick for second touch and clear the restriction on another touch',()=>{
+ for(const type of ['Goal Kick','Corner Kick','Throw-in','Indirect Free Kick','Kick-off']){
+  const m=type==='Kick-off'?new SoccerMatch(NATIONS[0],NATIONS[2],'local'):restartFixture(type);
+  const p=m.owner;m.kick(p,{x:550,y:400},.5);advanceToContact(m);
+  assert.equal(m.lastRestart.taker,p.id);
+  assert.ok(m.receiveBall(p));assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Indirect Free Kick');assert.equal(m.restart.team,1);
+  m.takeRestart();assert.equal(m.setPiece,'Indirect Free Kick');
+  const n=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),k=n.owner;n.kick(k,{x:600,y:380},.5);advanceToContact(n);
+  const receiver=n.players[6];assert.equal(n.receiveBall(receiver),false);assert.equal(n.lastRestart,null);
+  assert.equal(n.receiveBall(k),false);assert.equal(n.owner.id,k.id);
+ }
+});
+test('offside uses pass-contact positions and second-last defender, with direct restart exceptions',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const p=m.players[team*11+6],receiver=m.players[team*11+9],d=m.direction(team);
+  p.x=550+d*90;p.y=318;m.giveBall(p);
+  for(const q of m.players)if(q.team!==team){q.x=550+d*200;q.y=120;}
+  m.players[(1-team)*11].x=550+d*420;receiver.x=550+d*250;receiver.y=350;
+  m.kick(p,receiver,.6);advanceToContact(m);
+  assert.ok(m.offside.ids.includes(receiver.id));
+  receiver.x=550-d*10;assert.ok(m.receiveBall(receiver),'returning onside does not erase the earlier offside position');
+  assert.equal(m.restart.type,'Indirect Free Kick');assert.equal(m.restart.team,1-team);
+ }
+ for(const type of ['Goal Kick','Corner Kick','Throw-in']){
+  const m=restartFixture(type),p=m.owner;m.kick(p,{x:550,y:400},.6);advanceToContact(m);
+  assert.equal(m.offside,null);
+ }
+});
+test('offside does not penalise level, own-half or behind-ball receivers and resets on opponent control',()=>{
+ for(const kind of ['level','own-half','behind-ball']){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.owner,r=m.players[6];p.x=450;m.giveBall(p);
+  for(const q of m.players)if(q.team===1){q.x=300;q.y=120;}
+  m.players[11].x=100;r.x=kind==='level'?300:kind==='own-half'?600:470;r.y=400;
+  m.kick(p,r,.5);advanceToContact(m);assert.ok(!m.offside.ids.includes(r.id));assert.equal(m.receiveBall(r),false);
+ }
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.giveBall(m.owner);
+ m.offside={team:0,ids:[6]};assert.equal(m.receiveBall(m.players[20]),false);assert.equal(m.offside,null);
+});
+test('goalkeeper handling is limited to own box, protects possession and awards a corner after eight seconds',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const keeper=m.players[team*11];m.giveBall(keeper);m.ball.lastTouch=1-team;m.receiveBall(keeper);
+  assert.equal(m.handOwner,keeper.id);
+  const q=m.players[(1-team)*11+9];m.random=()=>0;m.protection=0;
+  for(let i=0;i<100;i++){q.x=keeper.x;q.y=keeper.y;m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});}
+  assert.equal(m.owner.id,keeper.id);assert.equal(m.tackles,0);
+  keeper.held=8.01;m.step(1/60);assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Corner Kick');assert.equal(m.restart.team,1-team);
+ }
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]),k=m.players[0];k.x=550;m.ball.lastTouch=1;m.receiveBall(k);assert.equal(m.handOwner,null);
+ m.ball.lastTouch=0;k.x=m.ownGoalX(0)+m.direction(0)*30;m.receiveBall(k);assert.equal(m.handOwner,null,'teammate pass is controlled with feet');
+});
+function pointerEvent(h,x,y,id=31,type='mouse'){
+ const c=h.elements.get('game'),r=c.getBoundingClientRect();
+ return {clientX:r.left+x*r.width/c.width,clientY:r.top+y*r.height/c.height,pointerId:id,pointerType:type,button:0,isPrimary:true,preventDefault(){}};
+}
+test('continuous held pointer resumes running after loss and reacquisition, but release alone never fires stale intent',()=>{
+ for(const type of ['mouse','touch']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;m.giveBall(p);
+  const a=h.app.camera.project(p.x,p.y),ev=(x,y)=>pointerEvent(h,x,y,31,type);
+  c.handlers.pointerdown(ev(a.x,a.y));c.handlers.pointermove(ev(a.x,a.y+90));
+  m.giveBall(m.players[20]);h.app.input();assert.ok(c.hasPointerCapture(31));
+  const r=m.players[6];r.x=600;r.y=320;m.giveBall(r);const before={x:r.x,y:r.y};
+  for(let i=0;i<10;i++)m.step(1/60,h.app.input());
+  assert.ok(distance(before,r)>10);assert.ok(c.hasPointerCapture(31));
+  c.handlers.pointerup(ev(a.x,a.y+90));assert.equal(m.pendingKick,null);assert.deepEqual(m.passes,[0,0]);assert.deepEqual(m.shots,[0,0]);
+ }
+});
+test('fresh drag after held-pointer reacquisition passes once from the new owner and uses current aim',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;m.giveBall(p);
+ const ev=(x,y)=>pointerEvent(h,x,y),a=h.app.camera.project(p.x,p.y);
+ c.handlers.pointerdown(ev(a.x,a.y));c.handlers.pointermove(ev(a.x-100,a.y));
+ m.giveBall(m.players[20]);h.app.input();const r=m.players[6];r.x=620;r.y=320;m.giveBall(r);h.app.input();
+ c.handlers.pointermove(ev(a.x-100,a.y+100));c.handlers.pointerup(ev(a.x-100,a.y+100));
+ assert.equal(m.pendingKick.player,r.id);assert.ok(m.pendingKick.target.y>r.y);assert.equal(m.snapshot().players[p.id].strikePhase,'idle');
+ advanceToContact(m);const count=m.passes[0]+m.shots[0];
+ c.handlers.pointerup(ev(a.x-100,a.y+100));assert.equal(m.passes[0]+m.shots[0],count);assert.equal(count,1);
+});
+test('mouse and scaled touch aim at a teammate, release exactly once, and real flight transfers possession',()=>{
+ for(const type of ['mouse','touch'])for(const kickoff of [false,true]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game');
+  if(type==='touch')c.getBoundingClientRect=()=>({left:17,top:60,width:550,height:310});
+  const p=m.owner,r=m.players[6];if(!kickoff)m.giveBall(p);
+  // An onside teammate in the taker half; defenders remain beyond the halfway line.
+  for(const q of m.players)if(q!==p&&q!==r){q.x=q.team===0?900:250;q.y=120;}
+  r.x=650;r.y=340;m.protection=5;
+  const from=h.app.camera.project(p.x,p.y),to=h.app.camera.project(r.x,r.y),ev=(v)=>pointerEvent(h,v.x,v.y,31,type);
+  c.handlers.pointerdown(ev(from));c.handlers.pointermove(ev(to));c.handlers.pointerup(ev(to));
+  assert.ok(m.pendingKick);assert.ok(distance(m.pendingKick.target,r)<1);assert.equal(m.pendingKick.player,p.id);
+  advanceToContact(m);assert.equal(m.passes[0],1);c.handlers.pointerup(ev(to));assert.equal(m.passes[0],1);
+  for(let i=0;i<180&&!m.owner&&m.phase==='playing';i++)m.step(1/60,{dx:0,dy:0});
+  assert.equal(m.owner?.id,r.id);assert.equal(m.restarts,0);
+ }
+});
+test('drag length changes pass power and travel; pointer cancellation and secondary fingers cannot kick',()=>{
+ const speeds=[];
+ for(const pixels of [45,140]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;
+  const at=h.app.camera.project(p.x,p.y),ev=(dy,id=31)=>pointerEvent(h,at.x,at.y+dy,id);
+  c.handlers.pointerdown(ev(0));c.handlers.pointermove(ev(pixels));c.handlers.pointerup(ev(pixels));
+  assert.ok(m.pendingKick);advanceToContact(m);speeds.push(Math.hypot(m.ball.vx,m.ball.vy));
+ }
+ assert.ok(speeds[1]>speeds[0]*1.2);
+ for(const cancel of ['pointercancel','lostpointercapture','blur']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),at=h.app.camera.project(m.owner.x,m.owner.y),ev=(id=31)=>pointerEvent(h,at.x+100,at.y+80,id,'touch');
+  c.handlers.pointerdown(pointerEvent(h,at.x,at.y,31,'touch'));c.handlers.pointermove(ev());
+  c.handlers.pointerdown({...ev(32),isPrimary:false});c.handlers.pointerup(ev(32));assert.equal(m.pendingKick,null);
+  if(cancel==='blur')h.window.handlers.blur();else c.handlers[cancel](ev());
+  c.handlers.pointerup(ev());assert.equal(m.pendingKick,null);assert.deepEqual(m.passes,[0,0]);
+ }
+});
+
+test('passes aimed at a teammate near goal remain passes and carry explicit power through contact',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.owner,r=m.players[6];
+ p.x=230;p.y=318;m.giveBall(p);r.x=FIELD.left+50;r.y=350;
+ for(const q of m.players)if(q.team===1){q.x=FIELD.left+20;q.y=120;}
+ assert.ok(m.kick(p,r,.4));assert.ok(m.pendingKick.target.pass);
+ advanceToContact(m);assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);
+});
+test('crossbar clearance follows the same height scale and radius as the rendered ball',()=>{
+ for(const above of [false,true]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.giveBall(m.owner);
+  Object.assign(m.ball,{owner:null,x:FIELD.left-4,y:318,z:above?70:40,lastTouch:0});
+  m.checkBoundary({x:FIELD.left+8,y:318,z:above?70:40});
+  assert.equal(m.phase,above?'restart':'goal');
+ }
+});
+test('second half and every post-goal kickoff require the correct team to kick before dribbling',()=>{
+ const h=localHarness(),m=h.app.match;
+ for(const transition of ['half','home-goal','away-goal']){
+  if(transition==='half'){m.phase='half';h.app.syncMatch();h.click('resume');}
+  else{m.scorer=transition==='home-goal'?0:1;m.phase='replay';m.replayFrames=[m.snapshot()];h.app.syncMatch();h.click('skipReplay');}
+  const team=transition==='away-goal'?0:1,p=m.owner,spot={x:p.x,y:p.y};
+  assert.equal(p.team,team);assert.equal(m.setPiece,'Kick-off');
+  h.window.handlers.keydown(keyEvent(team===0?'w':'ArrowUp'));
+  for(let i=0;i<20;i++)m.step(1/60,h.app.input());
+  assert.ok(distance(p,spot)<.001);assert.equal(m.ball.x,550);assert.equal(m.ball.y,318);
+  h.window.handlers.keydown(keyEvent(team===0?'k':'f'));assert.equal(m.pendingKick,null);
+  h.window.handlers.keydown(keyEvent(team===0?'f':'k'));advanceToContact(m);
+  assert.equal(m.setPiece,null);assert.equal(m.ball.lastTouch,team);
+ }
 });
