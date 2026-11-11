@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,input,bracketMarkup,cupFinalists,opponentFor,replaySample};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -1443,4 +1443,60 @@ test('replay preserves contact ownership and cancels old follow-through when a p
  assert.equal(sample.ball.owner,null);assert.equal(sample.players[p.id].strikePhase,'follow');
  m.giveBall(p);assert.equal(m.snapshot().players[p.id].strikePhase,'idle');
  assert.equal(m.snapshot().players[p.id].kick,0);
+});
+
+test('control marker transfers at contact while possession and follow-through retain distinct identities',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.owner;m.kick(p,{x:FIELD.left-20,y:318},1);
+ m.step(1/120,h.app.input());
+ let shot=m.snapshot(),marker=h.app.playerMarkers(shot.players[p.id],shot);
+ assert.equal(marker.selected,true);assert.equal(marker.ownsBall,true);assert.equal(marker.follow,0);
+ advanceToContact(m);shot=m.snapshot();
+ const receiver=m.players[m.active],before={x:receiver.x,y:receiver.y};
+ assert.ok(receiver.id!==p.id);
+ marker=h.app.playerMarkers(shot.players[receiver.id],shot);
+ assert.equal(marker.selected,true);assert.equal(marker.ownsBall,false);assert.equal(marker.follow,0);
+ const kicker=h.app.playerMarkers(shot.players[p.id],shot);
+ assert.equal(kicker.selected,false);assert.equal(kicker.ownsBall,false);assert.ok(kicker.follow>0);
+ assert.equal(shot.players.filter(q=>h.app.playerMarkers(q,shot).ownsBall).length,0);
+ m.step(1/60,{dx:1,dy:0});assert.ok(distance(receiver,before)>1,'receiver control responds before follow-through finishes');
+});
+test('new owners immediately get the possession ring in solo and local play without retaining an old owner ring',()=>{
+ for(const local of [false,true]){
+  const h=uiHarness(html);h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();
+  const m=h.app.match;
+  for(const id of [9,6,20,17,9]){
+   m.giveBall(m.players[id]);const shot=m.snapshot();
+   const owners=shot.players.filter(p=>h.app.playerMarkers(p,shot,local).ownsBall);
+   assert.equal(owners.length,1);assert.equal(owners[0].id,id);
+   const marker=h.app.playerMarkers(shot.players[id],shot,local);
+   assert.equal(marker.follow,0);
+   if(local||m.players[id].team===0)assert.ok(marker.selected);
+   assert.equal(shot.players.filter(p=>h.app.playerMarkers(p,shot,local).selected).length,local?2:1);
+  }
+ }
+});
+test('replay handoff switches the control arrow at recorded contact, not during wind-up',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.owner;m.kick(p,{x:FIELD.left-20,y:318},1);
+ for(let i=0;i<10;i++)m.step(1/120,h.app.input());
+ const before=m.snapshot();advanceToContact(m);m.step(1/120,h.app.input());const after=m.snapshot();
+ const wind=h.app.replaySample([before,after],.05),contact=h.app.replaySample([before,after],.95);
+ assert.equal(wind.active,p.id);assert.equal(wind.ball.owner,p.id);
+ assert.equal(contact.active,after.active);assert.equal(contact.ball.owner,null);
+ assert.ok(h.app.playerMarkers(contact.players[p.id],contact).follow>0);
+ assert.equal(h.app.playerMarkers(contact.players[p.id],contact).selected,false);
+ assert.equal(h.app.playerMarkers(contact.players[after.active],contact).selected,true);
+});
+test('receiving pose cushions contact then settles without delaying movement or surviving a kickoff',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const m=h.app.match,p=m.players[6];m.giveBall(p);m.protection=2;
+ const before={x:p.x,y:p.y};m.step(1/60,{dx:1,dy:0});
+ assert.ok(distance(p,before)>1);assert.ok(m.snapshot().players[p.id].receive>0);
+ for(let i=0;i<7;i++)m.step(1/120,{dx:0,dy:0});
+ const snapshot=m.snapshot(),pose=h.app.playerPose(snapshot.players[p.id],snapshot.ball);
+ assert.ok(pose.receive>.8);
+ for(let i=0;i<30;i++)m.step(1/120,{dx:0,dy:0});
+ assert.equal(m.snapshot().players[p.id].receive,0);
+ m.kickoff(0);assert.ok(m.snapshot().players.every(q=>q.receive===0));
 });
