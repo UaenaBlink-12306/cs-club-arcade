@@ -2594,3 +2594,95 @@ test('player shot forecast clears the selection arrow and paints after players i
   assert.equal(finishShot(f.m,f.p,f.keeper),aim===45?'goal':'miss');
  }
 });
+
+function passReceptionFixture(width=1180,height=757){
+ const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height});
+ h.chooseMode('practice');h.flush();const m=h.app.match,p=m.owner,r=m.players[6];m.giveBall(p);p.x=550;p.y=318;
+ for(const q of m.players)if(q!==p&&q!==r){q.x=q.team?130:900;q.y=100;}
+ r.x=550;r.y=438;m.followBall();h.app.camera.ready=false;h.app.render(0);h.draws.length=0;
+ return {h,c,m,p,r};
+}
+function runPassFrames(h,hz=60,seconds=4,render=false){
+ const m=h.app.match;let frames=0;
+ for(;frames<hz*seconds;frames++){
+  m.step(1/hz,h.app.input());h.app.syncMatch();
+  if(render)h.app.render(1/hz);h.draws.length=0;
+  if(!m.pendingKick&&m.owner||m.phase!=='playing')break;
+ }
+ return frames;
+}
+test('reported two mouse drags reach two different teammates against all live AI at 30/60/120 Hz',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+  h.chooseMode('practice');h.flush();const m=h.app.match;
+  const ev=(x,y)=>({clientX:x,clientY:y,pointerId:31,button:0,isPrimary:true,pointerType:'mouse',preventDefault(){}});
+  for(const [a,b,id] of [[[590,395],[902,374],6],[[615,420],[550,710],7]]){
+   const passer=m.owner.id;c.handlers.pointerdown(ev(...a));c.handlers.pointermove(ev(...b));c.handlers.pointerup(ev(...b));
+   runPassFrames(h,hz,4,true);
+   assert.equal(m.owner?.id,id,'intended teammate receives, rather than original passer '+passer+' at '+hz+' Hz');
+  }
+  assert.equal(m.passes[0],2);assert.equal(m.shots[0],0);
+ }
+});
+test('short directional drags complete actual passes in eight directions, three powers and frame rates',()=>{
+ for(const hz of [30,60,120])for(const length of [40,90,180])for(let angle=0;angle<Math.PI*2;angle+=Math.PI/4){
+  const {h,c,m,p,r}=passReceptionFixture();r.x=p.x+Math.cos(angle)*120;r.y=p.y+Math.sin(angle)*120;
+  h.app.render(0);h.draws.length=0;const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y),d=Math.hypot(b.x-a.x,b.y-a.y);
+  const end={x:a.x+(b.x-a.x)/d*length,y:a.y+(b.y-a.y)/d*length},ev=q=>pointerEvent(h,q.x,q.y);
+  c.handlers.pointerdown(ev(a));c.handlers.pointermove(ev(end));assert.equal(h.app.pointerAim(h.app.drag).target.receiverId,r.id);
+  c.handlers.pointerup(ev(end));runPassFrames(h,hz);assert.equal(m.owner?.id,r.id,'receiver at '+hz+' Hz length '+length+' angle '+angle);
+  assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);
+ }
+});
+test('hovering a teammate after camera movement completes desktop and portrait mouse and touch-event passes',()=>{
+ for(const [w,height] of [[1180,757],[500,745]])for(const type of ['mouse','touch']){
+  const {h,c,m,p,r}=passReceptionFixture(w,height),a=h.app.camera.project(p.x,p.y),ev=q=>pointerEvent(h,q.x,q.y,31,type);
+  c.handlers.pointerdown(ev(a));h.app.camera.x+=65;h.app.camera.y-=15;
+  const b=h.app.camera.project(r.x,r.y);c.handlers.pointermove(ev(b));
+  assert.equal(h.app.pointerAim(h.app.drag).target.receiverId,r.id);
+  c.handlers.pointerup(ev(b));runPassFrames(h);assert.equal(m.owner?.id,r.id);assert.equal(m.passes[0],1);
+ }
+});
+test('pass after continuously held pointer changes possession reaches the new intended teammate exactly once',()=>{
+ const {h,c,m,p,r}=passReceptionFixture(),a=h.app.camera.project(p.x,p.y),ev=q=>pointerEvent(h,q.x,q.y);
+ c.handlers.pointerdown(ev(a));c.handlers.pointermove(ev({x:a.x+80,y:a.y}));
+ m.giveBall(m.players[20]);h.app.input();m.giveBall(p);h.app.input();
+ const b=h.app.camera.project(r.x,r.y);c.handlers.pointermove(ev(b));c.handlers.pointerup(ev(b));
+ runPassFrames(h);assert.equal(m.owner?.id,r.id);assert.equal(m.passes[0],1);
+ c.handlers.pointerup(ev(b));assert.equal(m.pendingKick,null);assert.equal(m.passes[0],1);
+});
+test('directed pass power changes contact speed while intended receiver moves during wind-up',()=>{
+ const speeds=[];
+ for(const power of [.15,.5,1]){
+  const {h,m,p,r}=passReceptionFixture();m.kick(p,{...r,receiverId:r.id,pass:true},power);
+  r.x+=25;advanceToContact(m);speeds.push(Math.hypot(m.ball.vx,m.ball.vy));
+  assert.equal(m.flight.target.x,r.x);runPassFrames(h);assert.equal(m.owner?.id,r.id);
+ }
+ assert.ok(speeds[0]<speeds[1]&&speeds[1]<speeds[2]);assert.ok(speeds[2]-speeds[0]>80);
+});
+test('receiver assist yields to deliberate movement and defenders still intercept a covered pass',()=>{
+ const first=passReceptionFixture();first.m.kick(first.p,{...first.r,receiverId:first.r.id,pass:true},.7);advanceToContact(first.m);
+ const x=first.r.x;first.m.step(1/60,{dx:-1,dy:0});assert.ok(first.r.x<x);
+ for(const hz of [30,60,120]){
+  const {h,c,m,p,r}=passReceptionFixture(),defender=m.players[20];defender.x=550;defender.y=378;
+  const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y),ev=q=>pointerEvent(h,q.x,q.y);
+  c.handlers.pointerdown(ev(a));c.handlers.pointermove(ev(b));c.handlers.pointerup(ev(b));runPassFrames(h,hz);
+  assert.equal(m.owner?.team,1,'covered lane remains interceptable at '+hz+' Hz');assert.equal(m.passes[0],1);
+ }
+});
+
+test('a settling receiver can aim and return a pass under live AI pressure without indefinite protection',()=>{
+ for(const hz of [30,60,120]){
+  const {h,c,m,p,r}=passReceptionFixture(),defender=m.players[20];defender.x=p.x+60;defender.y=p.y;
+  const step=()=>{m.step(1/hz,h.app.input());h.app.syncMatch();h.app.render(1/hz);h.draws.length=0;};
+  for(let i=0;i<Math.round(.45*hz);i++)step();
+  const a=h.app.camera.project(p.x,p.y),ev=q=>pointerEvent(h,q.x,q.y);c.handlers.pointerdown(ev(a));
+  for(let i=0;i<Math.round(.15*hz);i++){c.handlers.pointermove(ev(h.app.camera.project(r.x,r.y)));step();}
+  c.handlers.pointerup(ev(h.app.camera.project(r.x,r.y)));runPassFrames(h,hz,4,true);
+  assert.equal(m.owner?.id,r.id,'return pass completes under live pressure at '+hz+' Hz');assert.equal(m.passes[0],1);
+ }
+ const {h,m,p}=passReceptionFixture(),d=m.players[20];d.x=p.x+60;d.y=p.y;p.angle=0;m.followBall();
+ for(let i=0;i<240&&m.owner?.id===p.id;i++)m.step(1/60,h.app.input());
+ assert.ok(m.protection===0||m.owner?.id!==p.id||m.phase!=='playing');
+ assert.ok(distance(d,p)<42||m.owner?.id!==p.id||m.phase!=='playing','defender resumes closing after settling window');
+});

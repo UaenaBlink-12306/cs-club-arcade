@@ -102,3 +102,15 @@ The committed simulation/DOM suite has 182 checks. New coverage includes chargin
 Six seeded full-match simulations still finish normally with goals, saves and interceptions. The suite also checks shooting outcomes at 30/60/120 Hz, near/mid/long-range placement, both ends and halves, projected mouse/touch sequences, cancelled input, planted contact, smooth goal framing and full-team scoring approaches. These small simulations do not establish human difficulty or visual polish.
 
 This revision was tested by evaluating the real engine and UI event handlers in a V8 DOM/canvas harness. Browser plugin and executor are unavailable in this delegated thread. No actual browser rendering, physical touchscreen, production HTTP smoke test or local build is claimed. Vercel deployment status is checked separately; independent browser QA is still needed.
+
+
+## Open-play passing follow-up (2026-11-11)
+
+The reported 1180×757 two-drag sequence reproduced a pass returning to its original passer. Two additional isolated cases reproduced the same result: a short directional drag toward a distant teammate and releasing over a teammate after camera movement. Counting a pass event did not establish reception.
+
+- Pointer targeting now hit-tests the teammate's current projected sprite, then the existing endpoint assist, then a narrow directional cone for teammates within 240 world units. The preview identifies the selected receiver with `PASS TO #`. A free-space drag remains possible.
+- Directed teammate passes retain receiver identity through wind-up and aim at the receiver's position at contact. A power-dependent minimum delivery speed (208–310 world units/second over the allowed power range) prevents a short aiming gesture producing a ball slower than the chasing passer. Distance and drag power still affect delivery speed; this is assistance, not a guaranteed completion.
+- An idle selected receiver moves to meet the travelling pass. Explicit movement input overrides this assistance immediately. The passer finishes the existing 480 ms release cooldown before off-ball AI chases again; it is not an extended collision exemption.
+- AI contains a newly receiving opponent at 42 world units for 650 ms, then resumes its usual press. Existing 800 ms tackle protection is unchanged. Human defenders, flight interceptions, foul checks and restart rules remain active.
+- The regression asserts actual recipient IDs for the reported two-drag sequence with all 22 players and AI at 30/60/120 Hz. It also covers 72 directional/power/frame-rate cases, desktop/portrait projected sprite targeting after camera movement, synthetic mouse/touch pointer events, held-pointer possession recovery, moving receivers during wind-up, explicit movement override, covered-lane interceptions and live pressure during a 150 ms return-pass gesture.
+- Verification uses the production JavaScript with the repository's DOM/canvas event harness. It is not a rendered-browser or physical-touch test. Independent deployed play-testing is still needed, especially for subjective targeting and pressure balance. No guarantees are made that marked or late passes complete.
