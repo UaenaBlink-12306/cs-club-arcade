@@ -50,9 +50,17 @@ Remaining gaps, **not implemented**:
 - Penalty infringement/retake matrices, illegal feints, accidental double kicks, detailed keeper feet/body-part adjudication and separate parry/post-rebound physics. Encroachment is prevented through positioning rather than exposed for referee adjudication. Keeper saves currently catch the ball. In-match penalties have real flight; the separate post-match shootout still uses directional choices, without physical run-ups, coin tosses or eligibility changes.
 - Regulation real-time match duration, stoppage-time calculation and full tournament rounds. Cup play remains QF → SF → final; practice remains untimed.
 
+## Near-goal camera framing
+
+Normal gameplay anticipates the attacking goal as the ball approaches shooting range (360 world units, fully engaged by 240). It fits the carrier, both posts, crossbar and back of the net using the actual perspective projection; central chances retain a tight crop, while wide positions ease wider only as required. Attack direction comes from current possession or an active shot and respects second-half end changes and local two-player possession.
+
+Pan remains eased. Contextual widening is limited to 0.65 zoom units per second; ordinary zoom changes and narrowing retain the 0.16 limit. Wind-up/contact still freeze zoom. If a chance arrives suddenly, ball visibility takes priority while widening catches up, so the whole net may take a moment to enter the frame. Portrait end-line bounds reserve room for the elevated goal frame rather than clipping it under the HUD.
+
+Four added checks cover both flanks/goals/halves, desktop and portrait, full goal and carrier bounds, approach camera movement, contact locking, immediate wide-position shots, and UI selection of the attacking goal without requiring a drag. Existing projected pointer, scoring and replay tests remain in place. These are projection/DOM checks, not a claim of independently verified live camera feel.
+
 ## Verification
 
-The committed simulation/DOM suite has 153 checks. New coverage includes charging/late-contact fouls for both teams and halves, clean-tackle controls, 30/60/120 Hz contact classification, direct-kick positioning/scoring, penalty keeper/arc positioning, backward rejection, actual penalty flight, saves, second touches, pause/resume and interval/full-time completion. It retains all earlier restart, boundary, offside and input tests. Added UI sequences move an already-held pointer through recovery and camera movement before releasing once, and simulate an actual goal-line miss through automatic goal-kick setup and held-pointer contact in desktop/portrait viewports.
+The committed simulation/DOM suite has 157 checks. New coverage includes charging/late-contact fouls for both teams and halves, clean-tackle controls, 30/60/120 Hz contact classification, direct-kick positioning/scoring, penalty keeper/arc positioning, backward rejection, actual penalty flight, saves, second touches, pause/resume and interval/full-time completion. It retains all earlier restart, boundary, offside and input tests. Added UI sequences move an already-held pointer through recovery and camera movement before releasing once, and simulate an actual goal-line miss through automatic goal-kick setup and held-pointer contact in desktop/portrait viewports.
 
 Six seeded full-match simulations still finish normally with goals, saves and interceptions. The suite also checks shooting outcomes at 30/60/120 Hz, near/mid/long-range placement, both ends and halves, projected mouse/touch sequences, cancelled input, planted contact, smooth goal framing and full-team scoring approaches. These small simulations do not establish human difficulty or visual polish.
 

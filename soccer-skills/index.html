@@ -1385,13 +1385,49 @@ class ActionCamera {
     const p=this.project(origin.x,origin.y),q=this.unproject(p.x+dx,p.y+dy);
     return {x:q.x-origin.x,y:q.y-origin.y};
   }
-  portraitBounds(zoom){
+  portraitBounds(zoom,shootingGoal=null){
     // Keep the end lines near the viewport edges instead of centering a keeper
     // on the screen and revealing half a screen of empty runoff behind them.
     const visibleDepth=this.height/(zoom*.88);
-    const low=FIELD.left+visibleDepth*(.53-.14);
-    const high=FIELD.right-visibleDepth*(.90-.53);
+    const low=FIELD.left+visibleDepth*(.53-(shootingGoal===FIELD.left?.17:.14))-(shootingGoal===FIELD.left?32+44/.88:0);
+    const high=FIELD.right-visibleDepth*(.90-.53)+(shootingGoal===FIELD.right?32:0);
     return low<=high?[low,high]:[(FIELD.left+FIELD.right)/2,(FIELD.left+FIELD.right)/2];
+  }
+  keepBallVisible(ball,x,y,zoom){
+    const angle=(this.portrait?Math.PI/2:0)+this.yaw,c=Math.cos(angle),s=Math.sin(angle);
+    for(let i=0;i<3;i++){
+      const dx=ball.x-x,dy=ball.y-y,u=dx*c-dy*s,v=dx*s+dy*c,k=zoom*Math.max(.4,1+v*.00065);
+      const px=this.width*.5+u*k,py=this.height*.53+v*zoom*this.tilt;
+      const sx=px-clamp(px,this.width*.1,this.width*.9);
+      const sy=py-clamp(py,this.height*.18+28*k,this.height*.86);
+      const du=sx/k,dv=sy/(zoom*this.tilt);
+      x+=du*c+dv*s;y+=-du*s+dv*c;
+    }
+    return {x,y};
+  }
+  shootingFrame(ball,goal,x,y,zoom){
+    // Fit the carrier, both posts, crossbar and back of net before a shot is aimed.
+    // Use the same perspective as project(); screen deltas are inverted to world deltas.
+    const angle=(this.portrait?Math.PI/2:0)+this.yaw,c=Math.cos(angle),s=Math.sin(angle);
+    const outward=goal===FIELD.left?-1:1;
+    const points=[{x:ball.x,y:ball.y,z:0},{x:ball.x,y:ball.y,z:28}];
+    for(const gx of [goal,goal+outward*32])for(const gy of [FIELD.cy-FIELD.goalHalf,FIELD.cy+FIELD.goalHalf])for(const z of [0,44])points.push({x:gx,y:gy,z});
+    const left=this.width*.07,right=this.width*.93,top=this.height*.17,bottom=this.height*.90;
+    for(let i=0;i<8;i++){
+      const projected=points.map(p=>{
+        const dx=p.x-x,dy=p.y-y,u=dx*c-dy*s,v=dx*s+dy*c,k=zoom*Math.max(.4,1+v*.00065);
+        return {x:this.width*.5+u*k,y:this.height*.53+v*zoom*this.tilt-p.z*k};
+      });
+      const minX=Math.min(...projected.map(p=>p.x)),maxX=Math.max(...projected.map(p=>p.x));
+      const minY=Math.min(...projected.map(p=>p.y)),maxY=Math.max(...projected.map(p=>p.y));
+      const fit=Math.min(1,(right-left)/(maxX-minX),(bottom-top)/(maxY-minY));
+      if(fit<.999){zoom*=fit*.99;continue;}
+      const dx=minX<left?minX-left:maxX>right?maxX-right:0;
+      const dy=minY<top?minY-top:maxY>bottom?maxY-bottom:0;
+      const u=dx/zoom,v=dy/(zoom*this.tilt);
+      x+=u*c+v*s;y+=-u*s+v*c;
+    }
+    return {x,y,zoom};
   }
   update(shot,dt,replay=false,snap=false,preset='gameplay'){
     const wasReplay=this.preset==='replay';
@@ -1420,19 +1456,32 @@ class ActionCamera {
     const speed=Math.hypot(vx,vy);
     const nearGoal=Math.abs(b.x-550)>310;
     let tz=this.preset==='presentation'?(portrait?1.95:1.12):this.preset==='intro'?(portrait?1.6:.88):this.preset==='replay'?clamp(this.height*.64/(targetTilt*(Math.abs(b.x-(this.replayGoal??FIELD.left))+100)),portrait?1.7:1.3,portrait?4:3.3):clamp(base+(nearGoal?.14:0)-Math.min(.23,speed*.0004),1.3,Math.max(2.5,base+.15));
+    const goal=shot.shootingGoal;
+    if(this.preset==='gameplay'&&Number.isFinite(goal)){
+      const range=Math.abs(goal-b.x),t=clamp((360-range)/120,0,1),weight=t*t*(3-2*t);
+      if(weight>0){
+        const frame=this.shootingFrame(b,goal,tx,ty,tz);
+        tx+=(frame.x-tx)*weight;ty+=(frame.y-ty)*weight;tz+=(frame.zoom-tz)*weight;
+      }
+    }
     // Keep scale steady through the wind-up and contact; never freeze ball tracking.
     if(this.ready&&!snap&&this.preset==='gameplay'&&shot.players.some(p=>p.strike>0&&p.strike<.65))tz=this.zoom;
+    // If a chance arrives suddenly, retain the ball while the lens eases wider.
+    // Goal framing must never pan the carrier out of view during a locked contact.
+    if(this.ready&&!snap&&this.preset==='gameplay'&&Number.isFinite(goal)){
+      const safe=this.keepBallVisible(b,tx,ty,Math.max(this.zoom,tz));tx=safe.x;ty=safe.y;
+    }
     if(this.preset==='replay'){
       const goal=this.replayGoal??FIELD.left,inward=goal===FIELD.left?1:-1;
       tx=goal+inward*this.height*.32/(tz*targetTilt);
       ty=FIELD.cy+(b.y-FIELD.cy)*.20;
     }
-    if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(tz);tx=clamp(tx,low,high);}
+    if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(tz,goal);tx=clamp(tx,low,high);}
     const pan=1-Math.exp(-Math.max(0,dt)*5.5),zoom=1-Math.exp(-Math.max(0,dt)*2.8);
     if(!this.ready||snap){this.x=tx;this.y=ty;this.zoom=tz;this.ready=true;}
-    else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=this.preset==='gameplay'?clamp((tz-this.zoom)*zoom,-.16*dt,.16*dt):(tz-this.zoom)*zoom;}
+    else{this.x+=(tx-this.x)*pan;this.y+=(ty-this.y)*pan;this.zoom+=this.preset==='gameplay'?clamp((tz-this.zoom)*zoom,-(Number.isFinite(goal)?.65:.16)*dt,.16*dt):(tz-this.zoom)*zoom;}
     // Re-clamp against the interpolated zoom too, including resize and replay.
-    if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(this.zoom);this.x=clamp(this.x,low,high);}
+    if(portrait&&this.preset==='gameplay'&&Math.abs(this.yaw)<.01){const [low,high]=this.portraitBounds(this.zoom,goal);this.x=clamp(this.x,low,high);}
   }
 }
 // END SOCCER CAMERA
@@ -2213,7 +2262,11 @@ function render(dt=0){
   if(shot&&match?.phase==='playing'){
     const preview=drag?.armed&&match.ball.owner===drag.player?pointerAim(drag):null;
     const aim=preview?.shot?preview.target:match.pendingKick?.shot?match.pendingKick.target:match.flight?.shot?match.flight.target:null;
-    if(aim&&Math.abs(match.goalX(match.owner?.team??match.flight?.team??0)-shot.ball.x)<=360)shot={...shot,aim};
+    const attackingTeam=match.owner?.team??(match.flight?.shot?match.flight.team:null);
+    if(attackingTeam!==null){
+      const shootingGoal=match.goalX(attackingTeam);
+      if(Math.abs(shootingGoal-shot.ball.x)<360)shot={...shot,shootingGoal,...(aim?{aim}:{})};
+    }
   }
   if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');

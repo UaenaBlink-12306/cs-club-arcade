@@ -2069,8 +2069,8 @@ test('shot framing reveals the goal smoothly without zooming during contact',()=
  let maxPan=0;
  for(let i=0;i<30;i++){const x=camera.x;h.app.render(1/60);maxPan=Math.max(maxPan,Math.abs(camera.x-x));h.draws.length=0;}
  const post=camera.project(FIELD.left,318);assert.ok(post.x>0&&post.x<camera.width);assert.ok(maxPan<6);
- c.handlers.pointerup(pointerEvent(h,end.x,end.y));
- while(f.m.pendingKick){f.m.step(1/120,h.app.input());h.app.render(1/120);h.draws.length=0;assert.ok(Math.abs(camera.zoom-zoom)<.001);}
+ const contactZoom=camera.zoom;c.handlers.pointerup(pointerEvent(h,end.x,end.y));
+ while(f.m.pendingKick){f.m.step(1/120,h.app.input());h.app.render(1/120);h.draws.length=0;assert.ok(Math.abs(camera.zoom-contactZoom)<.001);}
 });
 
 test('full-team kickoff, held-pointer dribble and aimed far-corner release produce an actual goal',()=>{
@@ -2110,6 +2110,80 @@ test('a missed tackle has a recovery window, but a nearby clean challenge can st
    assert.equal(m.owner.id,p.id);const first=q.challengeUntil;
    for(let i=0;i<20;i++)m.step(1/120);
    assert.equal(q.challengeUntil,first);assert.equal(m.owner.id,p.id);
+  }
+ }
+});
+
+test('shooting frame fits carrier and entire goal from both flanks, both goals and both halves',()=>{
+ const cameraCode=html.split('// BEGIN SOCCER CAMERA')[1].split('// END SOCCER CAMERA')[0];
+ const {ActionCamera}=new Function('clamp','FIELD',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)),FIELD);
+ for(const [width,height,cssWidth] of [[1100,620,1100],[1100,1639,500]])
+ for(const team of [0,1])for(const period of [1,2])for(const offset of [-218,-118,0,122,217]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),180,offset,team,period);
+  const c=new ActionCamera();c.resize(width,height,cssWidth);
+  const initial=f.m.snapshot();c.update(initial,0,false,true);
+  const shot={...initial,shootingGoal:f.goal};
+  for(let i=0;i<240;i++)c.update(shot,1/60);
+  const points=[c.project(f.p.x,f.p.y),c.project(f.p.x,f.p.y,28)];
+  for(const gx of [f.goal,f.goal+f.d*32])for(const y of [264,372])for(const z of [0,44])points.push(c.project(gx,y,z));
+  for(const p of points){
+   assert.ok(p.x>width*.02&&p.x<width*.98,'entire goal and carrier fit horizontally');
+   assert.ok(p.y>height*.09&&p.y<height*.98,'crossbar clears top HUD and net stays on screen');
+  }
+  const screen=c.project(f.p.x,f.p.y),roundtrip=c.unproject(screen.x,screen.y);
+  assert.ok(Math.hypot(roundtrip.x-f.p.x,roundtrip.y-f.p.y)<.00001);
+ }
+});
+test('approach framing keeps ball visible with bounded zoom changes and freezes scale through contact',()=>{
+ const cameraCode=html.split('// BEGIN SOCCER CAMERA')[1].split('// END SOCCER CAMERA')[0];
+ const {ActionCamera}=new Function('clamp','FIELD',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)),FIELD);
+ for(const [width,height,cssWidth] of [[1100,620,1100],[1100,1639,500]])
+ for(const team of [0,1])for(const period of [1,2])for(const offset of [-160,0,160]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),400,offset,team,period);
+  const c=new ActionCamera();c.resize(width,height,cssWidth);c.update(f.m.snapshot(),0,false,true);
+  for(let i=0;i<240;i++){
+   f.p.x=f.goal-f.d*(400-i);f.m.ball.x=f.p.x;f.m.ball.y=f.p.y;
+   const shot={...f.m.snapshot(),...(400-i<360?{shootingGoal:f.goal}:{})};
+   const zoom=c.zoom,previous=c.project(f.m.ball.x,f.m.ball.y);
+   c.update(shot,1/60);
+   const ball=c.project(f.m.ball.x,f.m.ball.y);
+   assert.ok(ball.x>0&&ball.x<width&&ball.y>0&&ball.y<height,'ball stays in frame during approach');
+   assert.ok(Math.abs(c.zoom-zoom)<=.65/60+.000001);
+   assert.ok(Math.hypot(ball.x-previous.x,ball.y-previous.y)<width*.015,'camera changes less than 1.5% of width per frame');
+  }
+  const shot={...f.m.snapshot(),shootingGoal:f.goal};shot.players.find(p=>p.id===f.p.id).strike=.2;
+  const before=c.zoom;for(let i=0;i<18;i++)c.update(shot,1/60);
+  assert.equal(c.zoom,before);
+ }
+});
+test('UI anticipates the correct attacking goal without a drag in both halves and local play',()=>{
+ for(const mode of ['practice','local'])for(const period of [1,2])for(const team of [0,1]){
+  const h=mode==='local'?localHarness():uiHarness(html);
+  if(mode!=='local'){h.chooseMode('practice');h.flush();}
+  const f=placeShot(h.app.match,180,team===0?-118:122,team,period),c=h.app.camera;
+  let goal=null;const update=c.update.bind(c);
+  c.update=(shot,...args)=>{goal=shot.shootingGoal;return update(shot,...args);};
+  h.app.render(1/60);h.draws.length=0;
+  assert.equal(goal,f.goal);assert.equal(f.goal,(team===0)===(period===1)?FIELD.left:FIELD.right);
+  f.m.ball.owner=null;f.m.flight={shot:true,team,target:{x:f.goal,y:318}};
+  h.app.render(1/60);assert.equal(goal,f.goal);
+  f.m.flight=null;h.app.render(1/60);assert.equal(goal,undefined);
+ }
+});
+
+test('an immediate wide-position shot keeps the carrier visible while contact locks the zoom',()=>{
+ const cameraCode=html.split('// BEGIN SOCCER CAMERA')[1].split('// END SOCCER CAMERA')[0];
+ const {ActionCamera}=new Function('clamp','FIELD',cameraCode+';return {ActionCamera};')((v,a,b)=>Math.max(a,Math.min(b,v)),FIELD);
+ for(const [width,height,cssWidth] of [[1100,620,1100],[1100,1639,500]])
+ for(const team of [0,1])for(const offset of [-218,217]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),180,offset,team),c=new ActionCamera();
+  c.resize(width,height,cssWidth);const shot=f.m.snapshot();c.update(shot,0,false,true);
+  shot.shootingGoal=f.goal;shot.players.find(p=>p.id===f.p.id).strike=.2;
+  const zoom=c.zoom;
+  for(let i=0;i<30;i++){
+   c.update(shot,1/60);const p=c.project(f.p.x,f.p.y);
+   assert.equal(c.zoom,zoom);
+   assert.ok(p.x>0&&p.x<width&&p.y>0&&p.y<height,'goal framing must not hide the ball while zoom is locked');
   }
  }
 });
