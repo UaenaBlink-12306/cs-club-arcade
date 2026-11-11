@@ -2330,3 +2330,120 @@ test('goal aim label avoids a nearby player while post markers retain exact rays
  assert.ok(h.draws.some(d=>d.method==='arc'&&Math.abs(d.args[2]-6*guide.unit)<.00001),'post dots need a dark contrast disc');
  assert.ok(h.draws.some(d=>d.method==='fillRect'&&Math.abs(d.args[2]-guide.title.width)<.00001),'label needs an opaque backing');
 });
+
+function offsideInvolvementFixture(team=0,period=1,shot=true){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+ const d=m.direction(team),goal=m.goalX(team),p=m.players[team*11+9],a=m.players[team*11+6],keeper=m.players[(1-team)*11];
+ for(const q of m.players){q.x=q.team===team?550:goal-d*110;q.y=FIELD.top+25;q.cooldown=0;}
+ p.x=goal-d*180;p.y=FIELD.cy;p.angle=d>0?0:Math.PI;m.giveBall(p);
+ a.x=goal-d*45;a.y=FIELD.cy;keeper.x=goal-d*18;keeper.y=FIELD.cy;
+ m.kick(p,{x:goal+d*20,y:FIELD.cy,pass:!shot},.9);
+ advanceToContact(m);
+ return {m,p,a,keeper,d,goal};
+}
+test('an offside attacker blocking a shot from the keeper view is penalised without touching the ball',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const f=offsideInvolvementFixture(team,period);assert.ok(f.m.offside.ids.includes(f.a.id));
+  const spot={x:f.a.x,y:f.a.y};f.m.move=()=>{};f.m.step(1/hz,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  assert.equal(f.m.phase,'restart');assert.equal(f.m.restart.type,'Indirect Free Kick');assert.equal(f.m.restart.team,1-team);
+  assert.equal(f.m.restart.offside.player,f.a.id);assert.ok(f.m.event.includes('goalkeeper'));
+  assert.ok(distance(f.m.restart,spot)<.01);assert.deepEqual(f.m.score,[0,0]);assert.equal(f.m.shots[team],1);
+ }
+});
+test('offside position alone, a clear view, behind-keeper positions and high or wide shots remain legal',()=>{
+ for(const kind of ['clear-view','behind-keeper','high','wide','pass','onside']){
+  const f=offsideInvolvementFixture(0,1,kind!=='pass');f.m.move=()=>{};
+  if(kind==='clear-view')f.a.y+=25;
+  if(kind==='behind-keeper')f.a.x=f.goal+f.d*2;
+  if(kind==='high'){f.m.ball.z=240;f.m.ball.vz=0;}
+  if(kind==='wide')f.m.ball.vy=300;
+  if(kind==='onside')f.m.offside.ids=[];
+  const before=f.m.players.map(p=>({x:p.x,y:p.y}));
+  assert.equal(f.m.checkOffsideInvolvement(before,1/60),false,kind+' must not trigger offside');
+  assert.equal(f.m.phase,'playing');
+ }
+});
+test('an offside player actively challenging for a nearby ball is penalised before winning it',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const f=offsideInvolvementFixture(team,period,false),opponent=f.m.players[(1-team)*11+6];
+  f.a.x=f.goal-f.d*70;f.a.y=FIELD.cy;opponent.x=f.goal-f.d*90;opponent.y=FIELD.cy;
+  Object.assign(f.m.ball,{x:opponent.x,y:opponent.y,vx:0,vy:0,z:0,vz:0});
+  f.m.selectPlayer(team,f.a.id);f.m.selectPlayer(1-team,opponent.id);
+  const teams=[{dx:0,dy:0},{dx:0,dy:0}];teams[team]={dx:-f.d,dy:0};
+  f.m.step(1/hz,{teams});
+  assert.equal(f.m.phase,'restart');assert.equal(f.m.restart.team,1-team);
+  assert.ok(f.m.event.includes('challenging'));assert.equal(f.m.restart.offside.player,f.a.id);
+ }
+});
+test('offside challenge detection requires close involvement, not a passive or retreating nearby attacker',()=>{
+ for(const kind of ['stationary','retreating','distant-ball','no-opponent','high-ball']){
+  const f=offsideInvolvementFixture(0,1,false),opponent=f.m.players[17];
+  f.a.x=300;f.a.y=318;opponent.x=320;opponent.y=318;Object.assign(f.m.ball,{x:320,y:318,z:0});
+  const before=f.m.players.map(p=>({x:p.x,y:p.y}));
+  if(kind!=='stationary')before[f.a.id].x=kind==='retreating'?301:299;
+  if(kind==='distant-ball')f.m.ball.x=400;
+  if(kind==='no-opponent')opponent.y=450;
+  if(kind==='high-ball')f.m.ball.z=100;
+  assert.equal(f.m.checkOffsideInvolvement(before,1/60),false,kind);
+ }
+});
+test('restart exemptions survive direct involvement but end at a later teammate play',()=>{
+ for(const type of ['Goal Kick','Corner Kick','Throw-in']){
+  const m=restartFixture(type),p=m.owner,team=p.team,d=m.direction(team),a=m.players[team*11+6];
+  m.kick(p,{x:550,y:400},.6);advanceToContact(m);assert.equal(m.offside,null);
+  assert.equal(m.checkOffsideInvolvement(m.players.map(q=>({...q})),1/60),false);
+  m.receiveBall(a);assert.equal(m.phase,'playing');
+  const next=m.players[team*11+9],goal=m.goalX(team);
+  a.x=goal-d*180;a.y=318;next.x=goal-d*45;next.y=318;m.followBall();
+  for(const q of m.players)if(q.team!==team){q.x=goal-d*110;q.y=110;}
+  const keeper=m.players[(1-team)*11];keeper.x=goal-d*18;keeper.y=318;
+  m.kick(a,{x:goal+d*20,y:318},1);advanceToContact(m);
+  assert.ok(m.offside.ids.includes(next.id),'the next teammate play creates a new offside phase');
+  m.move=()=>{};m.step(1/60,{dx:0,dy:0});
+  assert.equal(m.phase,'restart');assert.equal(m.restart.team,1-team);
+ }
+});
+test('offside involvement reaches the visible and accessible restart flow and resumes legally',()=>{
+ const h=localHarness(),m=h.app.match;
+ const f=offsideInvolvementFixture(0,1);
+ // Reproduce the same real shot sequence in the UI-owned match.
+ m.period=f.m.period;m.players=f.m.players;m.ball={...f.m.ball};m.offside=f.m.offside;m.flight=f.m.flight;
+ m.setPiece=null;m.restartGuard=null;m.lastRestart=null;m.pendingKick=null;m.phase='playing';m.move=()=>{};
+ m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});h.app.syncMatch();h.app.render(0);
+ assert.equal(h.app.view,'corner');assert.equal(h.elements.get('restartNotice').textContent,'OFFSIDE');
+ assert.ok(h.elements.get('matchStatus').textContent.includes('goalkeeper'));
+ assert.ok(h.elements.get('restartHelp').textContent.includes('goalkeeper'));
+ h.click('takeCorner');assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Indirect Free Kick');
+ assert.equal(m.owner.team,1);assert.equal(m.ball.vx,0);
+ h.window.handlers.keydown(keyEvent('k'));assert.ok(m.pendingKick);
+ advanceToContact(m);assert.equal(m.setPiece,null);assert.equal(m.phase,'playing');
+});
+
+test('keeper hand-possession countdown uses the last five seconds and clears on release, pause and restart',()=>{
+ const h=localHarness(),m=h.app.match,k=m.players[0];
+ k.x=m.ownGoalX(0)+m.direction(0)*30;k.y=FIELD.cy+20;
+ m.ball.lastTouch=1;m.receiveBall(k);assert.equal(m.handOwner,k.id);
+ for(const [held,expected] of [[2.99,null],[3,5],[4.2,4],[6.1,2],[7.3,1]]){
+  k.held=held;h.app.syncMatch();h.draws.length=0;h.app.render(0);
+  const status=h.elements.get('keeperStatus').textContent;
+  if(expected===null)assert.equal(status,'');
+  else{
+   assert.ok(status.includes('within '+expected+(expected===1?' second':' seconds')));
+   assert.ok(h.draws.some(d=>d.method==='fillText'&&d.args[0]==='KEEPER · RELEASE '+expected));
+  }
+ }
+ const held=k.held;h.click('menuBtn');assert.equal(h.elements.get('keeperStatus').textContent,'');m.step(1);assert.equal(k.held,held);
+ h.click('resumePause');assert.ok(h.elements.get('keeperStatus').textContent.includes('within 1 second'));
+ h.window.handlers.keydown(keyEvent('f'));advanceToContact(m);h.app.syncMatch();assert.equal(h.elements.get('keeperStatus').textContent,'');
+ m.ball.lastTouch=1;m.receiveBall(k);k.held=7.99;m.step(.02,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});h.app.syncMatch();
+ assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Corner Kick');assert.equal(m.restart.team,1);assert.equal(h.elements.get('keeperStatus').textContent,'');
+ h.click('takeCorner');h.click('menuBtn');h.click('restartMatch');assert.equal(h.elements.get('keeperStatus').textContent,'');
+});
+test('keeper countdown never treats foot-controlled teammate deliveries as handling',()=>{
+ const h=localHarness(),m=h.app.match,k=m.players[0];
+ k.x=m.ownGoalX(0)+m.direction(0)*30;k.y=318;m.ball.lastTouch=0;m.receiveBall(k);k.held=9;
+ h.app.syncMatch();h.draws.length=0;h.app.render(0);
+ assert.equal(m.handOwner,null);assert.equal(h.elements.get('keeperStatus').textContent,'');
+ assert.ok(!h.draws.some(d=>d.method==='fillText'&&String(d.args[0]).startsWith('KEEPER · RELEASE')));
+ m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});assert.equal(m.phase,'playing');
+});
