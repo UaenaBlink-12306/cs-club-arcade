@@ -2846,3 +2846,98 @@ test('replay envelopes still decay continuously across ordinary recorded frames'
   assert.equal(s.ball.owner,p.id);
  }
 });
+
+function possessionAdvantageFixture(team=0,period=1,hz=60){
+ const f=contactFixture(team,period);f.q.x=f.p.x-f.d*19;
+ // The victim is recovering from a previous challenge, so the pursuing defender visibly closes.
+ f.p.challengeUntil=f.m.elapsed+.6;f.controls.teams[team]={dx:f.d,dy:0};
+ for(let i=0;i<hz&&!f.m.advantage&&f.m.phase==='playing';i++)f.m.step(1/hz,f.controls);
+ assert.equal(f.m.advantage?.kind,'possession');return f;
+}
+test('real moving rear fouls allow a retained attack to advance in both halves and at 30/60/120 Hz',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const {m,p,controls,d}=possessionAdvantageFixture(team,period,hz),origin={...m.advantage.origin};
+  assert.equal(m.owner.id,p.id);assert.equal(m.phase,'playing');
+  for(let i=0;i<hz*2&&m.advantage&&m.phase==='playing';i++)m.step(1/hz,controls);
+  assert.equal(m.advantage,null);assert.equal(m.phase,'playing');assert.equal(m.restarts,0);
+  assert.ok((p.x-origin.x)*d>=45);assert.equal(m.fouls[1-team],1);
+ }
+});
+test('standing, retreating, crowded, defensive-zone and penalty situations still get the foul immediately',()=>{
+ for(const type of ['standing','retreat','crowded','defensive','penalty']){
+  const f=contactFixture(0,1,type==='penalty');f.p.speed=80;
+  if(type==='standing')f.p.speed=0;
+  if(type==='retreat')f.p.angle=0;
+  if(type==='defensive')f.p.x=750;
+  if(type==='crowded'){f.m.players[12].x=f.p.x+f.d*45;f.m.players[12].y=f.p.y;}
+  f.m.foul(f.q,f.p,'Challenge from behind');
+  assert.equal(f.m.phase,'restart');assert.equal(f.m.advantage,null);
+  assert.equal(f.m.restart.type,type==='penalty'?'Penalty Kick':'Direct Free Kick');
+ }
+});
+test('a forward pass during advantage actually reaches a teammate before benefit is accepted',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const {m,p,q,d}=possessionAdvantageFixture(team,period,hz),r=m.players[team*11+6],origin={...m.advantage.origin};
+  r.x=p.x+d*105;r.y=p.y+60;
+  // Keep two opponents beyond the receiver so the completed pass is legally onside.
+  for(const id of [(1-team)*11,(1-team)*11+1]){m.players[id].x=m.goalX(team)-d*20;m.players[id].y=100;}
+  assert.ok(m.kick(p,r,.7));assert.ok(m.advantage);
+  const input={teams:[{dx:0,dy:0},{dx:0,dy:0}]};
+  for(let i=0;i<hz*2&&m.phase==='playing';i++){m.step(1/hz,input);if(m.owner?.id===r.id)break;}
+  assert.equal(m.owner?.id,r.id);assert.equal(m.advantage,null);assert.equal(m.restarts,0);assert.ok((r.x-origin.x)*d>=45);
+ }
+});
+test('failed continuation recalls the original location on timeout, interception, offside, exit and tackle',()=>{
+ for(const failure of ['timeout','interception','offside','out','tackle']){
+  const {m,p,q}=possessionAdvantageFixture(),original={...m.advantage.restart};
+  if(failure==='timeout'){m.move=()=>{};for(let i=0;i<130&&m.phase==='playing';i++)m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});}
+  if(failure==='interception'){m.ball.owner=null;m.receiveBall(q);}
+  if(failure==='offside'){const r=m.players[6];m.ball.owner=null;m.offside={team:0,ids:[r.id]};m.receiveBall(r);}
+  if(failure==='out'){m.stopForRestart({type:'Throw-in',team:1,x:550,y:FIELD.top});}
+  if(failure==='tackle'){
+   m.move=()=>{};p.angle=0;m.followBall();q.x=p.x+16;q.y=p.y;q.cooldown=0;m.protection=0;m.random=()=>0;
+   m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  }
+  assert.equal(m.phase,'restart',failure);assert.equal(m.advantage,null);assert.equal(m.restart.type,'Direct Free Kick');
+  assert.equal(m.restart.team,original.team);assert.equal(m.restart.x,original.x);assert.equal(m.restart.y,original.y);
+  assert.equal(m.fouls[1],1);assert.equal(m.restarts,1);
+  m.step(1);assert.equal(m.restarts,1);
+ }
+});
+test('a subsequent attacking foul can improve the restart to a penalty without erasing either offence',()=>{
+ const {m,p,q,d}=possessionAdvantageFixture();p.x=m.goalX(0)-d*80;
+ m.foul(q,p,'Challenge from behind');assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Penalty Kick');
+ assert.equal(m.restart.team,0);assert.equal(m.fouls[1],2);assert.equal(m.advantage,null);
+ const f=possessionAdvantageFixture(),original={...f.m.advantage.restart};f.p.x-=f.d*30;
+ f.m.foul(f.q,f.p,'Challenge from behind');assert.equal(f.m.restart.x,original.x);assert.equal(f.m.fouls[1],2);
+});
+test('using a new shot during continuation consumes the advantage even when that shot misses',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'local'),180,0,team,period),q=f.m.players[(1-team)*11+9];
+  q.x=f.p.x-f.d*20;q.y=f.p.y;f.p.speed=80;f.m.foul(q,f.p,'Challenge from behind');
+  assert.equal(f.m.advantage?.kind,'possession');
+  f.m.kick(f.p,{x:f.goal+f.d*20,y:408,shot:true},1);advanceToContact(f.m);
+  assert.equal(f.m.advantage,null);
+  assert.equal(finishShot(f.m,f.p,f.keeper),'miss');assert.equal(f.m.restart.type,'Goal Kick');assert.equal(f.m.fouls[1-team],1);
+ }
+});
+test('held pointer can finish a real pass during advantage and its accessible announcement clears',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner,q=m.players[20],r=m.players[6];
+ m.giveBall(p);p.x=550;p.y=318;p.angle=Math.PI;p.speed=80;q.x=570;q.y=318;
+ for(const other of m.players)if(other!==p&&other!==q&&other!==r){other.x=other.team?100:900;other.y=110;}
+ r.x=445;r.y=378;m.followBall();h.app.camera.ready=false;h.app.render(0);h.draws.length=0;
+ const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+ m.foul(q,p,'Challenge from behind');h.app.syncMatch();assert.equal(m.advantage?.kind,'possession');
+ assert.ok(c.hasPointerCapture(31));assert.ok(h.elements.get('matchStatus').textContent.includes('Continue the attack'));
+ c.handlers.pointerup(pointerEvent(h,b.x,b.y));runPassFrames(h);
+ assert.equal(m.owner?.id,r.id);assert.equal(m.passes[0],1);assert.equal(m.advantage,null);
+ h.app.syncMatch();assert.ok(!h.elements.get('matchStatus').textContent.startsWith('Advantage:'));
+});
+test('continuation timers freeze on pause and are cleared on restart or the interval whistle',()=>{
+ const f=possessionAdvantageFixture(),deadline=f.m.advantage.until,elapsed=f.m.elapsed;
+ f.m.phase='paused';f.m.step(5);assert.equal(f.m.elapsed,elapsed);assert.equal(f.m.advantage.until,deadline);
+ f.m.phase='playing';f.m.minute=44.999;f.m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+ assert.equal(f.m.phase,'restart');assert.equal(f.m.advantage,null);
+ f.m.kickoff(0);assert.equal(f.m.advantage,null);
+});
