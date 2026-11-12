@@ -3096,3 +3096,44 @@ test('shootout idle and drag strength retain intentional release with different 
  }
  assert.ok(speeds[1]>speeds[0]+75);
 });
+
+test('halftime suppresses live HUD and restores current score clock direction and controls on resume',()=>{
+ for(const local of [false,true])for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game'),hud=h.elements.get('hud');
+  c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?500:1180,height:757});
+  if(local){h.chooseMode('multi');h.click('startLocal');}else{h.chooseMode('cup');h.click('startMatch');}h.flush();
+  const m=h.app.match,before=h.elements.get('attackDirection').textContent;
+  assert.ok(!hud.classList.contains('hidden'));assert.equal(hud.getAttribute('aria-hidden'),'false');
+  m.score=[2,1];m.giveBall(m.owner);m.minute=44.999;m.step(1/60,{dx:0,dy:0});h.app.syncMatch();
+  assert.equal(h.app.view,'half');assert.ok(hud.classList.contains('hidden'));assert.equal(hud.getAttribute('aria-hidden'),'true');
+  assert.ok(!h.elements.get('half').classList.contains('hidden'));assert.equal(h.elements.get('halfGoals').textContent,'2 – 1');
+  assert.ok(h.elements.get('halfSummary').textContent.includes(m.home.name+' 2 - 1 '+m.away.name));
+  assert.ok(h.elements.get('resume').focused);assert.ok(h.elements.get('hint').classList.contains('hidden'));
+  const snapshot=m.snapshot();for(let i=0;i<12;i++){m.step(1/60,h.app.input());h.app.syncMatch();h.app.render(1/60);h.draws.length=0;}
+  assert.deepEqual(m.snapshot(),snapshot);assert.ok(hud.classList.contains('hidden'));
+  h.elements.get('resume').focused=false;h.app.syncMatch();assert.ok(!h.elements.get('resume').focused,'do not steal focus each animation frame');
+  h.click('resume');
+  assert.equal(m.period,2);assert.equal(m.phase,'playing');assert.equal(m.direction(0),1);
+  assert.ok(!hud.classList.contains('hidden'));assert.equal(hud.getAttribute('aria-hidden'),'false');
+  assert.ok(h.elements.get('half').classList.contains('hidden'));assert.ok(c.focused);
+  assert.equal(h.elements.get('clock').textContent,'45:00');assert.equal(h.elements.get('scoreText').textContent,'2 - 1');
+  assert.ok(h.elements.get('attackDirection').textContent!==before);
+  assert.equal(h.elements.get('attackDirection').textContent,local?(portrait?'P1 ↓  ·  P2 ↑':'P1 →  ·  P2 ←'):(portrait?'ATTACK ↓':'ATTACK →'));
+  h.click('menuBtn');assert.equal(m.phase,'paused');h.click('resumePause');assert.equal(m.phase,'playing');
+ }
+ assert.ok(html.includes('.hidden{display:none!important}'),'hidden HUD is absent from layout, accessibility tree and tab order');
+ assert.ok(/id="resume" aria-describedby="halfSummary"/.test(html),'focused resume action includes the halftime score summary');
+});
+test('resizing during halftime leaves HUD hidden and restores orientation before the next frame',()=>{
+ for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');h.chooseMode('cup');h.click('startMatch');h.flush();
+  const m=h.app.match;m.phase='half';m.minute=45;h.app.syncMatch();
+  c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?500:1180,height:757});
+  h.app.render(1/60);h.draws.length=0;assert.ok(h.elements.get('hud').classList.contains('hidden'));
+  // Change orientation once more without a render; resume must refresh the direction synchronously.
+  c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?1180:500,height:757});
+  h.click('resume');
+  assert.equal(h.elements.get('attackDirection').textContent,portrait?'ATTACK →':'ATTACK ↓');
+  assert.ok(!h.elements.get('hud').classList.contains('hidden'));assert.equal(h.elements.get('hud').getAttribute('aria-hidden'),'false');
+ }
+});
