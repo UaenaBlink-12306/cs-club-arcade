@@ -1105,6 +1105,8 @@ class SoccerMatch {
       .reduce((a,p)=>!a||distance(p,target)<distance(a,target)?p:a,null);
   }
   giveBall(p){
+    p.receiveOffset=this.ball.owner===null&&this.flight?.shot===false&&this.flight.team===p.team&&distance(p,this.ball)<=24?
+      {x:this.ball.x-p.x,y:this.ball.y-p.y}:null;
     this.flight=null;
     if(this.penaltyRun?.released)this.penaltyRun=null;
     this.restartGuard=null;this.setPiece=null;this.lastRestart=null;this.offside=null;this.handOwner=null;
@@ -1121,12 +1123,18 @@ class SoccerMatch {
     const p=this.owner;if(!p)return;
     if(this.restartGuard){Object.assign(this.ball,{x:this.restartGuard.x,y:this.restartGuard.y,z:this.setPiece==='Throw-in'?30:0,vx:0,vy:0,vz:0});return;}
     const k=this.pendingKick;
-    let angle=p.angle;
+    let angle=p.angle,radius=10;
     if(k?.player===p.id){
       const t=clamp(1-k.remaining/k.duration,0,1),e=t*t*(3-2*t);
       angle=k.fromBallAngle+Math.atan2(Math.sin(p.angle-k.fromBallAngle),Math.cos(p.angle-k.fromBallAngle))*e;
+      radius=(k.fromBallRadius??10)+(10-(k.fromBallRadius??10))*e;
     }
-    this.ball.x=p.x+Math.cos(angle)*10;this.ball.y=p.y+Math.sin(angle)*10;this.ball.z=0;
+    let ox=Math.cos(angle)*radius,oy=Math.sin(angle)*radius;
+    if(p.receiveOffset&&!k){
+      const t=clamp((this.elapsed-p.receiveAt)/.12,0,1),e=t*t*(3-2*t);
+      ox=p.receiveOffset.x+(ox-p.receiveOffset.x)*e;oy=p.receiveOffset.y+(oy-p.receiveOffset.y)*e;
+    }
+    this.ball.x=p.x+ox;this.ball.y=p.y+oy;this.ball.z=0;
   }
   moveShootoutKeeper(p,y,speed,dt){
     p.x=clamp(this.penalties.goal,FIELD.left+12,FIELD.right-12);
@@ -1156,7 +1164,7 @@ class SoccerMatch {
     if(this.restartGuard?.type==='Throw-in'&&(target.y-this.restartGuard.y)*(this.restartGuard.y===FIELD.top?1:-1)<=1)return false;
     const shot=!target.pass&&!(Number.isInteger(target.id)&&target.team===p.team)&&(target.shot===true||Math.abs(target.x-this.goalX(p.team))<90&&Math.abs(target.y-FIELD.cy)<110);
     const duration=shot?.14:.075;
-    this.pendingKick={id:this.strikeSequence=(this.strikeSequence||0)+1,possession:this.possessionSerial,player:p.id,shot,target:{x:target.x,y:target.y,shot:target.shot===true,receiverId:Number.isInteger(target.receiverId)?target.receiverId:Number.isInteger(target.id)&&target.team===p.team?target.id:null,pass:target.pass===true||(Number.isInteger(target.id)&&target.team===p.team)},power:clamp(power,.15,1),loft,remaining:duration,duration,started:this.elapsed,fromGait:p.gaitSpeed??p.speed,fromBallAngle:Math.atan2(this.ball.y-p.y,this.ball.x-p.x),fromAngle:p.visualAngle??p.angle};
+    this.pendingKick={id:this.strikeSequence=(this.strikeSequence||0)+1,possession:this.possessionSerial,player:p.id,shot,target:{x:target.x,y:target.y,shot:target.shot===true,receiverId:Number.isInteger(target.receiverId)?target.receiverId:Number.isInteger(target.id)&&target.team===p.team?target.id:null,pass:target.pass===true||(Number.isInteger(target.id)&&target.team===p.team)},power:clamp(power,.15,1),loft,remaining:duration,duration,started:this.elapsed,fromGait:p.gaitSpeed??p.speed,fromBallAngle:Math.atan2(this.ball.y-p.y,this.ball.x-p.x),fromBallRadius:distance(p,this.ball),fromAngle:p.visualAngle??p.angle};
     p.angle=Math.atan2(dy,dx);p.speed=0;
     return true;
   }
@@ -1219,7 +1227,8 @@ class SoccerMatch {
     if(this.setPiece){
       this.move(p,p.x,p.y,0,dt);
       if(this.inShootout()){
-        if(p.team===1&&p.held>1.6)this.kick(p,{x:this.penalties.goal+this.direction(p.team)*20,y:this.penalties.aiAim,shot:true},this.penalties.aiPower,false);
+        const plan=this.penalties.decision.shot;
+        if(p.team===1&&p.held>plan.prepare)this.kick(p,{x:plan.x,y:plan.y,shot:true},plan.power,false);
         return;
       }
       if((p.team===1||this.setPiece==='Kick-off')&&this.mode!=='local'&&p.held>1.1){
@@ -1313,14 +1322,15 @@ class SoccerMatch {
       const d=this.direction(p.team),own=this.ownGoalX(p.team);
       if(p.keeper){
         const flight=this.flight,reacting=flight?.shot&&flight.team!==p.team&&this.ball.owner===null;
-        if(reacting&&this.elapsed-flight.started<(this.inShootout()?.10:.20)){p.speed=0;continue;}
-        const prediction=reacting?this.ball.y+this.ball.vy*.09:this.inShootout()?FIELD.cy+this.penalties.keeperBias:FIELD.cy+(this.ball.y-FIELD.cy)*.45;
+        const committed=this.inShootout()?this.penalties.decision.keeper:null;
+        if(reacting&&this.elapsed-flight.started<(committed?.reaction??.20)){p.speed=0;continue;}
+        const prediction=committed?(reacting?committed.y:FIELD.cy):reacting?this.ball.y+this.ball.vy*.09:FIELD.cy+(this.ball.y-FIELD.cy)*.45;
         const ty=clamp(prediction,FIELD.cy-46,FIELD.cy+46),tx=this.inShootout()?this.penalties.goal:own+d*18;
         if(reacting&&Math.abs(this.ball.x-own)<115&&Math.abs(ty-p.y)>10&&p.diveFlight!==flight.id){
           p.diveFlight=flight.id;p.diveAt=this.elapsed;p.saveAt=this.elapsed;
           p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(ty-p.y)*Math.cos(p.angle))/45,-1,1);
         }
-        if(this.inShootout())this.moveShootoutKeeper(p,ty,reacting?150:100,dt);
+        if(committed)this.moveShootoutKeeper(p,ty,reacting?committed.speed:100,dt);
         else this.move(p,tx,ty,reacting?92:100,dt);continue;
       }
       owner=this.owner;
@@ -1521,12 +1531,16 @@ class SoccerMatch {
     this.penaltyRun=null;this.resetFormation();this.minute=90;
     const team=p.turn,slot=[9,10,8,7,6,5,4,3,2,1,0][p.taken[team]%11];
     p.taker=team*11+slot;p.keeper=(1-team)*11;p.stage='aim';p.aimY=FIELD.cy;
-    p.aiAim=FIELD.cy+(this.random()-.5)*124;p.aiPower=.72+this.random()*.28;p.keeperBias=(this.random()-.5)*36;
+    // Commit once, before any input for this attempt. No live aim/keeper position enters either plan.
+    p.decision=Object.freeze({
+      shot:Object.freeze({x:p.goal+this.direction(team)*20,y:FIELD.cy+(this.random()-.5)*124,power:.72+this.random()*.28,prepare:1.6}),
+      keeper:Object.freeze({y:FIELD.cy+(Math.floor(this.random()*3)-1)*42,reaction:.045,speed:210})
+    });
     for(const q of this.players){const theta=q.id*Math.PI*2/22;q.x=550+Math.cos(theta)*45;q.y=FIELD.cy+Math.sin(theta)*45;}
     const ownKeeper=this.players[team*11];if(ownKeeper.id!==p.taker){ownKeeper.x=p.goal;ownKeeper.y=FIELD.cy+RULES.penaltyHalf+8;}
     this.restart={type:'Penalty Kick',team,taker:p.taker,x:p.goal-this.direction(team)*RULES.penaltySpot,y:FIELD.cy};
     this.phase='restart';this.takeRestart();
-    const keeper=this.players[p.keeper];keeper.y=team===0?FIELD.cy+p.keeperBias:FIELD.cy;
+    const keeper=this.players[p.keeper];keeper.y=FIELD.cy;
     keeper.visualAngle=keeper.angle;this.players[p.taker].visualAngle=this.players[p.taker].angle;
     this.active=team===0?p.taker:p.keeper;this.players[p.taker].receiveAt=-100;
     this.history=[];this.recordAt=0;this.event=team===0?'Shootout — aim and release':'Shootout — move your goalkeeper';
@@ -1541,7 +1555,7 @@ class SoccerMatch {
     const p=this.penalties;if(!p||p.done||p.stage!=='flight')return false;
     const team=p.turn,scored=outcome==='goal';
     p.taken[team]++;if(scored)p.score[team]++;
-    p.history.push({team,scored,outcome,taker:p.taker,x:this.ball.x,y:this.ball.y,z:this.ball.z});
+    p.history.push({team,scored,outcome,taker:p.taker,x:this.ball.x,y:this.ball.y,z:this.ball.z,decision:p.decision});
     const left0=Math.max(0,5-p.taken[0]),left1=Math.max(0,5-p.taken[1]);
     const clinched=p.score[0]>p.score[1]+left1||p.score[1]>p.score[0]+left0;
     const equal=p.taken[0]===p.taken[1]&&p.taken[0]>=5;
@@ -2059,9 +2073,12 @@ function releaseDrag(event,cancel=false){
   if(!drag||event.pointerId!==drag.id)return;
   if(cancel){cancelDrag();return;}
   updateDrag();if(!drag)return;
-  const aim=drag;cancelDrag();
+  const aim=drag,q=point(event);cancelDrag();
+  // A browser may coalesce the final movement into pointerup. Only movement since
+  // the last event can re-arm recovered possession; a stationary release stays inert.
+  if(!aim.armed&&Math.hypot(q.x-aim.last.x,q.y-aim.last.y)>=6)aim.armed=true;
   if(!aim.armed||match?.phase!=='playing')return;
-  const q=point(event),p=match.players[aim.player],intent=pointerAim(aim,q.x-aim.start.x,q.y-aim.start.y);
+  const p=match.players[aim.player],intent=pointerAim(aim,q.x-aim.start.x,q.y-aim.start.y);
   if(intent.screenLength>=12&&intent.len>=5&&match.ball.owner===p.id&&aim.possession===match.possessionSerial){
     match.kick(p,intent.target,intent.power,!intent.shot&&!!match.setPiece&&match.setPiece!=='Kick-off');
   }

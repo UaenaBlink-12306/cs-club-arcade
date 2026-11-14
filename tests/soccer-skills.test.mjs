@@ -131,10 +131,12 @@ test('goalkeepers claim a reachable shot and record a save',()=>{
 function playShootoutKick(m,outcome='goal',hz=60){
  assert.equal(m.phase,'playing');assert.equal(m.penalties.stage,'aim');
  const team=m.penalties.turn,offset=outcome==='goal'?45:outcome==='save'?0:80;
- // Place the opposing keeper centrally before the kick; it then uses its real AI.
- m.penalties.keeperBias=0;m.players[m.penalties.keeper].y=FIELD.cy;
+ // Controlled outcome fixture: commit a central keeper and a specified AI shot before input.
+ const decision=m.penalties.decision;
+ m.penalties.decision=Object.freeze({keeper:Object.freeze({...decision.keeper,y:FIELD.cy}),shot:Object.freeze({...decision.shot,y:FIELD.cy+offset,power:.85})});
+ m.players[m.penalties.keeper].y=FIELD.cy;
  if(team===0)assert.ok(m.kick(m.owner,{x:m.penalties.goal+m.direction(team)*20,y:FIELD.cy+offset,shot:true},.85));
- else {m.penalties.aiAim=FIELD.cy+offset;m.penalties.aiPower=.85;}
+
  const before=m.penalties.history.length;
  for(let frame=0;frame<hz*12&&m.phase!=='penalties';frame++)m.step(1/hz,{dx:0,dy:0});
  assert.equal(m.phase,'penalties');assert.equal(m.penalties.history.length,before+1);
@@ -3041,7 +3043,7 @@ test('held pointer controls the shootout goalkeeper without selecting a waiting 
   assert.equal(m.active,keeper.id);assert.ok(keeper.y>start+15);assert.equal(keeper.x,m.penalties.goal);
   c.handlers.pointerup(shootoutEvent(h,b));assert.ok(!m.pendingKick);assert.equal(m.penalties.history.length,1);
   // Keeper choice affects a genuine incoming shot: stay on the far side of a centre shot.
-  m.penalties.aiAim=FIELD.cy;m.penalties.aiPower=.85;
+  m.penalties.decision=Object.freeze({...m.penalties.decision,shot:Object.freeze({...m.penalties.decision.shot,y:FIELD.cy,power:.85})});
   for(let i=0;i<600&&m.phase!=='penalties';i++)m.step(1/60,{dx:0,dy:0});
   assert.equal(m.penalties.history[1].outcome,'goal');
  }
@@ -3135,5 +3137,122 @@ test('resizing during halftime leaves HUD hidden and restores orientation before
   h.click('resume');
   assert.equal(h.elements.get('attackDirection').textContent,portrait?'ATTACK →':'ATTACK ↓');
   assert.ok(!h.elements.get('hud').classList.contains('hidden'));assert.equal(h.elements.get('hud').getAttribute('aria-hidden'),'false');
+ }
+});
+
+test('opponent shooter commits before keeper input and retains target power and launch timing under late changes',()=>{
+ for(const hz of [30,60,120])for(const period of [1,2]){
+  const trials=[];
+  for(const variant of [-1,1,0]){
+   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'cup',87);m.period=period;m.finish();
+   m.penalties.turn=1;m.penalties.stage='result';m.prepareShootoutKick();
+   const decision=m.penalties.decision,copy=JSON.stringify(decision);
+   assert.ok(Object.isFrozen(decision)&&Object.isFrozen(decision.shot)&&Object.isFrozen(decision.keeper));
+   decision.shot.y+=100;decision.shot.power=0;
+   assert.equal(JSON.stringify(decision),copy);
+   for(let frame=0;frame<hz*3&&m.penalties.stage==='aim';frame++){
+    const dy=variant|| (frame/hz<1.55?-1:1);
+    m.step(1/hz,{dx:0,dy});assert.equal(JSON.stringify(m.penalties.decision),copy);
+    if(m.pendingKick){assert.equal(m.pendingKick.target.y,decision.shot.y);assert.equal(m.pendingKick.power,decision.shot.power);}
+   }
+   assert.equal(m.penalties.stage,'flight');
+   trials.push({decision,at:m.penalties.releasedAt,target:m.flight.target,speed:Math.hypot(m.ball.vx,m.ball.vy)});
+  }
+  assert.deepEqual(trials[0],trials[1]);assert.deepEqual(trials[0],trials[2]);
+ }
+});
+test('opponent keeper follows the same precommitted path for opposite shots and late aim changes',()=>{
+ for(const seed of [1,2,3])for(const period of [1,2]){
+  const trials=[];
+  for(const side of [-1,1]){
+   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'cup',seed);m.period=period;m.finish();
+   const decision=m.penalties.decision,copy=JSON.stringify(decision);
+   for(let i=0;i<90;i++)m.step(1/60,{dx:0,dy:0,aimDelta:i<85?-side:side});
+   assert.equal(JSON.stringify(m.penalties.decision),copy);assert.equal(m.players[m.penalties.keeper].y,FIELD.cy);
+   m.kick(m.owner,{x:m.penalties.goal+m.direction(0)*20,y:FIELD.cy+side*40,shot:true},.8);advanceToContact(m);
+   const path=[];for(let i=0;i<15;i++){m.step(1/120,{dx:0,dy:0,aimDelta:-side});path.push(m.players[m.penalties.keeper].y);}
+   assert.equal(JSON.stringify(m.penalties.decision),copy);
+   trials.push({decision,path});
+  }
+  assert.deepEqual(trials[0],trials[1]);
+ }
+});
+test('precommitted shootout guesses allow both saves and goals rather than guaranteeing an outcome',()=>{
+ const counts={goal:0,save:0};
+ for(let seed=1;seed<=60;seed++){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'cup',seed);m.period=2;m.finish();
+  m.kick(m.owner,{x:m.penalties.goal+20,y:FIELD.cy+(seed%2?-40:40),shot:true},.8);
+  for(let i=0;i<600&&m.phase!=='penalties';i++)m.step(1/60,{dx:0,dy:0});
+  const result=m.penalties.history[0];assert.ok(result.outcome in counts);counts[result.outcome]++;
+  assert.deepEqual(result.decision,m.penalties.decision);
+ }
+ assert.ok(counts.goal>=15&&counts.save>=10);assert.equal(counts.goal+counts.save,60);
+});
+test('each shootout attempt receives a fresh decision and completed decisions survive sudden death',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.finish();
+ for(let i=0;i<12;i++){
+  const old=m.penalties.decision;
+  playShootoutKick(m,i===11?'save':'goal');
+  const recorded=m.penalties.history.at(-1).decision,copy=JSON.stringify(recorded);
+  assert.ok(Object.isFrozen(recorded));m.nextShootoutKick();
+  if(i<11){assert.ok(m.penalties.decision!==recorded&&m.penalties.decision!==old);assert.equal(m.penalties.stage,'aim');}
+  assert.equal(JSON.stringify(m.penalties.history.at(-1).decision),copy);
+ }
+ assert.equal(m.phase,'full');assert.equal(m.winner(),0);assert.deepEqual(m.penalties.taken,[6,6]);
+});
+test('fresh movement coalesced into pointer release after held possession recovery completes a pass once',()=>{
+ for(const type of ['mouse','touch'])for(const hz of [30,60,120])for(const portrait of [false,true]){
+  const {h,c,m,p,r}=passReceptionFixture(portrait?500:1180,757),a=h.app.camera.project(p.x,p.y),ev=q=>pointerEvent(h,q.x,q.y,31,type);
+  c.handlers.pointerdown(ev(a));c.handlers.pointermove(ev({x:a.x+80,y:a.y}));
+  m.giveBall(m.players[20]);h.app.input();m.giveBall(p);h.app.input();
+  const b=h.app.camera.project(r.x,r.y);c.handlers.pointerup(ev(b));
+  assert.ok(m.pendingKick);assert.equal(m.pendingKick.target.receiverId,r.id);
+  runPassFrames(h,hz);assert.equal(m.owner?.id,r.id);assert.equal(m.passes[0],1);
+  c.handlers.pointerup(ev(b));assert.ok(!m.pendingKick);assert.equal(m.passes[0],1);
+ }
+});
+test('teammate first touches remain continuous without delaying immediate pass contact for either team',()=>{
+ for(const team of [0,1])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.players[team*11+6];
+  for(const q of m.players){q.x=100;q.y=100;}p.x=550;p.y=318;p.angle=-Math.PI/2;
+  Object.assign(m.ball,{owner:null,x:p.x,y:p.y+18,z:0,vx:0,vy:-200,lastTouch:team});
+  m.flight={team,shot:false,receiverId:p.id};const at={x:m.ball.x,y:m.ball.y};m.receiveBall(p);
+  assert.equal(m.ball.x,at.x);assert.equal(m.ball.y,at.y);
+  const samples=[m.ball.y];
+  for(let i=1;i<=Math.ceil(.12*hz);i++){m.elapsed=i/hz;m.followBall();samples.push(m.ball.y);}
+  assert.ok(samples.every((y,i)=>i===0||Math.abs(y-samples[i-1])<12));
+  assert.ok(Math.abs(m.ball.y-(p.y-10))<.01);
+  // Reproduce receiving and kicking immediately; the touch need not finish first.
+  Object.assign(m.ball,{owner:null,x:p.x,y:p.y+18,z:0,lastTouch:team});m.flight={team,shot:false,receiverId:p.id};m.receiveBall(p);
+  const before={x:m.ball.x,y:m.ball.y};assert.ok(m.kick(p,{x:p.x+150,y:p.y,pass:true},.5));
+  m.followBall();assert.deepEqual({x:m.ball.x,y:m.ball.y},before);assert.equal(m.pendingKick.duration,.075);
+  advanceToContact(m);assert.equal(m.ball.owner,null);assert.ok(m.ball.vx>0);
+ }
+});
+test('human and computer control share pass wind-up and launch speed and both receive the ball',()=>{
+ const results=[];
+ for(const human of [true,false]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');for(const p of m.players){p.x=100;p.y=100;}
+  const p=m.players[9],r=m.players[6];p.x=550;p.y=318;r.x=550;r.y=438;m.giveBall(p);
+  const input=human?{dx:0,dy:0}:null;
+  assert.ok(m.kick(p,{...r,receiverId:r.id,pass:true},.5));const delay=m.pendingKick.duration;advanceToContact(m);
+  const speed=Math.hypot(m.ball.vx,m.ball.vy);let received=false;
+  for(let i=0;i<240;i++){m.step(1/120,input);if(m.owner){received=m.owner.id===r.id;break;}}
+  assert.ok(received);results.push({delay,speed});
+ }
+ assert.deepEqual(results[0],results[1]);assert.equal(results[0].delay,.075);
+});
+test('coalesced recovered release supports consecutive passes while stale releases remain inert',()=>{
+ const {h,c,m,p,r}=passReceptionFixture(),ev=q=>pointerEvent(h,q.x,q.y),a=h.app.camera.project(p.x,p.y);
+ c.handlers.pointerdown(ev(a));m.giveBall(m.players[20]);h.app.input();m.giveBall(p);h.app.input();
+ c.handlers.pointerup(ev(a));assert.ok(!m.pendingKick);assert.equal(m.passes[0],0);
+ for(let n=0;n<3;n++){
+  const owner=m.owner,target=owner.id===p.id?r:p;
+  // Isolate reception/gesture continuity; live-pressure consecutive passes are covered separately.
+  target.x=owner.x;target.y=owner.y>FIELD.cy?owner.y-110:owner.y+110;
+  h.app.render(0);h.draws.length=0;
+  const from=h.app.camera.project(owner.x,owner.y),to=h.app.camera.project(target.x,target.y);
+  c.handlers.pointerdown(ev(from));c.handlers.pointermove(ev(to));c.handlers.pointerup(ev(to));
+  runPassFrames(h,60,4,true);assert.equal(m.owner?.id,target.id);assert.equal(m.passes[0],n+1);
  }
 });
