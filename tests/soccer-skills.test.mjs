@@ -2618,9 +2618,14 @@ test('reported two mouse drags reach two different teammates against all live AI
   const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
   h.chooseMode('practice');h.flush();const m=h.app.match;
   const ev=(x,y)=>({clientX:x,clientY:y,pointerId:31,button:0,isPrimary:true,pointerType:'mouse',preventDefault(){}});
-  for(const [a,b,id] of [[[590,395],[902,374],6],[[615,420],[550,710],7]]){
-   const passer=m.owner.id;c.handlers.pointerdown(ev(...a));c.handlers.pointermove(ev(...b));c.handlers.pointerup(ev(...b));
-   runPassFrames(h,hz,4,true);
+  for(const id of [6,7]){
+   // Preserve the reported opening gesture; the spread formation moves the next outlet,
+   // so aim at that teammate's current sprite instead of the old formation's pixel location.
+   const a=id===6?[590,395]:(()=>{const p=h.app.camera.project(m.owner.x,m.owner.y);return [p.x*1180/1100,p.y*1180/1100];})();
+   const b=id===6?[902,374]:(()=>{const p=h.app.camera.project(m.players[id].x,m.players[id].y);return [p.x*1180/1100,p.y*1180/1100];})();
+   const passer=m.owner.id;c.handlers.pointerdown(ev(...a));c.handlers.pointermove(ev(...b));
+   assert.equal(h.app.pointerAim(h.app.drag).target.receiverId,id);
+   c.handlers.pointerup(ev(...b));runPassFrames(h,hz,4,true);
    assert.equal(m.owner?.id,id,'intended teammate receives, rather than original passer '+passer+' at '+hz+' Hz');
   }
   assert.equal(m.passes[0],2);assert.equal(m.shots[0],0);
@@ -3254,5 +3259,105 @@ test('coalesced recovered release supports consecutive passes while stale releas
   const from=h.app.camera.project(owner.x,owner.y),to=h.app.camera.project(target.x,target.y);
   c.handlers.pointerdown(ev(from));c.handlers.pointermove(ev(to));c.handlers.pointerup(ev(to));
   runPassFrames(h,60,4,true);assert.equal(m.owner?.id,target.id);assert.equal(m.passes[0],n+1);
+ }
+});
+
+function assertSpreadKickoff(m){
+ const taker=m.owner;
+ assert.equal(m.setPiece,'Kick-off');assert.equal(m.ball.x,550);assert.equal(m.ball.y,FIELD.cy);
+ for(const p of m.players)if(p.id!==taker.id){
+  assert.ok((p.x-550)*m.direction(p.team)<=0,'all non-takers in own half');
+  if(p.team!==taker.team)assert.ok(distance(p,m.ball)>=66);
+  else assert.ok(distance(p,taker)>=60,'no teammate stacked at centre');
+ }
+ for(const team of [0,1]){
+  const ps=m.players.filter(p=>p.team===team&&!p.keeper&&p.id!==taker.id);
+  assert.ok(new Set(ps.map(p=>Math.round(p.x))).size>=4,'distinct formation depths');
+  assert.ok(Math.max(...ps.map(p=>p.x))-Math.min(...ps.map(p=>p.x))>=250);
+  for(let i=0;i<ps.length;i++)for(let j=i+1;j<ps.length;j++)assert.ok(distance(ps[i],ps[j])>=45);
+ }
+ const support=m.players.filter(p=>p.team===taker.team&&!p.keeper&&p.id!==taker.id&&distance(p,taker)<210);
+ assert.ok(support.length>=5);assert.ok(support.some(p=>p.y<FIELD.cy-80));assert.ok(support.some(p=>p.y>FIELD.cy+80));
+}
+test('spread kickoff shape holds through idle time and wind-up for either team and direction',()=>{
+ for(const period of [1,2])for(const team of [0,1])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const positions=()=>m.players.map(p=>({x:p.x,y:p.y})),before=positions(),input={teams:[{dx:0,dy:0},{dx:0,dy:0}]};
+  assertSpreadKickoff(m);
+  for(let i=0;i<hz*10;i++)m.step(1/hz,input);
+  assertSpreadKickoff(m);assert.deepEqual(positions(),before);assert.equal(m.minute,0);
+  const p=m.owner,r=m.players[team*11+6];assert.ok(m.kick(p,r,.5));
+  m.step(.03,input);assert.deepEqual(positions(),before);assert.equal(m.ball.owner,p.id);
+  advanceToContact(m);assert.equal(m.setPiece,null);assert.equal(m.restartGuard,null);assert.equal(m.kickoffGrace,0);
+  for(let i=0;i<hz/4;i++)m.step(1/hz,input);
+  assert.ok(m.minute>0);assert.ok(m.players.some(q=>q.team!==team&&distance(q,before[q.id])>5),'opponents may move immediately after contact');
+ }
+});
+test('first kickoff halftime and every post-goal restart use the same spread legal formation',()=>{
+ for(const mode of ['cup','practice','local']){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);assertSpreadKickoff(m);assert.equal(m.owner.team,0);
+  m.phase='half';m.resumeHalf();assert.equal(m.period,2);assert.equal(m.owner.team,1);assertSpreadKickoff(m);
+  for(const period of [1,2])for(const scorer of [0,1]){
+   m.period=period;m.scorer=scorer;m.phase='replay';m.skipReplay();
+   assert.equal(m.owner.team,1-scorer);assertSpreadKickoff(m);
+  }
+ }
+});
+test('solo opposition kickoff respects the frozen shape until its actual AI kick contact',()=>{
+ for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2]);m.period=period;m.kickoff(1);
+  const before=m.players.map(p=>({x:p.x,y:p.y}));
+  for(let i=0;i<63;i++)m.step(1/60,{dx:0,dy:0});
+  assertSpreadKickoff(m);assert.deepEqual(m.players.map(p=>({x:p.x,y:p.y})),before);
+  for(let i=0;i<30&&m.setPiece;i++)m.step(1/60,{dx:0,dy:0});
+  assert.equal(m.setPiece,null);assert.equal(m.restartGuard,null);assert.equal(m.passes[1],1);
+ }
+});
+test('directional kickoff passes select and reach short diagonal backward and long outlets with live AI',()=>{
+ for(const period of [1,2])for(const hz of [30,60,120])for(const id of [6,8,5,2]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game');
+  m.period=period;m.kickoff(0);h.app.camera.ready=false;h.app.render(0);h.draws.length=0;
+  for(let i=0;i<hz*3;i++)m.step(1/hz,h.app.input());
+  const p=m.owner,r=m.players[id],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y),n=Math.hypot(b.x-a.x,b.y-a.y);
+  const length=id===2?180:90,end={x:a.x+(b.x-a.x)/n*length,y:a.y+(b.y-a.y)/n*length},ev=q=>pointerEvent(h,q.x,q.y);
+  c.handlers.pointerdown(ev(a));c.handlers.pointermove(ev(end));assert.equal(h.app.pointerAim(h.app.drag).target.receiverId,id);
+  c.handlers.pointerup(ev(end));assert.equal(m.pendingKick.target.receiverId,id);assert.equal(m.pendingKick.duration,.075);
+  runPassFrames(h,hz,5,true);assert.equal(m.owner?.id,id,'actual intended reception '+id+' period '+period+' Hz '+hz);
+  assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);assert.equal(m.setPiece,null);assert.ok(m.minute>0);
+ }
+});
+test('an off-player drag crossing a different teammate sprite keeps its intended directional lane',()=>{
+ for(const portrait of [false,true]){
+  const {h,c,m,p,r}=passReceptionFixture(portrait?500:1180,757),near=m.players[8];near.x=p.x+50;near.y=p.y;
+  const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y),over=h.app.camera.project(near.x,near.y);
+  const start={x:over.x-(b.x-a.x),y:over.y-(b.y-a.y)},ev=q=>pointerEvent(h,q.x,q.y);
+  c.handlers.pointerdown(ev(start));c.handlers.pointermove(ev(over));assert.equal(h.app.pointerAim(h.app.drag).target.receiverId,r.id);
+  c.handlers.pointerup(ev(over));runPassFrames(h);assert.equal(m.owner?.id,r.id);assert.equal(m.passes[0],1);
+ }
+});
+test('directed passes pass nearby teammates but retain body blocks and normal opponent interception',()=>{
+ for(const hz of [30,60,120])for(const kind of ['beside','body','opponent']){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.players[9],r=m.players[6],q=m.players[kind==='opponent'?20:8];
+  for(const a of m.players){a.x=100;a.y=100;}p.x=550;p.y=318;r.x=700;r.y=318;q.x=610;q.y=kind==='body'?318:333;
+  m.giveBall(p);m.move=()=>{};m.kick(p,{...r,receiverId:r.id,pass:true},.7);
+  for(let i=0;i<hz*4;i++){m.step(1/hz,{dx:0,dy:0});if(!m.pendingKick&&m.owner)break;}
+  assert.equal(m.owner?.id,kind==='beside'?r.id:q.id);
+ }
+});
+test('unaddressed passes retain normal teammate trapping and cannot silently grant receiver immunity',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.players[9],r=m.players[6],q=m.players[8];
+ for(const a of m.players){a.x=100;a.y=100;}p.x=550;p.y=318;r.x=700;r.y=318;q.x=610;q.y=333;m.giveBall(p);m.move=()=>{};
+ m.kick(p,{x:700,y:318,pass:true},1);advanceToContact(m);assert.equal(m.flight.directed,false);
+ for(let i=0;i<300&&!m.owner;i++)m.step(1/120,{dx:0,dy:0});assert.equal(m.owner?.id,q.id);
+});
+
+test('a live non-target teammate yields the addressed pass lane instead of running across it',()=>{
+ for(const hz of [30,60,120])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.period=period;
+  const p=m.players[9],r=m.players[6],q=m.players[8];for(const a of m.players){a.x=a.team&&period===2?1000:100;a.y=100;}
+  p.x=550;p.y=318;r.x=700;r.y=318;q.x=610;q.y=333;m.giveBall(p);
+  m.kick(p,{...r,receiverId:r.id,pass:true},.7);
+  for(let i=0;i<hz*4;i++){m.step(1/hz,{dx:0,dy:0});if(!m.pendingKick&&m.owner)break;}
+  assert.equal(m.owner?.id,r.id);assert.ok(q.y>333,'support run yields outside the lane');
  }
 });

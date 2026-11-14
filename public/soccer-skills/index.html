@@ -807,6 +807,8 @@ const RULES={radius:1.5,crossbar:44,heightScale:.65,penaltyDepth:126,penaltyHalf
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const formation=[[.045,.5],[.23,.15],[.21,.38],[.21,.62],[.23,.85],[.43,.23],[.40,.5],[.43,.77],[.65,.25],[.73,.5],[.65,.75]];
+// Distinct depths behind halfway: defenders, midfield support and wide outlets.
+const kickoffDepth=[438,320,350,350,320,155,110,155,36,90,36];
 function kickBallState(p,target,power,loft,restart,shot){
   const dx=target.x-p.x,dy=target.y-p.y,len=Math.hypot(dx,dy),throwing=restart?.type==='Throw-in';
   let speed=shot&&!throwing?370+180*power:clamp(len*1.3,95,470)*.86*(.75+.5*power);
@@ -886,9 +888,9 @@ class SoccerMatch {
   kickoff(team){
     this.pendingKick=null;this.restartGuard=null;this.lastRestart=null;this.offside=null;this.handOwner=null;this.penaltyRun=null;this.lastFoul=null;this.advantage=null;this.flight=null;
     this.resetFormation();
-    for(const p of this.players) if(!p.keeper){
-      // Each team begins in its own half.
-      p.x=this.direction(p.team)>0?Math.min(p.x,520):Math.max(p.x,580);
+    for(const p of this.players){
+      p.x=550-this.direction(p.team)*kickoffDepth[p.slot];
+      if(p.slot===9)p.y=FIELD.cy+58;
     }
     const taker=this.players[team*11+9];taker.x=550;taker.y=318;
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:team,lock:0};
@@ -1190,7 +1192,7 @@ class SoccerMatch {
       team:p.team,ids:this.players.filter(q=>q.team===p.team&&q.id!==p.id&&
         (q.x-550)*d>0&&q.x*d>this.ball.x*d+.1&&q.x*d>defenders[1]+.1).map(q=>q.id)
     };
-    this.flight={id:action.id,team:p.team,shot:shot&&!throwing,receiverId:!shot?(receiver?.id??this.nearest(p.team,target,p.id).id):null,started:this.elapsed,target:{x:target.x,y:target.y}};
+    this.flight={id:action.id,team:p.team,shot:shot&&!throwing,receiverId:!shot?(receiver?.id??this.nearest(p.team,target,p.id).id):null,directed:!shot&&!!receiver,started:this.elapsed,target:{x:target.x,y:target.y}};
     this.lastRestart=restart?{type:restart.type,team:p.team,taker:p.id}:null;
     this.restartGuard=null;this.handOwner=null;
     p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
@@ -1208,11 +1210,23 @@ class SoccerMatch {
     }
     return true;
   }
+  avoidPassLane(p,dt){
+    const pending=this.pendingKick,flight=this.flight;
+    const receiverId=pending&&!pending.shot?pending.target.receiverId:flight?.directed?flight.receiverId:null;
+    const team=pending?this.players[pending.player].team:flight?.team;
+    if(!Number.isInteger(receiverId)||p.team!==team||p.id===receiverId||p.keeper)return false;
+    const receiver=this.players[receiverId],dx=receiver.x-this.ball.x,dy=receiver.y-this.ball.y,len=Math.hypot(dx,dy);
+    if(len<10)return false;
+    const ux=dx/len,uy=dy/len,px=p.x-this.ball.x,py=p.y-this.ball.y,along=px*ux+py*uy,across=-px*uy+py*ux;
+    if(along<0||along>len||Math.abs(across)>=32)return false;
+    const side=across===0?(p.slot%2?1:-1):Math.sign(across),shift=side*38-across;
+    this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
+  }
   bestPass(p){
     let best=null,bestValue=-Infinity;
     for(const q of this.players){
       if(q.team!==p.team||q.id===p.id||q.keeper)continue;
-      const len=distance(p,q);if(len<25||(!this.setPiece&&len>430))continue;
+      const len=distance(p,q);if(len<25||(!this.setPiece&&len>430)||(this.setPiece==='Kick-off'&&len>240))continue;
       const nearestOpponent=this.nearest(1-p.team,q);
       const space=distance(nearestOpponent,q);
       const progress=(q.x-p.x)*this.direction(p.team);
@@ -1314,11 +1328,14 @@ class SoccerMatch {
         else this.move(p,p.x+control.dx*100,p.y+control.dy*100,142,dt);
         continue;
       }
+      // Off-ball AI holds the spread kickoff shape until actual contact, not a timeout.
+      if(this.setPiece==='Kick-off'&&this.ball.owner!==p.id){p.speed=0;continue;}
       // The restart taker must not chase their own untouched delivery. Human control still permits a penalised second touch.
       if(this.lastRestart?.taker===p.id){p.speed=0;continue;}
       // Let every pass leave the kicker's feet before off-ball AI chases it.
       if(p.cooldown>0&&this.ball.owner===null){p.speed=0;continue;}
       if(this.ball.owner===p.id){this.aiBallCarrier(p,dt);continue;}
+      if(this.avoidPassLane(p,dt))continue;
       const d=this.direction(p.team),own=this.ownGoalX(p.team);
       if(p.keeper){
         const flight=this.flight,reacting=flight?.shot&&flight.team!==p.team&&this.ball.owner===null;
@@ -1334,7 +1351,8 @@ class SoccerMatch {
         else this.move(p,tx,ty,reacting?92:100,dt);continue;
       }
       owner=this.owner;
-      if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)){
+      if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)&&
+        !(this.flight?.directed&&this.flight.team===p.team&&this.flight.receiverId!==p.id)){
         if(owner&&owner.team!==p.team&&p.id!==chasers[p.team][0]){
           // One presses; the second defender protects a passing lane instead of stacking onto the carrier.
           this.move(p,this.ball.x-d*60,clamp(this.ball.y+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25),85,dt);continue;
@@ -1412,9 +1430,10 @@ class SoccerMatch {
           const fastShot=this.flight?.shot&&Math.hypot(b.vx,b.vy)>180;
           // A fast shot can hit either team's body, but must not be magnetically
           // trapped by a team-mate's larger slow-ball receiving radius.
-          const reach=fastShot&&!p.keeper?8:normalReach;
+          const passingBy=this.flight?.directed&&this.flight.team===p.team&&this.flight.receiverId!==p.id;
+          const reach=(fastShot||passingBy)&&!p.keeper?8:normalReach;
           let t=1;
-          if(fastShot){
+          if(fastShot||passingBy){
             const dx=old.x-p.x,dy=old.y-p.y,c=dx*dx+dy*dy-reach*reach,beta=2*(dx*vx+dy*vy),disc=beta*beta-4*a*c;
             if(c<=0)t=0;
             else if(a>1e-8&&disc>=0)t=(-beta-Math.sqrt(disc))/(2*a);
@@ -2018,7 +2037,7 @@ canvas.addEventListener('pointerdown',event=>{
   if(match.owner?.team!==0&&!match.inShootout()){
     const candidate=match.nearest(0,q);if(distance(candidate,q)<40)match.active=candidate.id;
   }
-  drag={id:event.pointerId,player:match.active,possession:match.possessionSerial,start:screen,last:screen,screenDx:0,screenDy:0,moveDx:0,moveDy:0,armed:true,dx:0,dy:0};
+  drag={id:event.pointerId,player:match.active,possession:match.possessionSerial,nearPlayer:distance(match.players[match.active],q)<=30,start:screen,last:screen,screenDx:0,screenDy:0,moveDx:0,moveDy:0,armed:true,dx:0,dy:0};
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener('pointermove',event=>{
@@ -2044,11 +2063,12 @@ function pointerAim(aim,screenDx=aim.screenDx,screenDy=aim.screenDy){
   });
   // Absolute sprite hit testing survives camera movement and held-pointer handoffs.
   // A short drag may also point toward a distant teammate without reaching their sprite.
-  const direct=candidates.filter(c=>c.hover<=c.hitRadius).sort((a,b)=>a.hover-b.hover)[0];
+  const direct=candidates.filter(c=>c.hover<=c.hitRadius&&(aim.nearPlayer||c.alignment>.8)).sort((a,b)=>a.hover-b.hover)[0];
   const endpoint=candidates.filter(c=>c.endpoint<Math.max(18,len*.12)).sort((a,b)=>a.endpoint-b.endpoint)[0];
-  const directional=screenLength>=32*unit?candidates.filter(c=>c.range<=240&&c.alignment>.996)
-    .sort((a,b)=>(1-a.alignment)*1000+a.range*.01-((1-b.alignment)*1000+b.range*.01))[0]:null;
-  const receiver=direct||endpoint||directional;
+  const directional=screenLength>=32*unit?candidates.filter(c=>(c.range<=240||power>=.7&&c.range<=430)&&c.alignment>.996)
+    .sort((a,b)=>b.alignment-a.alignment||Math.abs(a.range-len)-Math.abs(b.range-len))[0]:null;
+  // The drag vector wins over incidental cursor overlap in a different lane.
+  const receiver=endpoint||(direct&&(!directional||direct.alignment>=directional.alignment-.005)?direct:directional);
   if(receiver)target={x:receiver.q.x,y:receiver.q.y,pass:true,receiverId:receiver.q.id};
   else{
     const goal=match.goalX(p.team),d=match.direction(p.team),forward=dx*d,range=(goal-p.x)*d;
@@ -2093,7 +2113,7 @@ function updateDrag(){
     // Keep physical capture and the held running direction, but discard old kick intent.
     // A fresh drag from the last pointer position arms a new kick for this possession.
     drag.player=match.active;drag.possession=match.possessionSerial;
-    drag.start={...drag.last};drag.screenDx=0;drag.screenDy=0;drag.armed=false;
+    drag.start={...drag.last};drag.nearPlayer=distance(match.players[drag.player],camera.unproject(drag.last.x,drag.last.y))<=30;drag.screenDx=0;drag.screenDy=0;drag.armed=false;
   }
   const v=camera.vector(match.players[drag.player],drag.moveDx,drag.moveDy);
   drag.dx=v.x;drag.dy=v.y;
