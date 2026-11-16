@@ -2136,6 +2136,8 @@ function updateContextCues(){
 
 function updateHUD(){
   if(!match)return;updateKitLegend();
+  // Pause is unavailable during these automatic, non-interactive transitions.
+  $('#menuBtn').disabled=['goal','replay','restart'].includes(match.phase);
   $('#homeFlag').textContent=match.home.flag;$('#homeName').textContent=match.home.name;$('#homeName').title=match.home.name;
   $('#awayFlag').textContent=match.away.flag;$('#awayName').textContent=match.away.name;$('#awayName').title=match.away.name;
   $('#scoreText').textContent=match.penalties&&view!=='full'?match.penalties.score.join(' - ')+' pens':match.score.join(' - ');$('#attackDirection').textContent=match.penalties?'SHOOTOUT':attackHint();
@@ -2195,6 +2197,14 @@ function keeperCountdown(){
   if(match?.phase!=='playing'||!p?.keeper||match.handOwner!==p.id||p.held<3)return null;
   return {player:p,seconds:Math.max(0,Math.ceil(8-p.held))};
 }
+function focusMatchTransition(){
+  const phase=match?.phase;
+  const target=['playing','shootoutResult','goal'].includes(phase)?canvas:
+    phase==='replay'?$('#skipReplay'):phase==='paused'?$('#resumePause'):
+    phase==='half'?$('#resume'):phase==='penalties'?$('#nextPenalty'):
+    phase==='full'?$(mode==='shootout'?'#practiceAgain':mode==='local'?'#rematchLocal':'#continueCup'):null;
+  target?.focus({preventScroll:true});
+}
 function syncMatch(){
   if(!match)return;updateHUD();
   const panelFor={playing:'match',shootoutResult:'match',goal:'goal',replay:'replay',half:'half',restart:'corner',full:'full',paused:'pause',penalties:'penalties'};
@@ -2223,12 +2233,13 @@ function syncMatch(){
       if(match.restart.type==='Penalty Kick')$('#restartHelp').textContent+=' Kick forward toward goal. The defending player controls the goalkeeper.';
       $('#matchStatus').textContent=match.event+'. '+match.restart.type+'. '+$('#restartHelp').textContent;
     }
-    if(match.phase==='penalties')$('#nextPenalty').focus({preventScroll:true});
     if(match.phase==='half')updateMatchBoard('half');
     if(match.phase==='half'){
       $('#halfSummary').textContent=match.home.name+' '+match.score[0]+' - '+match.score[1]+' '+match.away.name+' · Teams switch ends after the break.';
-      $('#resume').focus({preventScroll:true});
     }
+    // Restore the input target once when a view changes, including automatic
+    // replay/restart completion. Never pull focus away on ordinary render sync.
+    focusMatchTransition();
   }
   if(match.penalties&&match.phase==='playing'){
     const p=match.penalties,attempt=p.taken[0]+p.taken[1];
@@ -2284,7 +2295,7 @@ function pause(){
   if(match&&['playing','penalties','shootoutResult'].includes(match.phase)){match.pausedPhase=match.phase;match.phase='paused';cancelDrag();keys.clear();syncMatch();}
 }
 function resume(){
-  if(match?.phase==='paused'){match.phase=match.pausedPhase||'playing';match.pausedPhase=null;accumulator=0;syncMatch();canvas.focus({preventScroll:true});}
+  if(match?.phase==='paused'){match.phase=match.pausedPhase||'playing';match.pausedPhase=null;accumulator=0;syncMatch();}
 }
 function point(event){
   const r=canvas.getBoundingClientRect();return {x:(event.clientX-r.left)*W/r.width,y:(event.clientY-r.top)*H/r.height};
@@ -2494,14 +2505,14 @@ $('#startLocal').onclick=startMatch;
 $('#rematchLocal').onclick=startMatch;
 $('#skipReplay').onclick=()=>{match?.skipReplay();syncMatch();};
 $('#replayAgain').onclick=()=>{if(match){match.phase='replay';match.replayTime=0;syncMatch();}};
-$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();canvas.focus({preventScroll:true});toast(mode==='local'?'Teams switch ends — follow the P1 / P2 arrows.':'You now attack the '+(camera.portrait?'bottom':'right')+' goal!');};
-$('#takeCorner').onclick=()=>{match?.takeRestart();syncMatch();canvas.focus({preventScroll:true});};
+$('#resume').onclick=()=>{match?.resumeHalf();syncMatch();toast(mode==='local'?'Teams switch ends — follow the P1 / P2 arrows.':'You now attack the '+(camera.portrait?'bottom':'right')+' goal!');};
+$('#takeCorner').onclick=()=>{match?.takeRestart();syncMatch();};
 $('#continueCup').onclick=continueCup;
 $('#menuBtn').onclick=pause;$('#resumePause').onclick=resume;
 $('#restartMatch').onclick=()=>{startMatch();};
 $('#finishPractice').onclick=()=>{if(match&&mode==='practice'){match.phase='full';syncMatch();}};
 $('#practiceAgain').onclick=()=>{if(mode==='shootout'&&match?.phase==='full')startMatch();};
-$('#nextPenalty').onclick=()=>{match?.nextShootoutKick();syncMatch();canvas.focus({preventScroll:true});};
+$('#nextPenalty').onclick=()=>{match?.nextShootoutKick();syncMatch();};
 
 function label(text,x,y,size,color='#fff',align='center'){
   ctx.fillStyle=color;ctx.font='800 '+size+'px system-ui';ctx.textAlign=align;ctx.fillText(text,x,y);

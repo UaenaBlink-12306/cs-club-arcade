@@ -273,3 +273,12 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - At widths up to 420 px, flags sit above the names, freeing the whole side-column width for country text. Names remain complete in the visual DOM and accessible halftime/result descriptions; no abbreviations are substituted.
 - Regression coverage exercises United States/Uzbekistan, Uzbekistan/Norway and Switzerland/South Korea with 0–0, 12–10 and 123–104 at 333×505, 400×606 and 1180×757. It also follows the reported United States → Practice → Pause → Finish Practice menu path.
 - Coverage includes shared CSS track/wrapping contracts, explicit score-width geometry fixtures and UI/accessibility text state. It does not constitute native-browser font-layout or screenshot verification. This is a CSS-only production change; game JavaScript, rules, physics, controls and timing are unchanged.
+
+
+### Keyboard focus across automatic match transitions
+
+- Focus is now assigned once when the match view changes. Returning to active play after automatic replay/restart completion or an explicit resume/skip restores the canvas. Ordinary sync/render updates do not steal deliberately moved focus.
+- Replay focuses Skip; pause focuses Resume; halftime and between-kick shootout panels retain their action focus. Completed results focus Play Again, Rematch or Continue as appropriate. Unconditional canvas-focus calls that overrode resumed shootout menus or final result actions were removed.
+- The pause button is disabled during goal/replay/restart phases where its action cannot pause. Normal keyboard navigation and button activation remain available in actual menus and overlays.
+- Focus-aware event regressions model the Tab/replay boundary, automatic completion and Skip, then verify kickoff pass/shot, movement and clock progress at 333×505 and desktop in solo/local play. Additional cases cover halftime, automatic restarts, shootout next kick, pause/resume of a between-kick menu, finished shootout results and intentional menu navigation.
+- The harness tracks the active element and explicitly models Tab/button default actions. It is not native-browser focus/AX verification or a physical-device test. Game engine, camera, rules, physics, shootout decisions and timing are unchanged.

@@ -19,15 +19,16 @@ function uiHarness(html){
       classList:{toggle:(key,on)=>{if(on)classes.add(key);else classes.delete(key);},add:key=>classes.add(key),remove:key=>classes.delete(key),contains:key=>classes.has(key)},
       addEventListener(type,cb){this.handlers[type]=cb;},
       setAttribute(name,value){attributes.set(name,String(value));},getAttribute(name){return attributes.get(name)??null;},
-      focus(){this.focused=true;},width:1100,height:620,getContext:()=>drawing,
+      focus(){if(this.disabled)return;this.focused=true;document.activeElement=this;},width:1100,height:620,getContext:()=>drawing,
       getBoundingClientRect:()=>({left:0,top:0,right:id==='game'?1100:0,bottom:id==='game'?620:0,width:id==='game'?1100:0,height:id==='game'?620:0}),
       setPointerCapture(id){this.capture=id;},hasPointerCapture(id){return this.capture===id;},releasePointerCapture(){this.capture=null;}
     };
   }
   for(const m of html.matchAll(/\bid="([^"]+)"/g))elements.set(m[1],element(m[1]));
+  for(const m of html.matchAll(/<([a-z][a-z0-9-]*)[^>]*\bid="([^"]+)"/gi)){const e=elements.get(m[2]);if(e)e.tagName=m[1].toUpperCase();}
   const go=[...html.matchAll(/data-go="([^"]+)"/g)].map((m,i)=>element('go'+i,{go:m[1]}));
   const penalties=[0,1,2].map(n=>element('penalty'+n,{penalty:String(n)}));
-  const document={hidden:false,handlers:{},getElementById:id=>elements.get(id),
+  const document={hidden:false,activeElement:null,handlers:{},getElementById:id=>elements.get(id),
     querySelector:selector=>{if(!selector.startsWith('#'))throw Error('Unmocked selector '+selector);return elements.get(selector.slice(1));},
     querySelectorAll:selector=>selector==='[data-go]'?go:selector==='[data-penalty]'?penalties:[],
     addEventListener(type,cb){this.handlers[type]=cb;}};
@@ -3976,4 +3977,88 @@ test('long national names and multi-digit scores remain complete in both visual 
  assert.equal(h.elements.get('resultAwayName').textContent,'Uzbekistan');assert.equal(h.elements.get('resultGoals').textContent,'0 – 0');
  assert.ok(h.elements.get('gameControls').textContent.includes('United States'));
  assert.ok(h.elements.get('gameControls').textContent.includes('Uzbekistan'));
+});
+
+function focusKey(h,key,tabTarget){
+ const target=h.document.activeElement||h.elements.get('game');
+ const event={key,target,repeat:false,prevented:false,preventDefault(){this.prevented=true;}};
+ h.window.handlers.keydown(event);
+ // Model the relevant native defaults explicitly: Tab focus navigation and
+ // button activation. This is a focus/event harness, not a browser AX test.
+ if(!event.prevented){
+  if(key==='Tab'&&tabTarget)h.elements.get(tabTarget).focus();
+  if((key===' '||key==='Enter')&&target.tagName==='BUTTON'&&!target.disabled)target.onclick?.();
+ }
+ return event;
+}
+function concededGoalForFocus(h){
+ const m=h.app.match,d=m.direction(1),goal=m.goalX(1);
+ m.setPiece=null;m.restartGuard=null;m.lastRestart=null;
+ Object.assign(m.ball,{owner:null,x:goal+d*4,y:FIELD.cy,z:0,vx:d*200,vy:0,vz:0,lastTouch:1});
+ m.checkBoundary({x:goal-d*8,y:FIELD.cy,z:0});assert.equal(m.phase,'goal');h.app.syncMatch();
+ for(let n=0;n<100&&m.phase==='goal';n++)m.step(1/60);
+ assert.equal(m.phase,'replay');
+ return m;
+}
+test('goal replay completion and skip restore focus-aware keyboard targets before kickoff input',()=>{
+ for(const width of [333,1180])for(const local of [false,true])for(const skip of [false,true]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:width===333?505:757});
+  if(local){h.chooseMode('multi');h.click('startLocal');}else{h.chooseMode('cup');h.click('startMatch');}h.flush();
+  const canvas=h.elements.get('game');assert.equal(h.document.activeElement,canvas);
+  const m=concededGoalForFocus(h);
+  // A Tab arrives as the simulation enters replay, before the new UI sync.
+  focusKey(h,'Tab','menuBtn');h.app.syncMatch();
+  assert.equal(h.document.activeElement,h.elements.get('skipReplay'));
+  assert.equal(h.elements.get('menuBtn').disabled,true);
+  const navigation=focusKey(h,'Tab','replayAgain');
+  assert.ok(!navigation.prevented);assert.equal(h.document.activeElement,h.elements.get('replayAgain'));
+  h.app.syncMatch();assert.equal(h.document.activeElement,h.elements.get('replayAgain'),'render sync must not steal overlay focus');
+  if(skip){h.elements.get('skipReplay').focus();focusKey(h,' ');}
+  else for(let n=0;n<300&&m.phase==='replay';n++){m.step(1/60);h.app.syncMatch();}
+  assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Kick-off');assert.equal(m.owner.team,0);
+  assert.equal(h.document.activeElement,canvas);assert.equal(h.elements.get('menuBtn').disabled,false);
+  assert.equal(m.pendingKick,null,'the skip activation must not leak into a shot');
+  const action=focusKey(h,local?(skip?'g':'f'):(skip?' ':'e'));
+  assert.ok(action.prevented);assert.ok(m.pendingKick);assert.equal(m.pendingKick.shot,skip);
+  advanceToContact(m);h.app.syncMatch();assert.equal(m.setPiece,null);
+  focusKey(h,'w');const control=h.app.input();assert.ok(local?Math.hypot(control.teams[0].dx,control.teams[0].dy)>0:Math.hypot(control.dx,control.dy)>0);
+  const minute=m.minute;m.step(1/60,control);h.window.handlers.keyup({key:'w'});assert.ok(m.minute>minute);
+  assert.equal(m.phase,'playing');assert.equal(h.document.activeElement,canvas);
+ }
+});
+test('halftime restart and shootout next-kick focus returns to play but completed results retain their action focus',()=>{
+ const local=localHarness(),m=local.app.match;
+ m.phase='half';local.app.syncMatch();assert.equal(local.document.activeElement,local.elements.get('resume'));
+ focusKey(local,' ');assert.equal(local.document.activeElement,local.elements.get('game'));
+ focusKey(local,'k');assert.ok(m.pendingKick);advanceToContact(m);
+ m.phase='restart';m.restart={type:'Goal Kick',team:0,x:m.ownGoalX(0),y:FIELD.cy};local.app.syncMatch();
+ local.elements.get('takeCorner').focus();m.takeRestart();local.app.syncMatch();
+ assert.equal(local.document.activeElement,local.elements.get('game'));
+ const h=uiHarness(html);h.chooseMode('shootout');h.flush();const s=h.app.match;
+ playShootoutKick(s,'goal');h.app.syncMatch();assert.equal(h.document.activeElement,h.elements.get('nextPenalty'));
+ focusKey(h,'Escape');assert.equal(h.document.activeElement,h.elements.get('resumePause'));
+ focusKey(h,' ');assert.equal(h.document.activeElement,h.elements.get('nextPenalty'),'resuming a between-kick menu must not focus the canvas');
+ focusKey(h,' ');assert.equal(h.document.activeElement,h.elements.get('game'));assert.equal(s.penalties.turn,1);
+ focusKey(h,'ArrowUp');assert.ok(Math.hypot(h.app.input().dx,h.app.input().dy)>0);h.window.handlers.keyup({key:'ArrowUp'});
+ while(!s.penalties.done){
+  playShootoutKick(s,s.penalties.turn===0?'goal':'save');h.app.syncMatch();
+  assert.equal(h.document.activeElement,h.elements.get('nextPenalty'));focusKey(h,' ');
+ }
+ assert.equal(h.app.view,'full');assert.equal(h.document.activeElement,h.elements.get('practiceAgain'));
+ assert.ok(h.elements.get('gameControls').textContent.includes('shootout')||h.elements.get('gameControls').textContent.includes('Shootout'));
+});
+test('intentional keyboard navigation and button activation stay available in menus without frame-by-frame focus theft',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ h.elements.get('menuBtn').focus();h.app.syncMatch();assert.equal(h.document.activeElement,h.elements.get('menuBtn'));
+ const space=focusKey(h,' ');assert.ok(!space.prevented);assert.equal(m.phase,'paused');
+ assert.equal(h.document.activeElement,h.elements.get('resumePause'));
+ const tab=focusKey(h,'Tab','restartMatch');assert.ok(!tab.prevented);
+ h.app.syncMatch();assert.equal(h.document.activeElement,h.elements.get('restartMatch'));
+ assert.ok(!focusKey(h,'e').prevented);assert.equal(m.pendingKick,null);assert.equal(m.phase,'paused');
+ h.elements.get('resumePause').focus();focusKey(h,'Enter');assert.equal(h.document.activeElement,h.elements.get('game'));
+ focusKey(h,'Escape');assert.equal(h.document.activeElement,h.elements.get('resumePause'));
+ h.elements.get('finishPractice').focus();focusKey(h,' ');assert.equal(h.app.view,'full');
+ assert.equal(h.document.activeElement,h.elements.get('continueCup'));
+ focusKey(h,' ');assert.equal(h.app.view,'menu');
+ h.elements.get('chooseCountry').focus();const menuTab=focusKey(h,'Tab','next');assert.ok(!menuTab.prevented);assert.equal(h.document.activeElement,h.elements.get('next'));
 });
