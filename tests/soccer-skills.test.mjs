@@ -4623,7 +4623,7 @@ test('between-frame input and teleports cannot reuse a stale visual interval',()
  for(let i=1;i<=60;i++){h.tick(100+i*1000/120);h.draws.length=0;}
  const m=h.app.match;assert.equal(m.owner.id,6);
  h.window.handlers.keydown(keyEvent('e'));const now=m.snapshot();
- assert.equal(h.app.liveRenderSample(now),now,'fresh action is visible immediately, before another fixed step');
+ const painted=h.app.liveRenderSample(now);assert.equal(painted.players[6].strikeId,now.players[6].strikeId);assert.equal(painted.players[6].strikePhase,'windup','fresh action is visible immediately, before another fixed step');
  h.app.render();assert.equal(h.app.drawnPlayers.get(6).strikeId,now.players[6].strikeId);
  m.kickoff(0);const reset=m.snapshot();assert.equal(h.app.liveRenderSample(reset),reset,'same-phase formation reset snaps');
 });
@@ -5136,4 +5136,87 @@ test('held-ball visual blends have bounded catch and kick endpoints in both came
   const c=sample(0,.3-1e-5),d=sample(0,.3);assert.ok(Math.hypot(c.x-d.x,c.y-d.y,c.z-d.z)<1e-5);
   assert.deepEqual(d,source.ball);
  }
+});
+
+test('ordinary reversal into keyboard kick preserves the displayed pose while starting wind-up immediately',()=>{
+ for(const hz of [30,60,120])for(const width of [333,888])for(const local of [false,true])for(const shot of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();h.tick(100);const m=h.app.match;let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent(local?'f':'e'));while(frame<hz&&m.owner?.id!==6)tick();assert.equal(m.owner.id,6);
+  const p=m.owner;
+  h.window.handlers.keydown(keyEvent('d'));for(let i=0;i<hz*.2;i++)tick();
+  h.window.handlers.keyup(keyEvent('d'));h.window.handlers.keydown(keyEvent('a'));tick();
+  const before=h.app.drawnPlayers.get(p.id),ball={...h.app.drawnBall},pose=h.app.playerPose(before,ball),legs=h.app.playerSkeleton(before,pose).legs;
+  const at=m.elapsed,count=m.strikeSequence;
+  h.window.handlers.keydown(keyEvent(local?(shot?'g':'f'):(shot?' ':'e')));h.app.render(0);
+  const after=h.app.drawnPlayers.get(p.id),next=h.app.playerSkeleton(after,h.app.playerPose(after,h.app.drawnBall)).legs;
+  assert.equal(m.elapsed,at);assert.equal(after.strikePhase,'windup');assert.equal(after.strikeId,count+1);
+  assert.ok(distance(before,after)<1e-8);assert.ok(Math.abs(after.angle-before.angle)<1e-8);
+  assert.deepEqual(next.map(l=>l.ankle),legs.map(l=>l.ankle));assert.deepEqual(h.app.drawnBall,ball);
+  h.window.handlers.keyup(keyEvent('a'));const duration=m.pendingKick.duration;
+  h.window.handlers.keydown({...keyEvent(local?(shot?'g':'f'):(shot?' ':'e')),repeat:true});
+  while(m.pendingKick&&m.elapsed-at<.3)tick();
+  assert.ok(!m.pendingKick);assert.equal(m.strikeSequence,count+1);assert.ok(Math.abs(p.kickAt-at-duration)<1e-7);
+  assert.equal(m.ball.owner,null);assert.equal(h.app.drawnPlayers.get(p.id).strikePhase,'follow');
+ }
+});
+test('ordinary held-pointer reversal release keeps initial kick pose and cancelled turns do not kick',()=>{
+ for(const hz of [30,60,120])for(const width of [333,888]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  while(frame<hz&&m.owner?.id!==6)tick();const p=m.owner,start=h.app.camera.project(p.x,p.y);
+  c.handlers.pointerdown(pointerEvent(h,start.x,start.y));
+  c.handlers.pointermove(pointerEvent(h,start.x+100,start.y));for(let i=0;i<hz*.2;i++)tick();
+  c.handlers.pointermove(pointerEvent(h,start.x-100,start.y));tick();
+  const before=h.app.drawnPlayers.get(p.id),ball={...h.app.drawnBall},legs=h.app.playerSkeleton(before,h.app.playerPose(before,ball)).legs;
+  c.handlers.pointerup(pointerEvent(h,start.x-100,start.y));assert.ok(m.pendingKick);h.app.render(0);
+  const after=h.app.drawnPlayers.get(p.id),next=h.app.playerSkeleton(after,h.app.playerPose(after,h.app.drawnBall)).legs;
+  assert.ok(distance(before,after)<1e-8);assert.ok(Math.abs(after.angle-before.angle)<1e-8);
+  assert.deepEqual(next.map(l=>l.ankle),legs.map(l=>l.ankle));assert.deepEqual(h.app.drawnBall,ball);
+  const count=m.strikeSequence;while(m.pendingKick)tick();assert.equal(m.strikeSequence,count);
+  h.click('menuBtn');h.click('restartMatch');h.flush();h.tick(2000);
+  const n=h.app.match,a=h.app.camera.project(n.owner.x,n.owner.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,a.x+100,a.y));
+  c.handlers.pointercancel(pointerEvent(h,a.x+100,a.y));c.handlers.pointerup(pointerEvent(h,a.x+100,a.y));
+  assert.equal(n.pendingKick,null);assert.deepEqual(h.app.input(),{dx:0,dy:0});
+ }
+});
+test('second-half local P2 kick preserves the pose and interruption invalidates stale buffered actions',()=>{
+ for(const hz of [30,60,120])for(const width of [333,888]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;
+  // Halftime fixture; all subsequent movement, kicking and pausing use normal handlers.
+  m.phase='half';m.resumeHalf();h.app.syncMatch();h.tick(100);let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  const receiver=m.bestPass(m.owner,true).id;h.window.handlers.keydown(keyEvent('k'));
+  while(frame<hz&&m.owner?.id!==receiver)tick();assert.equal(m.owner.id,receiver);
+  const p=m.owner;h.window.handlers.keydown(keyEvent('ArrowRight'));for(let i=0;i<hz*.2;i++)tick();
+  h.window.handlers.keyup(keyEvent('ArrowRight'));h.window.handlers.keydown(keyEvent('ArrowLeft'));tick();
+  const before=h.app.drawnPlayers.get(p.id);h.window.handlers.keydown(keyEvent('k'));h.app.render();
+  const after=h.app.drawnPlayers.get(p.id);assert.ok(distance(before,after)<1e-8);assert.ok(Math.abs(before.angle-after.angle)<1e-8);
+  const at=m.elapsed,kick=m.pendingKick.id;h.click('menuBtn');tick();assert.equal(m.elapsed,at);h.click('resumePause');
+  assert.equal(m.pendingKick.id,kick);assert.deepEqual(h.app.input(),{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  // Possession/position fixtures must still invalidate a cached interval, even at kick start.
+  m.giveBall(m.players[6]);const stolen=m.snapshot();assert.equal(h.app.liveRenderSample(stolen),stolen);h.app.render();
+  assert.equal(m.pendingKick,null);assert.ok(h.app.drawnPlayers.get(p.id).strikePhase!=='windup');
+  m.kickoff(1);const reset=m.snapshot();assert.equal(h.app.liveRenderSample(reset),reset);
+ }
+});
+test('a 120 Hz frame-harness callback after reversal kick input retains the half-tick facing interval',()=>{
+ const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:888,height:596});
+ h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;let frame=0;
+ const tick=()=>{h.tick(100+(++frame)*1000/120);h.draws.length=0;h.app.drawnPaths.length=0;};
+ while(frame<120&&m.owner?.id!==6)tick();const p=m.owner;
+ h.window.handlers.keydown(keyEvent('d'));for(let i=0;i<24;i++)tick();
+ h.window.handlers.keyup(keyEvent('d'));h.window.handlers.keydown(keyEvent('a'));tick();tick();
+ const before=h.app.drawnPlayers.get(p.id),author=m.snapshot().players[p.id],at=m.elapsed;
+ h.window.handlers.keydown(keyEvent('e'));tick();
+ const after=h.app.drawnPlayers.get(p.id),delta=Math.atan2(Math.sin(author.angle-before.angle),Math.cos(author.angle-before.angle));
+ assert.ok(Math.abs(delta)>.7,'ordinary reversal exposes a meaningful buffered heading difference');
+ assert.equal(m.elapsed,at,'this display callback falls between fixed simulation ticks');
+ assert.equal(after.strikePhase,'windup');assert.equal(after.strike,0,'input is accepted without advancing physics');
+ assert.ok(Math.abs(after.angle-(before.angle+delta*.5))<1e-7,'do not snap all the way to the authoritative facing');
+ assert.ok(distance(after,{x:(before.x+author.x)/2,y:(before.y+author.y)/2})<1e-7);
 });

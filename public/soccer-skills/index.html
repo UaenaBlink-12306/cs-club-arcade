@@ -3276,10 +3276,13 @@ function continuousLiveFrame(a,b){
     distance(a.ball,b.ball)<=64&&Math.abs(a.ball.z-b.ball.z)<=24&&
     a.players.every((p,i)=>p.id===b.players[i].id&&p.holding===b.players[i].holding&&distance(p,b.players[i])<=16);
 }
-function sameLiveEndpoint(a,b){
+function sameLiveEndpoint(a,b,startingKick=null){
   return a.at===b.at&&a.players.length===b.players.length&&
     ['x','y','z','owner'].every(k=>a.ball[k]===b.ball[k])&&
-    b.players.every((p,i)=>['holding','angle','strikeId','strikePhase',...LIVE_POSE_CHANNELS].every(k=>a.players[i][k]===p[k]));
+    b.players.every((p,i)=>{
+      const starting=startingKick?.player===p.id&&startingKick.id===p.strikeId&&p.strikePhase==='windup'&&a.players[i].strikeId!==p.strikeId;
+      return ['holding','angle','strikeId','strikePhase',...LIVE_POSE_CHANNELS].every(k=>starting&&['strikeId','strikePhase','strike','strikeRun'].includes(k)||a.players[i][k]===p[k]);
+    });
 }
 function interpolateLiveFrame(a,b,alpha){
   if(!continuousLiveFrame(a,b))return b;
@@ -3290,6 +3293,7 @@ function interpolateLiveFrame(a,b,alpha){
       if(!Number.isFinite(p[key])||!Number.isFinite(q[key]))continue;
       // New actions and contact poses are immediate, never anticipated or rewound.
       // Wind-up stays on the input/contact clock; delaying it would enlarge the contact pose change.
+      if(key==='strikeRun'&&q.strikePhase==='windup'&&p.strikeId!==q.strikeId){out[key]=blend(p.speed,q.strikeRun);continue;}
       if(['strike','strikeRun'].includes(key)&&(q.strikePhase==='windup'||p.strikeId!==q.strikeId||p.strikePhase!==q.strikePhase))continue;
       if(['tackle','fouled','receive','kick','save'].includes(key)&&q[key]>p[key]+1e-6)continue;
       out[key]=blend(p[key],q[key]);
@@ -3302,9 +3306,10 @@ function interpolateLiveFrame(a,b,alpha){
 function liveRenderSample(current){
   const pair=renderPair;
   if(!pair||pair.match!==match||match.phase!=='playing'||view!=='match'||pair.current.at!==current.at)return current;
-  // A pointer action or reset can occur between animation callbacks. Do not reuse
-  // a cached interval if its endpoint no longer describes the current entities.
-  if(!sameLiveEndpoint(pair.current,current))return current;
+  // Starting a kick changes action fields immediately, but not the buffered
+  // position/facing. Preserve those at input time; teleports and other edits snap.
+  const startingKick=match.pendingKick?.started===current.at?match.pendingKick:null;
+  if(!sameLiveEndpoint(pair.current,current,startingKick))return current;
   // Ease into the one-tick buffer after a snap, rather than holding the contact
   // position for another whole tick before flight starts moving.
   return interpolateLiveFrame(pair.previous,current,1-(1-clamp(accumulator*60,0,1))*pair.blend);
@@ -3402,10 +3407,11 @@ function frame(timestamp){
     // RAF timestamp subtraction can leave an exact tick a few ulps below 1/60.
     // Admit only nanosecond-scale rounding error, never a materially early tick.
     while(accumulator+1e-9>=1/60&&steps++<6){
-      const previous=match.phase==='playing'?match.snapshot():null,period=match.period,restart=match.restartGuard;
+      const previous=match.phase==='playing'?match.snapshot():null,period=match.period,restart=match.restartGuard,
+        startingKick=match.pendingKick?.started===match.elapsed?match.pendingKick:null;
       match.step(1/60,input());
       const current=previous&&match.phase==='playing'&&match.period===period&&match.restartGuard===restart?match.snapshot():null;
-      const blend=previous&&renderPair?.match===match&&sameLiveEndpoint(renderPair.current,previous)?Math.min(1,renderPair.blend+.5):.5;
+      const blend=previous&&renderPair?.match===match&&sameLiveEndpoint(renderPair.current,previous,startingKick)?Math.min(1,renderPair.blend+.5):.5;
       renderPair=current&&continuousLiveFrame(previous,current)?{match,previous,current,blend}:null;
       accumulator=Math.max(0,accumulator-1/60);
     }
