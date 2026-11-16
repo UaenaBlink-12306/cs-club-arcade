@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -2699,10 +2699,10 @@ test('a settling receiver can aim and return a pass under live AI pressure witho
 test('running feet have a ground stance, bent swing and continuous cycle boundaries',()=>{
  const h=uiHarness(html);h.chooseMode('practice');h.flush();
  const p={...h.app.match.snapshot().players[9],id:0,speed:110,strikePhase:'idle',strike:0,receive:0,save:0};
- const sample=phase=>{const q={...p,stride:phase*Math.PI*2/1.35};const pose=h.app.playerPose(q,null);return h.app.playerSkeleton(q,pose).legs[0];};
+ const sample=phase=>{const q={...p,stride:phase*Math.PI*2/h.app.GAIT_CYCLE_SCALE};const pose=h.app.playerPose(q,null);return h.app.playerSkeleton(q,pose).legs[0];};
  const a=sample(.03),b=sample(.29),flight=sample(.66);
  assert.equal(a.stance,true);assert.equal(b.stance,true);assert.equal(a.ankle[2],b.ankle[2]);assert.ok(flight.ankle[2]>a.ankle[2]+3);
- const rootTravel=(.29-.03)*Math.PI*2/(1.35*.095);
+ const rootTravel=(.29-.03)*Math.PI*2/(h.app.GAIT_CYCLE_SCALE*.095);
  assert.ok(Math.abs(rootTravel+(b.ankle[1]-a.ankle[1])*.6)<1.5,'stance foot nearly cancels root travel');
  for(const phase of [.32,1]){
   const l=sample(phase-1e-5),r=sample(phase+1e-5);
@@ -4899,5 +4899,107 @@ test('fresh repeated pass presses after actual reception are accepted without a 
    if(receptions>=3)break;
   }
   assert.ok(receptions>=2);assert.ok(accepted>=3);
+ }
+});
+
+test('steady stance feet match traveled distance at walking and running speeds without changing movement',()=>{
+ for(const hz of [30,60,120]){
+  let previousCadence=0;
+  for(const speed of [30,55,73.32,99.84,110.76]){
+   const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.players[9];
+   // Isolated steady-gait fixture, without AI, tackles or acceleration transients.
+   p.x=550;p.y=318;p.angle=0;p.visualAngle=0;p.stride=0;p.gaitSpeed=speed;
+   const start=p.x;let prior=null,checks=0;
+   for(let i=0;i<hz;i++){
+    m.move(p,p.x+100,p.y,speed/.78,1/hz);
+    const q={...m.snapshot().players[p.id],speed,angle:0,strikePhase:'idle',strike:0,receive:0,save:0,tackle:0,fouled:0};
+    const pose=h.app.playerPose(q,null),legs=h.app.playerSkeleton(q,pose).legs;
+    const feet=legs.map(leg=>p.x+leg.ankle[1]*.6);
+    if(prior)for(let j=0;j<2;j++)if(legs[j].stance&&prior.legs[j].stance&&legs[j].phase>prior.legs[j].phase){
+     assert.ok(Math.abs(feet[j]-prior.feet[j])<1e-7,'planted stance must cancel body travel');checks++;
+    }
+    prior={legs,feet};
+   }
+   assert.ok(checks>2);assert.ok(Math.abs(p.x-start-speed)<1e-7,'animation must not alter displacement');
+   const cadence=p.stride*h.app.GAIT_CYCLE_SCALE/(2*Math.PI);
+   assert.ok(cadence>previousCadence,'walking cadence stays below running cadence');previousCadence=cadence;
+  }
+ }
+});
+test('ordinary directional play keeps stance drift small at 30 60 and 120 render Hz',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:887,height:597});
+  h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  while(frame<hz&&m.owner?.id!==6)tick();assert.equal(m.owner.id,6);
+  const previous=new Map(),stats={walk:{root:0,foot:0,n:0},run:{root:0,foot:0,n:0}};
+  for(let i=0;i<hz*2;i++){
+   if(i===0)h.window.handlers.keydown(keyEvent('d'));
+   if(i===Math.round(hz*.8)){h.window.handlers.keyup(keyEvent('d'));h.window.handlers.keydown(keyEvent('w'));}
+   if(i===Math.round(hz*1.2)){h.window.handlers.keyup(keyEvent('w'));h.window.handlers.keydown(keyEvent('a'));}
+   if(i===Math.round(hz*1.6))h.window.handlers.keyup(keyEvent('a'));
+   tick();
+   for(const p of h.app.drawnPlayers.values()){
+    const pose=h.app.playerPose(p,h.app.drawnBall),leg=h.app.playerSkeleton(p,pose).legs[0],v=leg.ankle[1]*.6;
+    const foot={x:p.x+v*Math.cos(p.angle),y:p.y+v*Math.sin(p.angle)},old=previous.get(p.id);
+    const delta=old?Math.atan2(Math.sin(p.angle-old.p.angle),Math.cos(p.angle-old.p.angle)):0;
+    if(old&&leg.stance&&old.leg.stance&&leg.phase>old.leg.phase&&Math.abs(delta)<.005&&p.strikePhase==='idle'&&p.receive<.01&&p.save<.01&&p.tackle<.01&&p.fouled<.01&&Math.abs(p.speed-old.p.speed)<.25){
+     const group=p.speed>105?'run':p.speed>40&&p.speed<85?'walk':null,travel=distance(p,old.p);
+     if(group&&travel>.01){stats[group].root+=travel;stats[group].foot+=distance(foot,old.foot);stats[group].n++;}
+    }
+    previous.set(p.id,{p,leg,foot});
+   }
+  }
+  assert.ok(stats.walk.n>40);assert.ok(stats.run.n>0);
+  assert.ok(stats.walk.foot/stats.walk.root<.06,'slower players must not slide through most of their stance');
+  assert.ok(stats.run.foot/stats.run.root<.01);
+ }
+});
+test('ordinary held drag turns across pi and reverses without a long rotation or stale movement after cancellation',()=>{
+ for(const hz of [30,60,120])for(const width of [333,887]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  while(frame<hz&&m.owner?.id!==6)tick();const p=m.owner,start=h.app.camera.project(p.x,p.y),id=p.id;
+  c.handlers.pointerdown(pointerEvent(h,start.x,start.y));
+  const steer=(dx,dy)=>{const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x+dx*100,p.y+dy*100);c.handlers.pointermove(pointerEvent(h,start.x+b.x-a.x,start.y+b.y-a.y));};
+  const angleDelta=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
+  steer(-1,.02);for(let i=0;i<hz*.2;i++)tick();
+  const beforeTurn=h.app.drawnPlayers.get(id).angle;
+  steer(-1,-.02);for(let i=0;i<hz*.2;i++)tick();
+  const afterTurn=h.app.drawnPlayers.get(id).angle;
+  assert.ok(Math.abs(angleDelta(afterTurn,beforeTurn))<.12,'crossing pi takes the short route');
+  steer(1,0);let angle=afterTurn;
+  for(let i=0;i<hz*.2;i++){tick();const next=h.app.drawnPlayers.get(id).angle;assert.ok(Math.abs(angleDelta(next,angle))<1.5);angle=next;}
+  assert.ok(Math.abs(angleDelta(angle,0))<.15,'sharp reversal settles toward the new heading');
+  c.handlers.pointercancel(pointerEvent(h,start.x,start.y));
+  const stopped={x:p.x,y:p.y},passes=m.passes[0];for(let i=0;i<Math.ceil(hz*.1);i++)tick();
+  assert.equal(m.owner.id,id);assert.ok(distance(stopped,p)<1e-8);assert.equal(m.passes[0],passes);
+ }
+});
+test('gait start stop and kick recovery stay continuous and bounded across speeds and cycle boundaries',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,p=m.owner;
+ for(const speed of [0,1e-8,1,30,73.32,110,200]){
+  const amplitude=h.app.gaitAmplitude(speed);assert.ok(Number.isFinite(amplitude)&&amplitude>=0&&amplitude<=1);
+ }
+ for(const speed of [30,73.32,110])for(const phase of [.32,1]){
+  const sample=t=>{
+   const q={...m.snapshot().players[p.id],id:0,speed,stride:t*Math.PI*2/h.app.GAIT_CYCLE_SCALE,strike:0,strikePhase:'idle',receive:0};
+   return h.app.playerSkeleton(q,h.app.playerPose(q,null)).legs[0].ankle;
+  };
+  const a=sample(phase-1e-6),b=sample(phase+1e-6);
+  assert.ok(Math.hypot(...a.map((v,i)=>v-b[i]))<.002,'no ankle jump at stance or cycle wrap');
+ }
+ // Visual pose fixtures cover every follow-through recovery phase at walking/running speed.
+ for(const speed of [30,73.32,110]){
+  let prior=null;
+  for(let i=0;i<=100;i++){
+   const strike=.84+i*.0016,q={...m.snapshot().players[p.id],speed,stride:2,
+    strike:strike<1?strike:0,strikePhase:strike<1?'follow':'idle',strikeId:strike<1?1:0,receive:0};
+   const pose=h.app.playerPose(q,null),legs=h.app.playerSkeleton(q,pose).legs.map(l=>l.ankle);
+   assert.ok(pose.footRun>=0&&pose.footRun<=1);
+   if(prior)assert.ok(Math.max(...legs.map((l,j)=>Math.hypot(...l.map((v,k)=>v-prior[j][k]))))<.5);
+   prior=legs;
+  }
  }
 });

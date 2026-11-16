@@ -996,6 +996,10 @@ function traceShot(initial,goal,restart=null,dt=1/60){
   }
   return {points,crossing:null,time:4,onTarget:false,label:'SHORT',marginal:false};
 }
+// Match the displayed stance sweep (24 local units, scaled by .6) to travel.
+// This affects animation phase only; player speed and collision motion are unchanged.
+const GAIT_CYCLE_SCALE=2*Math.PI*.32/(24*.6*.095);
+function gaitAmplitude(speed){return Math.sin(clamp(speed/110,0,1)*Math.PI/2);}
 class SoccerMatch {
   constructor(home,away,mode='cup',seed=23){
     this.home=home;this.away=away;this.mode=mode;this.seed=seed;
@@ -1296,7 +1300,7 @@ class SoccerMatch {
     }
     const dx=tx-p.x,dy=ty-p.y,len=Math.hypot(dx,dy),step=Math.min(speed*.78*(this.elapsed<(p.challengeUntil||0)?.7:1)*dt,len);
     p.speed=dt>0?step/dt:0;
-    if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);p.stride+=step*.095;}
+    if(len>1){p.x+=dx/len*step;p.y+=dy/len*step;p.angle=Math.atan2(dy,dx);const amplitude=gaitAmplitude(p.speed);if(amplitude>1e-6)p.stride+=step*.095/amplitude;}
   }
   kick(p,target,power=.65,loft=false){
     if(this.phase!=='playing'||!p||!target||this.ball.owner!==p.id||this.pendingKick)return false;
@@ -2789,12 +2793,12 @@ function posePulse(remaining){return remaining>0?Math.sin(Math.PI*poseEase(1-rem
 function playerPose(p,ball){
   const a=camera.project(p.x,p.y),b=camera.project(p.x+Math.cos(p.angle)*12,p.y+Math.sin(p.angle)*12);
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
-  const baseRunning=clamp(p.speed/110,0,1),cycle=p.stride*1.35+p.id*.47,stride=Math.sin(cycle);
+  const baseRunning=gaitAmplitude(p.speed),cycle=p.stride*GAIT_CYCLE_SCALE+p.id*.47,stride=Math.sin(cycle);
   const kick=p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0),throwing=p.throwing?1:0;
   const planting=p.strikePhase==='windup'||(p.strikePhase==='follow'&&p.strike<.85);
   const recovery=p.strikePhase==='follow'?poseEase((p.strike-.85)/.15):1;
   const running=planting?0:baseRunning*recovery;
-  const entry=p.strikePhase==='windup'?(1-poseEase(p.strike/.16))*clamp((p.strikeRun||0)/110,0,1):0;
+  const entry=p.strikePhase==='windup'?(1-poseEase(p.strike/.16))*gaitAmplitude(p.strikeRun||0):0;
   const save=posePulse(p.save||0),ready=p.keeper&&ball&&ball.owner!==p.id?clamp((220-distance(p,ball))/100,0,1):0;
   // Keeper reach is expressed in the player's local frame, not screen left/right.
   const reach=p.keeper&&save>0&&Number.isFinite(p.saveSide)?p.saveSide:p.keeper&&ball?clamp(((ball.x-p.x)*Math.sin(p.angle)-(ball.y-p.y)*Math.cos(p.angle))/45,-1,1):fx;
