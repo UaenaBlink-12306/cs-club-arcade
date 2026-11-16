@@ -20,7 +20,7 @@ function uiHarness(html){
       addEventListener(type,cb){this.handlers[type]=cb;},
       setAttribute(name,value){attributes.set(name,String(value));},getAttribute(name){return attributes.get(name)??null;},
       focus(){this.focused=true;},width:1100,height:620,getContext:()=>drawing,
-      getBoundingClientRect:()=>({left:0,top:0,width:1100,height:620}),
+      getBoundingClientRect:()=>({left:0,top:0,right:id==='game'?1100:0,bottom:id==='game'?620:0,width:id==='game'?1100:0,height:id==='game'?620:0}),
       setPointerCapture(id){this.capture=id;},hasPointerCapture(id){return this.capture===id;},releasePointerCapture(){this.capture=null;}
     };
   }
@@ -34,7 +34,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles};'
+    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
@@ -3551,4 +3551,111 @@ test('result title and subtitle share a flowing group with responsive scroll and
   assert.ok(!h.elements.get('practiceAgain').classList.contains('hidden'));
   assert.ok(!h.elements.get('full').classList.contains('hidden'));
  }
+});
+
+test('all country pairs use deterministic contrasting outfield palettes and distinct keeper shirts',()=>{
+ const h=uiHarness(html);
+ for(const home of NATIONS)for(const away of NATIONS){
+  if(home===away)continue;
+  const a=h.app.matchKits(home,away),b=h.app.matchKits(home,away);
+  assert.deepEqual(a,b);assert.ok(Object.isFrozen(a));
+  assert.ok(h.app.kitContrast(a[0].shirt,a[1].shirt)>=3,home.name+' / '+away.name);
+  assert.ok(a[0].keeper.shirt!==a[1].keeper.shirt);
+  for(const k of a){assert.ok(k.name&&k.keeper.name);assert.ok(!a.some(other=>other.shirt===k.keeper.shirt));}
+ }
+ const f=h.app.matchKits(NATIONS.find(n=>n.code==='FRA'),NATIONS.find(n=>n.code==='CRO'));
+ assert.equal(f[0].name,'navy blue');assert.equal(f[1].name,'white');
+ const clash=h.app.matchKits(NATIONS.find(n=>n.code==='FRA'),NATIONS.find(n=>n.code==='JPN'));
+ assert.ok(clash[1].alternate);assert.equal(clash[1].name,'white');
+});
+test('HUD swatches and accessible kit names match actual meshes for every selected nation and survive side changes',()=>{
+ for(let index=0;index<NATIONS.length;index++){
+  const h=uiHarness(html);for(let n=0;n<index;n++)h.click('next');h.chooseMode('practice');h.flush();
+  const m=h.app.match,kits=h.app.currentKits();
+  for(const team of [0,1]){
+   const swatch=h.elements.get(team===0?'homeKit':'awayKit'),kit=kits[team],nation=team===0?m.home:m.away;
+   assert.equal(swatch.style.backgroundColor,kit.shirt);assert.equal(swatch.style.borderBottomColor,kit.shorts);
+   const desc=swatch.getAttribute('aria-label');
+   assert.ok(desc.includes(nation.name));assert.ok(desc.includes(team===0?'Home':'Away'));
+   assert.ok(desc.includes(kit.name+' '));assert.ok(desc.includes(kit.keeper.name+' goalkeeper'));
+   for(const keeper of [false,true]){
+    const p=m.snapshot().players.find(p=>p.team===team&&p.keeper===keeper),mesh=h.app.playerMesh(p,h.app.playerPose(p,m.ball));
+    assert.ok(mesh.some(face=>face.color===(keeper?kit.keeper.shirt:kit.shirt)));
+    assert.ok(mesh.some(face=>face.color===(keeper?kit.keeper.trim:kit.trim)));
+   }
+  }
+  const before=JSON.stringify(kits);m.phase='half';h.app.syncMatch();h.click('resume');
+  assert.equal(JSON.stringify(h.app.currentKits()),before);
+  h.click('menuBtn');h.click('restartMatch');h.flush();assert.equal(JSON.stringify(h.app.currentKits()),before);
+ }
+});
+test('local setup identifies both selected kits including clash alternatives and player ownership',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');
+ h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='FRA'))}});
+ h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='JPN'))}});
+ assert.equal(h.elements.get('localHomeKit').textContent,'NAVY BLUE KIT');
+ assert.equal(h.elements.get('localAwayKit').textContent,'WHITE ALTERNATE KIT');
+ h.click('startLocal');h.flush();
+ assert.ok(h.elements.get('homeKit').getAttribute('aria-label').includes('Player 1'));
+ assert.ok(h.elements.get('awayKit').getAttribute('aria-label').includes('Player 2'));
+ assert.ok(h.elements.get('gameControls').textContent.includes('P1/P2'));
+ h.click('menuBtn');assert.ok(h.elements.get('localPauseHelp'));
+});
+test('edge pointer geometry stays visible and points toward off-screen players in eight directions',()=>{
+ const h=uiHarness(html);
+ for(const [width,height] of [[1180,757],[500,757],[320,568],[757,360]]){
+  for(const [x,y] of [[-100,height/2],[width+100,height/2],[width/2,-100],[width/2,height+100],[-100,-100],[width+100,-100],[-100,height+100],[width+100,height+100]]){
+   const q=h.app.edgePointer({x,y},width,height);assert.ok(q);
+   assert.ok(q.rect.left>=0&&q.rect.right<=width&&q.rect.top>=64&&q.rect.bottom<=height-40);
+   assert.ok(Math.abs(q.angle-Math.atan2(y-q.y,x-q.x))<1e-12);
+  }
+  assert.equal(h.app.edgePointer({x:width/2,y:height/2},width,height),null);
+  assert.equal(h.app.edgePointer({x:NaN,y:0},width,height),null);
+ }
+});
+test('edge pointer avoids overlay and aim bounds, separates local badges and suppresses fully occluded cues',()=>{
+ const h=uiHarness(html),width=500,height=757,target={x:800,y:90};
+ const obstacles=[{left:0,right:410,top:0,bottom:60},{left:256,right:492,top:54,bottom:270},
+  {left:10,right:490,top:680,bottom:747},{left:420,right:490,top:280,bottom:340}];
+ const first=h.app.edgePointer(target,width,height,obstacles);assert.ok(first);
+ const second=h.app.edgePointer(target,width,height,[...obstacles,first.rect]);assert.ok(second);
+ for(const q of [first,second])for(const r of obstacles)assert.ok(q.rect.right<=r.left||q.rect.left>=r.right||q.rect.bottom<=r.top||q.rect.top>=r.bottom);
+ assert.ok(first.rect.bottom<=second.rect.top||second.rect.bottom<=first.rect.top||first.rect.right<=second.rect.left||second.rect.right<=first.rect.left);
+ assert.equal(h.app.edgePointer(target,width,height,[{left:0,right:width,top:0,bottom:height}]),null);
+});
+test('off-screen cues track actual selection in solo and local play and disappear under every blocking overlay',()=>{
+ for(const local of [false,true])for(const portrait of [false,true]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:30,top:20,width:portrait?500:1180,height:757});
+  if(local){h.chooseMode('multi');h.click('startLocal');}else h.chooseMode('practice');h.flush();
+  const m=h.app.match,shot=m.snapshot(),original=h.app.camera.project;
+  const project=(x,y,z)=>({x:x<0?-100:1300,y:300,scale:1});
+  h.app.camera.project=project;shot.players.find(p=>p.id===shot.active).x=-100;
+  if(local)shot.players.find(p=>p.id===shot.activeAway).x=-100;
+  let cues=h.app.controlledIndicators(shot,[]);assert.equal(cues.length,local?2:1);
+  assert.equal(cues[0].text,local?'P1':'YOU');assert.equal(cues[0].id,m.active);assert.equal(cues[0].color,'#39e8e1');
+  if(local){assert.equal(cues[1].text,'P2');assert.equal(cues[1].color,'#ffb84e');}
+  h.app.drawControlledIndicators(shot);assert.ok(h.elements.get('controlledLocation').textContent.includes('off-screen'));
+  assert.ok(h.draws.some(d=>d.method==='fillText'&&d.args[0]===(local?'P1':'YOU')));
+  h.app.camera.project=()=>({x:550,y:300,scale:1});
+  assert.equal(h.app.controlledIndicators(shot,[]).length,0);h.app.drawControlledIndicators(shot);
+  assert.equal(h.elements.get('controlledLocation').textContent,'');
+  h.app.camera.project=project;
+  for(const phase of ['paused','half','full','goal','replay','restart','penalties','shootoutResult']){
+   m.phase=phase;assert.equal(h.app.controlledIndicators(shot,[]).length,0,phase);
+  }
+  m.phase='playing';h.click('menuBtn');assert.equal(h.elements.get('controlledLocation').textContent,'');
+  h.app.camera.project=original;
+ }
+});
+test('edge obstacles convert actual HUD rectangles and exclude hidden overlays without moving match state',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ h.elements.get('game').getBoundingClientRect=()=>({left:30,top:20,width:500,height:757});
+ h.elements.get('matchScoreboard').getBoundingClientRect=()=>({left:40,right:390,top:30,bottom:65,width:350,height:35});
+ h.elements.get('shootoutInfo').getBoundingClientRect=()=>({left:290,right:520,top:74,bottom:260,width:230,height:186});
+ h.elements.get('shootoutInfo').classList.add('hidden');
+ let blocks=h.app.controlEdgeObstacles();assert.ok(blocks.some(r=>r.left===10&&r.right===360&&r.top===10&&r.bottom===45));
+ assert.ok(!blocks.some(r=>r.left===260&&r.top===54));
+ h.elements.get('shootoutInfo').classList.remove('hidden');blocks=h.app.controlEdgeObstacles();assert.ok(blocks.some(r=>r.left===260&&r.top===54));
+ const before=JSON.stringify(m.snapshot());h.app.controlledIndicators(m.snapshot());assert.equal(JSON.stringify(m.snapshot()),before);
+ h.chooseMode('menu');assert.equal(h.elements.get('controlledLocation').textContent,'');
 });
