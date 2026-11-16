@@ -4447,3 +4447,61 @@ test('real kick feedback retains wording lifetime exit pause and shootout suppre
  h.window.handlers.keydown(keyEvent(' '));advanceToContact(h.app.match);h.app.syncMatch();
  assert.equal(h.elements.get('toast').textContent,'','shootout uses its existing dedicated feedback');
 });
+
+test('ordinary kickoff passes run a stable fixed-step cadence at 30 60 and 120 render Hz',()=>{
+ for(const mode of ['practice','cup','local']){
+  let reference=null;
+  for(const hz of [30,60,120]){
+   const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:887,height:597});
+   h.chooseMode(mode==='local'?'multi':mode);if(mode==='cup')h.click('startMatch');if(mode==='local')h.click('startLocal');h.flush();
+   const m=h.app.match,contacts=[],receives=[],release=m.releaseKick.bind(m),give=m.giveBall.bind(m);
+   m.releaseKick=action=>{const ok=release(action);if(ok)contacts.push(m.elapsed);return ok;};
+   m.giveBall=p=>{const prior={...m.ball};give(p);receives.push({id:p.id,at:m.elapsed,shift:distance(prior,m.ball)});};
+   h.tick(100);h.window.handlers.keydown(keyEvent(mode==='local'?'f':'e'));
+   let priorBall=null;
+   for(let frame=1;frame<=hz*2;frame++){
+    const elapsed=m.elapsed;h.tick(100+frame*1000/hz);h.draws.length=0;
+    const expected=Math.floor(frame*60/hz)/60;
+    assert.ok(Math.abs(m.elapsed-expected)<1e-8,'no spurious skipped/catch-up tick at '+hz+' Hz frame '+frame);
+    if(hz===60)assert.ok(Math.abs(m.elapsed-elapsed-1/60)<1e-8);
+    if(hz===60&&priorBall?.owner===null&&m.ball.owner===null&&Math.hypot(m.ball.vx,m.ball.vy)>20)
+     assert.ok(distance(priorBall,m.ball)>0,'moving pass must advance on every 60 Hz frame');
+    priorBall={...m.ball};
+   }
+   assert.equal(contacts.length,1);assert.ok(Math.abs(contacts[0]-.075)<1e-9);
+   assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);
+   if(mode!=='local'){assert.equal(m.owner.id,6);assert.equal(receives[0].id,6);assert.ok(receives[0].shift<1e-8);}
+   const end=JSON.stringify(m.snapshot());if(reference===null)reference=end;else assert.equal(end,reference,'same simulation/pose outcome across render rates');
+  }
+ }
+});
+test('frame tolerance ignores rounding noise without admitting early ticks or changing the stall cap',()=>{
+ for(const start of [100,87654321]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+  h.tick(start);h.window.handlers.keydown(keyEvent('e'));
+  h.tick(start+16.5);assert.equal(m.elapsed,0,'0.167 ms short is not numerical noise');
+  h.tick(start+1000/60);assert.ok(Math.abs(m.elapsed-1/60)<1e-8);
+  for(let frame=2;frame<=60;frame++){h.tick(start+frame*1000/60);h.draws.length=0;}
+  assert.ok(Math.abs(m.elapsed-1)<1e-8);
+  const before=m.elapsed;h.tick(start+3000);assert.ok(Math.abs(m.elapsed-before-.1)<1e-8,'long gap remains capped at six ticks');
+  h.click('menuBtn');const paused=m.elapsed;h.tick(start+3100);assert.equal(m.elapsed,paused);
+  h.click('resumePause');h.tick(start+3100+1000/60);assert.ok(Math.abs(m.elapsed-paused-1/60)<1e-8);
+ }
+});
+test('ordinary pointer kickoff retains one contact reception and handoff across render rates',()=>{
+ for(const hz of [30,60,120])for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?333:887,height:596});
+  h.chooseMode('practice');h.flush();const m=h.app.match,p=m.owner,r=m.bestPass(p);
+  h.tick(100);const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,r.id);
+  let contacted=false,received=false;
+  for(let frame=1;frame<=hz*2;frame++){
+   h.tick(100+frame*1000/hz);h.draws.length=0;
+   if(!contacted&&m.passes[0]===1){contacted=true;assert.equal(m.active,r.id);}
+   if(m.owner?.id===r.id){received=true;break;}
+  }
+  assert.ok(contacted&&received);assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);
+  c.handlers.pointerup(pointerEvent(h,b.x,b.y));assert.equal(m.pendingKick,null);
+ }
+});

@@ -3310,7 +3310,9 @@ function frame(timestamp){
   const dt=lastFrame?Math.min((timestamp-lastFrame)/1000,.1):0;lastFrame=timestamp;
   if(match){
     accumulator+=dt;let steps=0;
-    while(accumulator>=1/60&&steps++<6){match.step(1/60,input());accumulator-=1/60;}
+    // RAF timestamp subtraction can leave an exact tick a few ulps below 1/60.
+    // Admit only nanosecond-scale rounding error, never a materially early tick.
+    while(accumulator+1e-9>=1/60&&steps++<6){match.step(1/60,input());accumulator=Math.max(0,accumulator-1/60);}
     syncMatch();
     if(match.phase==='restart'){restartCountdown-=dt;if(restartCountdown<=0){match.takeRestart();syncMatch();}}
     $('#finishPractice').classList.toggle('hidden',mode!=='practice');
