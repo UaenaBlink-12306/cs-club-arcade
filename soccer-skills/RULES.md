@@ -265,3 +265,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Aim/power/accuracy captions now reserve the visible progress panel's measured DOM rectangle, converted into canvas coordinates with a small gap. This also protects feedback if text wraps taller than expected or browser zoom changes the layout. The shootout taker's body joins the keeper and ball as a hard label-avoidance area.
 - Geometry regression reproduces the reported 333×505 overlap with the observed panel bounds, then checks captions against both the old tall panel and compact-panel fixtures at 333×505, 400×606 and 1180×757, at both goals. Keyboard preview, held pointer aiming, release, countdown, history and pause/resume are covered.
 - Layout checks use the production projection/drawing code plus supplied DOM bounds and explicit compact-height fixtures. They are not independent native-browser/font-layout, physical-touch or screen-reader verification. No shot physics, camera, rules, shootout decisions or timing changed.
+
+
+### Narrow halftime/result score-band separation
+
+- The shared score band reserves an intrinsic-width center score track and explicit gaps from both team tracks. Team flags and names use inner grid cells; names can wrap within their own width rather than overflowing into the score.
+- At widths up to 420 px, flags sit above the names, freeing the whole side-column width for country text. Names remain complete in the visual DOM and accessible halftime/result descriptions; no abbreviations are substituted.
+- Regression coverage exercises United States/Uzbekistan, Uzbekistan/Norway and Switzerland/South Korea with 0–0, 12–10 and 123–104 at 333×505, 400×606 and 1180×757. It also follows the reported United States → Practice → Pause → Finish Practice menu path.
+- Coverage includes shared CSS track/wrapping contracts, explicit score-width geometry fixtures and UI/accessibility text state. It does not constitute native-browser font-layout or screenshot verification. This is a CSS-only production change; game JavaScript, rules, physics, controls and timing are unchanged.

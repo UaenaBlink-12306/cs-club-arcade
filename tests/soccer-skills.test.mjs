@@ -3920,3 +3920,60 @@ test('compact shootout progress retains role countdown and both complete five-at
   assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 1s');
  }
 });
+
+test('shared halftime and result score bands constrain team names within tracks separated from the score',()=>{
+ // CSS layout contract; native browser glyph wrapping still needs independent checking.
+ const css=html.slice(html.indexOf('/* Shared halftime/result score band'),html.indexOf('</style>'));
+ assert.ok(/grid-template-columns:minmax\(0,1fr\) max-content minmax\(0,1fr\);column-gap:20px/.test(css));
+ assert.ok(/\.football-scene \.badge-team\{display:grid;grid-template-columns:var\(--team-badge-size\) minmax\(0,1fr\)/.test(css));
+ assert.ok(/\.football-scene \.badge-team>b\{[^}]*min-width:0[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere[^}]*overflow:hidden/.test(css));
+ assert.ok(/@media\(max-width:420px\)/.test(css));
+ assert.ok(/\.football-scene \.badge-team>b,\.football-scene \.badge-team:last-child>b\{grid-column:1;grid-row:2;font-size:12px/.test(css));
+ assert.ok(/\.football-scene \.board-goals\{min-width:max-content;white-space:nowrap/.test(css));
+ // Track geometry with explicit score-width fixtures, not font measurements.
+ // Reserve the score's intrinsic width first; neither team may consume the gap.
+ for(const [viewport,bandWidth,padding,gap] of [[333,299,8,12],[400,360,8,12],[1180,1050,24,20]]){
+  for(const scoreWidth of [58,88,124]){
+   const content=bandWidth-padding*2,teamWidth=(content-scoreWidth-gap*2)/2;
+   const home={left:padding,right:padding+teamWidth};
+   const score={left:home.right+gap,right:home.right+gap+scoreWidth};
+   const away={left:score.right+gap,right:score.right+gap+teamWidth};
+   assert.ok(teamWidth>=26,'flag fits its track at '+viewport);
+   assert.equal(score.left-home.right,gap);assert.equal(away.left-score.right,gap);
+   assert.ok(Math.abs(away.right-(bandWidth-padding))<1e-10);
+  }
+ }
+});
+test('long national names and multi-digit scores remain complete in both visual and accessible interval boards',()=>{
+ for(const [width,height] of [[333,505],[400,606],[1180,757]]){
+  for(const [home,away] of [['USA','UZB'],['UZB','NOR'],['SUI','KOR']]){
+   const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+   h.chooseMode('multi');
+   h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code===home))}});
+   h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code===away))}});
+   h.click('startLocal');h.flush();const m=h.app.match;
+   for(const score of [[0,0],[12,10],[123,104]]){
+    m.score=score.slice();m.phase='half';h.app.syncMatch();
+    for(const prefix of ['half','result']){
+     if(prefix==='result'){m.finish();h.app.syncMatch();}
+     assert.equal(h.elements.get(prefix+'HomeName').textContent,m.home.name);
+     assert.equal(h.elements.get(prefix+'AwayName').textContent,m.away.name);
+     assert.equal(h.elements.get(prefix+'HomeFlag').textContent,m.home.flag);
+     assert.equal(h.elements.get(prefix+'AwayFlag').textContent,m.away.flag);
+     assert.equal(h.elements.get(prefix+'Goals').textContent,score.join(' – '));
+     const accessible=h.elements.get(prefix==='half'?'halfSummary':'resultScore').textContent;
+     assert.ok(accessible.includes(m.home.name));assert.ok(accessible.includes(m.away.name));
+     assert.ok(accessible.includes(score.join(' - ')));
+    }
+   }
+  }
+ }
+ // The reported normal practice menu path stays reachable without state setup.
+ const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:333,height:505});
+ for(let i=0;i<NATIONS.findIndex(n=>n.code==='USA');i++)h.click('next');
+ h.chooseMode('practice');h.flush();h.window.handlers.keydown(keyEvent('Escape'));h.click('finishPractice');
+ assert.equal(h.app.view,'full');assert.equal(h.elements.get('resultHomeName').textContent,'United States');
+ assert.equal(h.elements.get('resultAwayName').textContent,'Uzbekistan');assert.equal(h.elements.get('resultGoals').textContent,'0 – 0');
+ assert.ok(h.elements.get('gameControls').textContent.includes('United States'));
+ assert.ok(h.elements.get('gameControls').textContent.includes('Uzbekistan'));
+});

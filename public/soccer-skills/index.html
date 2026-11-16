@@ -813,6 +813,27 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
  #shootoutInfo .kick-dots{gap:3px}
  #shootoutInfo .kick-dot{width:14px;height:14px;font-size:10px}
 }
+
+/* Shared halftime/result score band: names cannot grow across the score track. */
+.football-scene .match-badges{--team-badge-size:46px;grid-template-columns:minmax(0,1fr) max-content minmax(0,1fr);column-gap:20px}
+.football-scene .badge-team{display:grid;grid-template-columns:var(--team-badge-size) minmax(0,1fr);align-items:center;column-gap:8px;row-gap:4px;width:100%;min-width:0}
+.football-scene .badge-team:last-child{grid-template-columns:minmax(0,1fr) var(--team-badge-size)}
+.football-scene .badge-team>.round-team-badge{grid-column:1;grid-row:1;width:var(--team-badge-size);height:var(--team-badge-size)}
+.football-scene .badge-team>b{grid-column:2;grid-row:1;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;overflow:hidden;line-height:1.25}
+.football-scene .badge-team:last-child>.round-team-badge{grid-column:2}
+.football-scene .badge-team:last-child>b{grid-column:1}
+.football-scene .board-goals{min-width:max-content;white-space:nowrap}
+@media(max-width:620px){
+ .football-scene .match-badges{--team-badge-size:34px;column-gap:12px}
+ .football-scene .badge-team{column-gap:6px}
+}
+@media(max-width:420px){
+ .football-scene .match-badges{--team-badge-size:26px;column-gap:12px;padding:10px 8px}
+ .football-scene .badge-team,.football-scene .badge-team:last-child{grid-template-columns:minmax(0,1fr);justify-items:center;text-align:center;row-gap:4px}
+ .football-scene .badge-team>.round-team-badge,.football-scene .badge-team:last-child>.round-team-badge{grid-column:1;grid-row:1;font-size:16px}
+ .football-scene .badge-team>b,.football-scene .badge-team:last-child>b{grid-column:1;grid-row:2;font-size:12px}
+ .football-scene .board-goals{font-size:clamp(20px,6vw,26px)}
+}
 </style>
 </head>
 <body>
