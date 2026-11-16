@@ -1227,10 +1227,15 @@ class SoccerMatch {
     }
     return false;
   }
+  keeperCatchPose(p){
+    if(this.elapsed-(p.saveAt??-100)<=.65)return;
+    p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(this.ball.y-p.y)*Math.cos(p.angle))/45,-1,1);
+    p.saveAt=this.elapsed;
+  }
   receiveBall(p){
     if(this.inShootout()&&this.penalties.stage==='flight'){
       if(p.id!==this.penalties.keeper)return this.completeShootoutKick('miss');
-      p.saveAt=this.elapsed;this.penalties.saves[p.team]++;this.giveBall(p);this.handOwner=p.id;
+      this.keeperCatchPose(p);this.penalties.saves[p.team]++;this.giveBall(p);this.handOwner=p.id;
       return this.completeShootoutKick('save');
     }
     if(this.advantage&&(this.advantage.kind!=='possession'||p.team!==this.advantage.team))return this.recallAdvantage();
@@ -1240,10 +1245,7 @@ class SoccerMatch {
     if(!p.keeper&&this.ball.lastTouch!==p.team)this.interceptions[p.team]++;
     const catches=p.keeper&&this.inPenalty(p,p.team)&&this.ball.lastTouch!==p.team;
     if(catches){
-      if(this.elapsed-(p.saveAt??-100)>.65){
-        p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(this.ball.y-p.y)*Math.cos(p.angle))/45,-1,1);
-        p.saveAt=this.elapsed;
-      }
+      this.keeperCatchPose(p);
       this.saves[p.team]++;this.actionFeedback(p.team,'Goalkeeper save');
     }
     this.giveBall(p);

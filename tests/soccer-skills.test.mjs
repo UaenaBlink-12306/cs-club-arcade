@@ -5003,3 +5003,63 @@ test('gait start stop and kick recovery stay continuous and bounded across speed
   }
  }
 });
+
+test('ordinary shootout catch preserves the ongoing dive and recovers before the next attempt',()=>{
+ for(const hz of [30,60,120])for(const width of [333,888]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('shootout');h.flush();h.tick(100);let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  const m=h.app.match,k=m.players[m.penalties.keeper];
+  // Ordinary menu and keyboard inputs: no state, target or opponent-plan injection.
+  const aimKey=width<500?'ArrowLeft':'ArrowRight';
+  h.window.handlers.keydown(keyEvent(aimKey));for(let i=0;i<hz/3;i++)tick();
+  h.window.handlers.keyup(keyEvent(aimKey));h.window.handlers.keydown(keyEvent(' '));
+  let before;
+  while(m.phase==='playing'&&frame<hz*5){before={at:k.saveAt,side:k.saveSide,pose:h.app.playerPose(m.snapshot().players[k.id],m.snapshot().ball).save};tick();}
+  assert.equal(m.phase,'shootoutResult');assert.equal(m.penalties.history[0].outcome,'save');
+  assert.ok(before.pose>.08);assert.equal(k.saveAt,before.at,'catch must not restart a dive');
+  assert.equal(k.saveSide,before.side);assert.ok(h.app.playerPose(m.snapshot().players[k.id],m.snapshot().ball).save>before.pose);
+  assert.equal(m.handOwner,k.id);assert.equal(m.owner.id,k.id);
+  const frozen=JSON.stringify({snapshot:m.snapshot(),phaseTime:m.phaseTime,penalties:m.penalties});h.click('menuBtn');const elapsed=m.elapsed;for(let i=0;i<hz/5;i++)tick();
+  assert.equal(m.elapsed,elapsed);h.click('resumePause');assert.ok(JSON.stringify({snapshot:m.snapshot(),phaseTime:m.phaseTime,penalties:m.penalties})===frozen,'pause freezes catch and recovery');
+  while(m.phase==='shootoutResult'&&frame<hz*6)tick();
+  assert.equal(m.phase,'penalties');assert.equal(m.snapshot().players[k.id].save,0);
+  h.click('nextPenalty');assert.equal(m.penalties.turn,1);assert.equal(m.handOwner,null);
+  for(const p of m.snapshot().players)assert.equal(p.save,0,'new attempt clears prior dive');
+  h.click('menuBtn');h.click('restartMatch');h.flush();
+  assert.equal(h.app.match.mode,'shootout');assert.equal(h.app.match.penalties.history.length,0);
+  for(const p of h.app.match.snapshot().players)assert.equal(p.save,0);
+ }
+});
+test('keeper catch pose is shared across match and shootout directions with expired dives starting fresh',()=>{
+ for(const shootout of [false,true])for(const team of [0,1])for(const period of [1,2])for(const age of [.1,.4,.66,100]){
+  // Direct contact fixtures isolate catch animation, not natural shot reachability.
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.period=period;m.kickoff(0);
+  if(shootout){m.startShootout();if(team===0){m.penalties.stage='result';m.penalties.turn=1;m.prepareShootoutKick();}m.penalties.stage='flight';}
+  const p=m.players[team*11];m.elapsed=2;p.saveAt=2-age;p.saveSide=-.7;
+  Object.assign(m.ball,{owner:null,lastTouch:1-team,x:p.x+2,y:p.y+4,z:4,vx:0,vy:0});
+  const prior=m.snapshot().players[p.id].save;m.receiveBall(p);
+  assert.equal(m.owner.id,p.id);assert.equal(m.handOwner,p.id);
+  if(age<=.65){assert.equal(p.saveAt,2-age);assert.equal(p.saveSide,-.7);assert.equal(m.snapshot().players[p.id].save,prior);}
+  else{assert.equal(p.saveAt,2);assert.equal(m.snapshot().players[p.id].save,1);assert.ok(Number.isFinite(p.saveSide));}
+ }
+});
+test('keeper recovery permits normal distribution after a caught ball and clears on restart',()=>{
+ for(const local of [false,true])for(const team of local?[0,1]:[0])for(const hz of [30,60,120]){
+  const h=uiHarness(html);h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();
+  const m=h.app.match,k=m.players[team*11];m.elapsed=2;k.saveAt=1.8;k.saveSide=-.5;
+  // Catch fixture followed by real pause and distribution key handlers.
+  Object.assign(m.ball,{owner:null,lastTouch:1-team,x:k.x+2,y:k.y,z:0});m.receiveBall(k);
+  const controls=local?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0};
+  for(let i=0;i<hz*.7;i++)m.step(1/hz,controls);
+  assert.equal(m.owner.id,k.id);assert.equal(m.snapshot().players[k.id].save,0);
+  h.click('menuBtn');const elapsed=m.elapsed;for(let i=0;i<hz;i++)m.step(1/hz,controls);
+  assert.equal(m.elapsed,elapsed);h.click('resumePause');
+  h.window.handlers.keydown(keyEvent(local?(team===0?'f':'k'):'e'));
+  assert.equal(m.pendingKick.player,k.id);advanceToContact(m);
+  assert.equal(m.handOwner,null);assert.equal(m.ball.owner,null);assert.equal(m.passes[team],1);
+  assert.ok(m.activeFor(team)!==k.id);
+  h.click('menuBtn');h.click('restartMatch');h.flush();
+  assert.equal(h.app.match.handOwner,null);for(const p of h.app.match.snapshot().players)assert.equal(p.save,0);
+ }
+});
