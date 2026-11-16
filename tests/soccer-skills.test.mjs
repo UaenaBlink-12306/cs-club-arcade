@@ -33,9 +33,9 @@ function uiHarness(html){
     querySelectorAll:selector=>selector==='[data-go]'?go:selector==='[data-penalty]'?penalties:[],
     addEventListener(type,cb){this.handlers[type]=cb;}};
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
-  const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const script='let drawnBall=null;const drawnPlayers=new Map();\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -4503,5 +4503,146 @@ test('ordinary pointer kickoff retains one contact reception and handoff across 
   }
   assert.ok(contacted&&received);assert.equal(m.passes[0],1);assert.equal(m.shots[0],0);
   c.handlers.pointerup(pointerEvent(h,b.x,b.y));assert.equal(m.pendingKick,null);
+ }
+});
+
+test('live interpolation bounds positions and poses while retaining immediate ownership and action identity',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ const a=m.snapshot();m.step(1/60,h.app.input());const b=m.snapshot(),p=9;
+ b.players[p].x=a.players[p].x+2;b.players[p].angle=-Math.PI+.02;a.players[p].angle=Math.PI-.02;
+ a.players[p].stride=2;b.players[p].stride=4;a.players[p].speed=50;b.players[p].speed=70;
+ a.players[p].strikeId=b.players[p].strikeId=3;a.players[p].strikePhase=b.players[p].strikePhase='follow';
+ a.players[p].strike=.4;b.players[p].strike=.5;
+ a.players[p].receive=0;b.players[p].receive=1;
+ b.ball.x=a.ball.x+4;b.ball.z=2;b.active=6;
+ const saved=JSON.stringify([a,b]),sample=h.app.interpolateLiveFrame(a,b,.5);
+ assert.equal(sample.players[p].x,a.players[p].x+1);assert.equal(sample.ball.x,a.ball.x+2);
+ assert.equal(sample.ball.z,1);assert.equal(sample.players[p].stride,3);
+ assert.equal(sample.players[p].strike,.45);assert.equal(sample.players[p].receive,1,'new receiving event is immediate');
+ assert.ok(Math.abs(sample.players[p].angle-Math.PI)<1e-10,'turn takes the short angular path');
+ assert.equal(sample.active,b.active);assert.equal(sample.ball.owner,b.ball.owner);
+ assert.equal(JSON.stringify([a,b]),saved,'render blending cannot mutate snapshots');
+ assert.equal(h.app.interpolateLiveFrame(a,b,-1).ball.x,a.ball.x);
+ assert.equal(h.app.interpolateLiveFrame(a,b,2).ball.x,b.ball.x);
+ b.ball.owner=null;assert.equal(h.app.interpolateLiveFrame(a,b,.5),b,'contact snaps ownership and pose together');
+ b.ball.owner=a.ball.owner;b.players[p].x+=100;
+ assert.equal(h.app.interpolateLiveFrame(a,b,.5),b,'formation teleports must not smear');
+ b.players[p].x=a.players[p].x;b.at=a.at;
+ assert.equal(h.app.interpolateLiveFrame(a,b,.5),b,'same-time reset is not a simulation interval');
+});
+test('ordinary 60 and 120 Hz passes interpolate actual drawn ball and follow-through with bounded visual delay',()=>{
+ for(const mode of ['practice','cup','local'])for(const hz of [60,120])for(const portrait of [false,true]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:portrait?333:887,height:596});
+  h.chooseMode(mode==='local'?'multi':mode);if(mode==='cup')h.click('startMatch');if(mode==='local')h.click('startLocal');h.flush();
+  const m=h.app.match,kicker=m.owner.id;h.tick(100);h.window.handlers.keydown(keyEvent(mode==='local'?'f':'e'));
+  let prior=null,simulationBefore=m.snapshot(),lastElapsed=m.elapsed,repeats=0,intervals=0,poseChanges=0,received=false;
+  for(let frame=1;frame<=hz*.5;frame++){
+   const before=m.snapshot();h.tick(100+frame*1000/hz);h.draws.length=0;const current=m.snapshot();
+   if(current.at!==lastElapsed){simulationBefore=before;lastElapsed=current.at;}
+   const drawn=h.app.drawnBall,pose=h.app.drawnPlayers.get(kicker);
+   assert.equal(drawn.owner,current.ball.owner,'drawn ownership changes on the authoritative frame');
+   assert.equal(pose.strikePhase,current.players[kicker].strikePhase);
+   assert.equal(pose.strikeId,current.players[kicker].strikeId);
+   if(pose.strikePhase==='windup')assert.equal(pose.strike,current.players[kicker].strike,'wind-up cannot acquire extra latency or a larger contact jump');
+   for(const key of ['x','y','z']){
+    const lo=Math.min(simulationBefore.ball[key],current.ball[key])-1e-8,hi=Math.max(simulationBefore.ball[key],current.ball[key])+1e-8;
+    assert.ok(drawn[key]>=lo&&drawn[key]<=hi,'visual ball stays within the last tick, with no prediction');
+   }
+   if(prior&&prior.owner===null&&current.ball.owner===null){
+    intervals++;if(distance(prior.ball,drawn)<1e-8)repeats++;
+    if(Math.abs(prior.pose.strike-pose.strike)>1e-8)poseChanges++;
+   }
+   if(current.ball.owner!==null&&current.ball.owner!==kicker){
+    received=true;if(prior?.owner!==current.ball.owner)assert.ok(distance(drawn,current.ball)<1e-8,'reception snaps without stale carrier');
+   }
+   prior={ball:drawn,pose,owner:current.ball.owner};
+  }
+  assert.ok(intervals>=16);assert.equal(repeats,hz===120?1:0,'only the immediate contact interval may repeat at 120 Hz');
+  assert.ok(poseChanges>= (hz===120?30:15),'follow-through progresses on intermediate render frames');
+  if(mode!=='local')assert.ok(received,'ordinary pass reaches the support player');
+  assert.equal(m.passes[0],1);
+ }
+});
+test('render interpolation leaves ordinary input simulation and camera identical to unblended rendering',()=>{
+ const unblended=html.replace("if(match?.phase==='playing')shot=liveRenderSample(shot);","if(match?.phase==='playing')shot=shot;");
+ for(const mode of ['practice','local','shootout'])for(const hz of [60,120]){
+  const a=uiHarness(html),b=uiHarness(unblended);
+  for(const h of [a,b]){
+   h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:333,height:596});
+   h.chooseMode(mode==='local'?'multi':mode);if(mode==='local')h.click('startLocal');h.flush();h.tick(100);
+   if(mode==='practice'){
+    const m=h.app.match,p=m.owner,r=m.bestPass(p),c=h.elements.get('game'),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+    c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+   }else h.window.handlers.keydown(keyEvent(mode==='local'?'f':' '));
+  }
+  for(let frame=1;frame<=hz;frame++){
+   for(const h of [a,b]){
+    if(frame===Math.round(hz*.5))h.window.handlers.keydown(keyEvent('w'));
+    if(frame===Math.round(hz*.8))h.window.handlers.keyup(keyEvent('w'));
+    h.tick(100+frame*1000/hz);h.draws.length=0;
+   }
+   assert.equal(JSON.stringify(a.app.match.snapshot()),JSON.stringify(b.app.match.snapshot()));
+   assert.deepEqual(['x','y','zoom','yaw','tilt'].map(k=>a.app.camera[k]),['x','y','zoom','yaw','tilt'].map(k=>b.app.camera[k]),'camera follows current state, never delayed rendering');
+   assert.equal(a.app.match.phase,b.app.match.phase);
+  }
+  assert.equal(JSON.stringify(a.app.match),JSON.stringify(b.app.match),'including RNG, score, pending action and history');
+ }
+});
+test('live render buffering snaps on pause resume match reset halftime goal and replay transitions',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));
+ for(let i=1;i<=20;i++){h.tick(100+i*1000/120);h.draws.length=0;}
+ const exact=()=>{h.app.render();const s=h.app.match.snapshot();assert.deepEqual(h.app.drawnBall,s.ball);for(const p of s.players)assert.deepEqual(h.app.drawnPlayers.get(p.id),p);};
+ h.click('menuBtn');exact();h.tick(400);exact();h.click('resumePause');exact();
+ // Explicit transition fixtures exercise the normal phase handlers, not naturally earned goals.
+ const m=h.app.match;m.phase='half';h.app.syncMatch();exact();h.click('resume');exact();assert.equal(m.period,2);
+ m.phase='goal';m.scorer=0;m.replayFrames=[m.snapshot(),m.snapshot()];h.app.syncMatch();exact();
+ m.phase='replay';m.replayTime=1;h.app.syncMatch();h.app.render();
+ assert.deepEqual(h.app.drawnBall,h.app.replaySample(m.replayFrames,1/4).ball,'replay retains its separate sampler');
+ h.click('skipReplay');exact();
+ m.phase='replay';m.replayTime=4.19;h.app.syncMatch();h.tick(420);exact();assert.equal(m.phase,'playing');
+ h.click('menuBtn');h.click('restartMatch');h.flush();exact();assert.ok(h.app.match!==m);
+ const current=h.app.match;current.phase='full';h.app.syncMatch();exact();
+});
+test('stationary restart and shootout attempt transitions never interpolate old positions',()=>{
+ for(const type of ['Throw-in','Corner Kick','Goal Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));h.tick(200);
+  const m=h.app.match;
+  m.stopForRestart({type,team:0,x:type==='Goal Kick'?FIELD.right-24:FIELD.left+40,y:FIELD.cy});
+  h.app.syncMatch();h.app.render();assert.deepEqual(h.app.drawnBall,m.snapshot().ball);
+  h.click('takeCorner');h.app.render();assert.deepEqual(h.app.drawnBall,m.snapshot().ball);
+  h.tick(1000);assert.deepEqual(h.app.drawnBall,m.snapshot().ball,'stationary ball remains at legal restart spot');
+ }
+ const h=uiHarness(html);h.chooseMode('shootout');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent(' '));
+ for(let i=1;i<=20;i++){h.tick(100+i*1000/120);h.draws.length=0;}
+ const m=h.app.match;m.completeShootoutKick('save');h.app.syncMatch();h.app.render();assert.deepEqual(h.app.drawnBall,m.snapshot().ball);
+ m.phase='penalties';h.app.syncMatch();h.click('nextPenalty');h.app.render();
+ assert.deepEqual(h.app.drawnBall,m.snapshot().ball);assert.equal(m.penalties.turn,1);
+});
+test('between-frame input and teleports cannot reuse a stale visual interval',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));
+ for(let i=1;i<=60;i++){h.tick(100+i*1000/120);h.draws.length=0;}
+ const m=h.app.match;assert.equal(m.owner.id,6);
+ h.window.handlers.keydown(keyEvent('e'));const now=m.snapshot();
+ assert.equal(h.app.liveRenderSample(now),now,'fresh action is visible immediately, before another fixed step');
+ h.app.render();assert.equal(h.app.drawnPlayers.get(6).strikeId,now.players[6].strikeId);
+ m.kickoff(0);const reset=m.snapshot();assert.equal(h.app.liveRenderSample(reset),reset,'same-phase formation reset snaps');
+});
+
+test('ordinary open-play pointer pass aimed at drawn players reaches its chosen receiver at 60 and 120 Hz',()=>{
+ for(const hz of [60,120])for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?333:887,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));
+  while(frame<hz&&m.owner?.id!==6)tick();
+  assert.equal(m.owner.id,6,'normal kickoff must reach support player first');
+  const p=m.owner,r=m.bestPass(p),paintedP=h.app.drawnPlayers.get(p.id),paintedR=h.app.drawnPlayers.get(r.id);
+  const a=h.app.camera.project(paintedP.x,paintedP.y),b=h.app.camera.project(paintedR.x,paintedR.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,r.id);assert.equal(m.pendingKick.shot,false);
+  let got=false;const start=frame;
+  while(frame<start+hz*2&&m.phase==='playing'){tick();if(m.owner?.id===r.id){got=true;break;}}
+  assert.ok(got,'chosen teammate must actually receive the second pass against live AI');
+  assert.equal(m.passes[0],2);assert.equal(m.phase,'playing');
  }
 });

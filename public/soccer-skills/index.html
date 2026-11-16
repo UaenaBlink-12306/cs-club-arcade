@@ -1921,6 +1921,7 @@ const panels=['menu','local','trophy','loading','replay','half','corner','full',
 let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0,introShot=null,restartCountdown=0;
 let shootoutPracticeRun=0,cupVictory=null;
 let lastFrame=0,accumulator=0,lastEvent='',lastFeedbackSerial=0,toastTimer=0,touchControls=false;
+let renderPair=null;
 // Original, unbranded palettes; these are not official kit reproductions.
 const CONTROL_MARKERS=Object.freeze([
  Object.freeze({color:'#39e8e1',name:'cyan'}),
@@ -2055,7 +2056,7 @@ function setCountryChooser(open,focus=false){
 function show(id){
   setCountryChooser(false);
   if(id==='team')id='menu';
-  if(view!==id){clearTimeout(toastTimer);$('#toast').textContent='';$('#toast').classList.remove('toastOn');}
+  if(view!==id){renderPair=null;clearTimeout(toastTimer);$('#toast').textContent='';$('#toast').classList.remove('toastOn');}
   $('#keeperStatus').textContent='';
   view=id;if(id!=='corner')$('#matchStatus').textContent='';updateControlHint();$('#soloPauseHelp').textContent=mode==='local'?'':$('#gameControls').textContent;$('#localPauseHelp').classList.toggle('hidden',mode!=='local');updatePauseControls();panels.forEach(p=>$('#'+p).classList.toggle('hidden',p!==id));
   const liveHUD=['match','goal','replay','corner','pause','penalties'].includes(id);
@@ -3226,6 +3227,48 @@ function positionRestartNotice(){
   const viewport=canvas.getBoundingClientRect(),hud=$('#hud').getBoundingClientRect();
   $('#corner').style.top=Math.max(64,hud.bottom-viewport.top+12)+'px';
 }
+// Only drawn entities lag by at most one fixed tick. Input, ownership and camera
+// continue to use the authoritative state; resets and contact changes snap.
+const LIVE_POSE_CHANNELS=['x','y','stride','speed','bodyLean','turnLean','saveSide','strikeRun','strike','tackle','fouled','receive','kick','save'];
+function continuousLiveFrame(a,b){
+  return Math.abs(b.at-a.at-1/60)<1e-7&&a.ball.owner===b.ball.owner&&a.players.length===b.players.length&&
+    distance(a.ball,b.ball)<=64&&Math.abs(a.ball.z-b.ball.z)<=24&&
+    a.players.every((p,i)=>p.id===b.players[i].id&&distance(p,b.players[i])<=16);
+}
+function sameLiveEndpoint(a,b){
+  return a.at===b.at&&a.players.length===b.players.length&&
+    ['x','y','z','owner'].every(k=>a.ball[k]===b.ball[k])&&
+    b.players.every((p,i)=>['angle','strikeId','strikePhase',...LIVE_POSE_CHANNELS].every(k=>a.players[i][k]===p[k]));
+}
+function interpolateLiveFrame(a,b,alpha){
+  if(!continuousLiveFrame(a,b))return b;
+  const mix=clamp(alpha,0,1),blend=(x,y)=>x+(y-x)*mix;
+  const players=b.players.map((q,i)=>{
+    const p=a.players[i],out={...q};
+    for(const key of LIVE_POSE_CHANNELS){
+      if(!Number.isFinite(p[key])||!Number.isFinite(q[key]))continue;
+      // New actions and contact poses are immediate, never anticipated or rewound.
+      // Wind-up stays on the input/contact clock; delaying it would enlarge the contact pose change.
+      if(['strike','strikeRun'].includes(key)&&(q.strikePhase==='windup'||p.strikeId!==q.strikeId||p.strikePhase!==q.strikePhase))continue;
+      if(['tackle','fouled','receive','kick','save'].includes(key)&&q[key]>p[key]+1e-6)continue;
+      out[key]=blend(p[key],q[key]);
+    }
+    out.angle=p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix;
+    return out;
+  });
+  return {...b,players,ball:{...b.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
+}
+function liveRenderSample(current){
+  const pair=renderPair;
+  if(!pair||pair.match!==match||match.phase!=='playing'||view!=='match'||pair.current.at!==current.at)return current;
+  // A pointer action or reset can occur between animation callbacks. Do not reuse
+  // a cached interval if its endpoint no longer describes the current entities.
+  if(!sameLiveEndpoint(pair.current,current))return current;
+  // Ease into the one-tick buffer after a snap, rather than holding the contact
+  // position for another whole tick before flight starts moving.
+  return interpolateLiveFrame(pair.previous,current,1-(1-clamp(accumulator*60,0,1))*pair.blend);
+}
+
 function render(dt=0){
   resizeView();updateDrag();
   let shot=match?match.snapshot():(view==='loading'?introShot:null);
@@ -3250,6 +3293,7 @@ function render(dt=0){
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
+  if(match?.phase==='playing')shot=liveRenderSample(shot);
   aimPanelRects=[];
   const forecast=shotForecast();let aimHUD=keyboardPenaltyAim&&match.owner?{player:match.owner,intent:keyboardPenaltyAim}:null;
   if(match?.phase==='restart'){
@@ -3312,7 +3356,14 @@ function frame(timestamp){
     accumulator+=dt;let steps=0;
     // RAF timestamp subtraction can leave an exact tick a few ulps below 1/60.
     // Admit only nanosecond-scale rounding error, never a materially early tick.
-    while(accumulator+1e-9>=1/60&&steps++<6){match.step(1/60,input());accumulator=Math.max(0,accumulator-1/60);}
+    while(accumulator+1e-9>=1/60&&steps++<6){
+      const previous=match.phase==='playing'?match.snapshot():null,period=match.period,restart=match.restartGuard;
+      match.step(1/60,input());
+      const current=previous&&match.phase==='playing'&&match.period===period&&match.restartGuard===restart?match.snapshot():null;
+      const blend=previous&&renderPair?.match===match&&sameLiveEndpoint(renderPair.current,previous)?Math.min(1,renderPair.blend+.5):.5;
+      renderPair=current&&continuousLiveFrame(previous,current)?{match,previous,current,blend}:null;
+      accumulator=Math.max(0,accumulator-1/60);
+    }
     syncMatch();
     if(match.phase==='restart'){restartCountdown-=dt;if(restartCountdown<=0){match.takeRestart();syncMatch();}}
     $('#finishPractice').classList.toggle('hidden',mode!=='practice');
