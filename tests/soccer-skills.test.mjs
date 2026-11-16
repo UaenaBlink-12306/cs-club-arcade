@@ -33,9 +33,9 @@ function uiHarness(html){
     querySelectorAll:selector=>selector==='[data-go]'?go:selector==='[data-penalty]'?penalties:[],
     addEventListener(type,cb){this.handlers[type]=cb;}};
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
-  const script='let drawnBall=null;const drawnPlayers=new Map();\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});');
+  const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -4644,5 +4644,141 @@ test('ordinary open-play pointer pass aimed at drawn players reaches its chosen 
   while(frame<start+hz*2&&m.phase==='playing'){tick();if(m.owner?.id===r.id){got=true;break;}}
   assert.ok(got,'chosen teammate must actually receive the second pass against live AI');
   assert.equal(m.passes[0],2);assert.equal(m.phase,'playing');
+ }
+});
+
+test('moving pass guides and power labels stay attached to the drawn carrier and receiver',()=>{
+ for(const mode of ['practice','cup'])for(const hz of [60,120])for(const [width,height] of [[333,596],[887,597]]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode(mode);if(mode==='cup')h.click('startMatch');h.flush();h.tick(100);const m=h.app.match;
+  let frame=0;const tick=()=>{h.app.drawnPaths.length=0;h.tick(100+(++frame)*1000/hz);h.draws.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));while(frame<hz&&m.owner?.id!==6)tick();
+  assert.equal(m.owner.id,6);
+  const p=m.owner,r=m.bestPass(p),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+  let checked=0;
+  for(let i=0;i<hz*.4;i++){
+   tick();const d=h.app.drag,intent=h.app.pointerAim(d),path=h.app.drawnPaths.at(-1);
+   assert.ok(path);const painted=h.app.drawnPlayers.get(d.player);
+   assert.deepEqual(path[0],[painted.x,painted.y],'line begins at the same rendered foot as the control ring');
+   const receiver=h.app.drawnPlayers.get(intent.target.receiverId);
+   if(receiver)assert.deepEqual(path[1],[receiver.x,receiver.y],'target ring follows the drawn receiver');
+   assert.equal(h.app.drawnAim.p.x,painted.x);assert.equal(h.app.drawnAim.p.y,painted.y);
+   assert.equal(m.owner.id,p.id);checked++;
+  }
+  assert.ok(checked>=24);
+  const expected=h.app.pointerAim(h.app.drag),before=m.passes[0];
+  c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,expected.target.receiverId);
+  assert.equal(m.pendingKick.power,expected.power);
+  advanceToContact(m);assert.equal(m.passes[0],before+1);
+ }
+});
+test('local keyboard pass wind-up guides use drawn teammates for both owners',()=>{
+ for(const hz of [60,120])for(const width of [333,887])for(const team of [0,1]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;
+  // P2 kickoff is a second-half ownership fixture; the action uses its normal key.
+  if(team===1){m.phase='half';h.app.syncMatch();h.click('resume');}
+  h.tick(100);h.window.handlers.keydown(keyEvent(team===0?'f':'k'));
+  let checked=0;
+  for(let frame=1;frame<=8;frame++){
+   h.app.drawnPaths.length=0;h.tick(100+frame*1000/hz);h.draws.length=0;
+   if(!m.pendingKick)break;
+   const path=h.app.drawnPaths.at(-1),p=h.app.drawnPlayers.get(m.pendingKick.player),r=h.app.drawnPlayers.get(m.pendingKick.target.receiverId);
+   assert.ok(path);assert.deepEqual(path[0],[p.x,p.y]);assert.deepEqual(path[1],[r.x,r.y]);checked++;
+  }
+  assert.ok(checked>=4);
+ }
+});
+test('forecast uses the actual kick contact model and clears its graphics at release',()=>{
+ const {RULES}=new Function(engine+';return {RULES};')();let visibleCrossings=0;
+ for(const mode of ['practice','shootout'])for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode(mode);h.flush();const m=h.app.match;
+  if(mode==='practice'){
+   // Near-goal possession fixture, then normal aiming and release; no synthetic goal.
+   const p=m.players[9];p.x=FIELD.left+160;p.y=FIELD.cy+20;m.giveBall(p);m.restartGuard=null;m.setPiece=null;
+  }
+  h.tick(100);const p=m.owner,goal=m.goalX(0),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(goal,FIELD.cy+25);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+  for(let frame=1;frame<=4;frame++){
+   h.draws.length=0;h.tick(100+frame*1000/hz);
+   const intent=h.app.pointerAim(h.app.drag);assert.ok(intent.shot);
+   const expected=m.previewKick(m.owner,intent.target,intent.power,false);
+   assert.deepEqual(h.app.drawnForecast,expected,'trajectory and crossing stay on authoritative physics, not delayed artwork');
+   assert.ok(h.draws.some(d=>d.method==='setLineDash'&&Math.abs(d.args[0][0]-5*1100/width)<1e-7));
+   const first=expected.points[0];
+   if(!m.restartGuard)assert.ok(Math.abs(distance(first,m.owner)-10)<1e-7,'forecast begins at modeled foot contact, not current carried-ball position');
+   assert.equal(h.app.drawnBall.owner,m.ball.owner);
+   const crossing=expected.crossing,unit=1100/width;
+   if(crossing){
+    const at=h.app.camera.project(crossing.x,crossing.y,crossing.z*RULES.heightScale+RULES.radius);
+    if(at.x>20*unit&&at.x<1100-20*unit&&at.y>85*unit&&at.y<596*unit-35*unit){
+     assert.ok(h.draws.some(d=>d.method==='arc'&&Math.abs(d.args[0]-at.x)<1e-7&&Math.abs(d.args[1]-at.y)<1e-7&&Math.abs(d.args[2]-5*unit)<1e-7),'goal-plane marker is drawn at the physical forecast crossing');
+     visibleCrossings++;
+    }
+   }
+  }
+  c.handlers.pointerup(pointerEvent(h,b.x,b.y));advanceToContact(m);h.draws.length=0;h.app.render();
+  assert.equal(h.app.drawnBall.owner,null);
+  assert.ok(!h.draws.some(d=>d.method==='setLineDash'&&Math.abs(d.args[0][0]-5*1100/width)<1e-7),'no stale forecast artwork after kick contact');
+ }
+ assert.ok(visibleCrossings>0);
+});
+test('rings selection and edge indicators use one rendered snapshot through ordinary pass reception',()=>{
+ let totalEdges=0;
+ for(const local of [false,true])for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();h.tick(100);
+  h.window.handlers.keydown(keyEvent(local?'f':'e'));const m=h.app.match;
+  let edges=0;
+  for(let frame=1;frame<=hz*.5;frame++){
+   h.tick(100+frame*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;
+   const s=h.app.drawnIndicatorShot;
+   assert.equal(s.ball.owner,m.ball.owner);assert.equal(s.active,m.active);assert.equal(s.activeAway,m.activeAway);
+   for(const p of s.players){
+    assert.deepEqual(h.app.drawnPlayers.get(p.id),p);
+    const marker=h.app.drawnMarkers.get(p.id);
+    assert.equal(marker.ownsBall,p.id===m.ball.owner);assert.equal(marker.selected,p.id===m.active||local&&p.id===m.activeAway);
+   }
+   for(const arrow of h.app.controlledIndicators(s)){
+    const p=h.app.drawnPlayers.get(arrow.id),at=h.app.camera.project(p.x,p.y,28);
+    assert.ok(Math.abs(arrow.target.x-at.x*width/1100)<1e-7);assert.ok(Math.abs(arrow.target.y-at.y*width/1100)<1e-7);edges++;
+   }
+  }
+  totalEdges+=edges;
+ }
+ assert.ok(totalEdges>0,'ordinary local handoff must exercise real off-screen indicators');
+});
+test('blur pointer cancellation and lost capture discard stale input and permit a fresh pass',()=>{
+ for(const hz of [60,120])for(const width of [333,887])for(const reason of ['blur','pointercancel','lostpointercapture']){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));while(frame<hz&&m.owner?.id!==6)tick();
+  const p=m.owner,r=m.bestPass(p),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  const down=pointerEvent(h,a.x,a.y),move=pointerEvent(h,b.x,b.y);
+  c.handlers.pointerdown(down);c.handlers.pointermove(move);for(let i=0;i<5;i++)tick();
+  const count=m.passes[0];
+  if(reason==='blur'){h.window.handlers.keydown(keyEvent('w'));h.window.handlers.blur();assert.equal(m.phase,'paused');}
+  else if(reason==='pointercancel')c.handlers.pointercancel(move);
+  else{c.releasePointerCapture(move.pointerId);c.handlers.lostpointercapture(move);}
+  assert.equal(h.app.drag,null);assert.equal(c.capture,null);c.handlers.pointerup(move);
+  assert.equal(m.pendingKick,null);assert.equal(m.passes[0],count);
+  if(reason==='blur'){h.click('resumePause');assert.equal(h.document.activeElement,c);}
+  assert.deepEqual(h.app.input(),{dx:0,dy:0});
+  const p2=m.owner,r2=m.bestPass(p2),start=h.app.camera.project(p2.x,p2.y),end=h.app.camera.project(r2.x,r2.y);
+  c.handlers.pointerdown(pointerEvent(h,start.x,start.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));c.handlers.pointerup(pointerEvent(h,end.x,end.y));
+  assert.equal(m.pendingKick.target.receiverId,r2.id);advanceToContact(m);assert.equal(m.passes[0],count+1);
+ }
+ for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('multi');h.click('startLocal');h.flush();h.tick(100);
+  h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('arrowleft'));h.tick(100+1000/hz);
+  h.window.handlers.blur();assert.equal(h.app.match.phase,'paused');h.click('resumePause');
+  assert.equal(h.document.activeElement,c);assert.deepEqual(h.app.input(),{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  h.window.handlers.keydown({...keyEvent('f'),target:h.document.activeElement});
+  assert.ok(h.app.match.pendingKick);advanceToContact(h.app.match);assert.equal(h.app.match.passes[0],1);
  }
 });

@@ -3295,26 +3295,29 @@ function render(dt=0){
   field();if(!shot)return;
   if(match?.phase==='playing')shot=liveRenderSample(shot);
   aimPanelRects=[];
-  const forecast=shotForecast();let aimHUD=keyboardPenaltyAim&&match.owner?{player:match.owner,intent:keyboardPenaltyAim}:null;
+  // Aim decoration follows the same displayed entities as markers. Intent and
+  // shot forecasts still use current simulation positions for an honest release.
+  const paintedPlayer=id=>shot.players.find(p=>p.id===id)||match.players[id];
+  const forecast=shotForecast();let aimHUD=keyboardPenaltyAim&&match.owner?{player:paintedPlayer(match.owner.id),intent:keyboardPenaltyAim}:null;
   if(match?.phase==='restart'){
     if(match.restart.reason&&match.lastFoul)groundArc(match.lastFoul.x,match.lastFoul.y,14,0,Math.PI*2,'#ffce64');
     if(match.restart.offside)groundArc(match.restart.offside.x,match.restart.offside.y,12,0,Math.PI*2,'#ffce64');
     positionRestartNotice();
   }
   if(drag?.armed&&match?.phase==='playing'){
-    const p=match.players[drag.player],intent=pointerAim(drag),owned=match.ball.owner===p.id;
+    const p=match.players[drag.player],painted=paintedPlayer(p.id),intent=pointerAim(drag),owned=match.ball.owner===p.id;
     if(intent.len>6){
-      const end=owned?intent.target:{x:p.x+drag.dx,y:p.y+drag.dy};
+      const end=owned?(Number.isInteger(intent.target.receiverId)?paintedPlayer(intent.target.receiverId):intent.target):{x:painted.x+drag.dx,y:painted.y+drag.dy};
       if(!owned||!intent.shot){
-        groundPath([[p.x,p.y],[end.x,end.y]],null,'#30efff',1.4);
+        groundPath([[painted.x,painted.y],[end.x,end.y]],null,'#30efff',1.4);
         const target=camera.project(end.x,end.y);
         ctx.strokeStyle='#a4ffff';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(target.x,target.y,7*target.scale,4*target.scale,0,0,Math.PI*2);ctx.stroke();
       }
-      if(owned)aimHUD={player:p,intent};
+      if(owned)aimHUD={player:painted,intent};
     }
   }
   if(!drag&&match?.phase==='playing'&&match.pendingKick&&!match.pendingKick.shot){
-    const k=match.pendingKick,p=match.players[k.player],r=match.players[k.target.receiverId];
+    const k=match.pendingKick,p=paintedPlayer(k.player),r=paintedPlayer(k.target.receiverId);
     const target=r?{...k.target,x:r.x,y:r.y}:k.target;
     aimHUD={player:p,intent:{target,power:k.power,shot:false}};
     ctx.save();ctx.globalAlpha=.7;
