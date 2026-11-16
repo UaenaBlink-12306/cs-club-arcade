@@ -3449,7 +3449,8 @@ test('kickoff cue is visible only while awaiting contact and uses the correct te
   h.window.handlers.keydown(keyEvent(local?'f':'e'));h.app.syncMatch();assert.equal(cue.textContent,'Kicking off…');
   advanceToContact(m);h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));
   m.phase='half';h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));h.click('resume');
-  assert.ok(!cue.classList.contains('hidden'));assert.ok(cue.textContent.includes(local?'P2: K pass / L shoot':'Opposition kick-off'));
+  if(local){assert.ok(!cue.classList.contains('hidden'));assert.ok(cue.textContent.includes('P2: K pass / L shoot'));}
+  else{assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');}
  }
  assert.ok(/id="kickoffCue"[^>]*role="status"/.test(html));
 });
@@ -3658,4 +3659,86 @@ test('edge obstacles convert actual HUD rectangles and exclude hidden overlays w
  h.elements.get('shootoutInfo').classList.remove('hidden');blocks=h.app.controlEdgeObstacles();assert.ok(blocks.some(r=>r.left===260&&r.top===54));
  const before=JSON.stringify(m.snapshot());h.app.controlledIndicators(m.snapshot());assert.equal(JSON.stringify(m.snapshot()),before);
  h.chooseMode('menu');assert.equal(h.elements.get('controlledLocation').textContent,'');
+});
+
+function installCueRestart(h,type,team=0,period=1){
+ const m=h.app.match;m.period=period;m.kickoff(team);
+ if(type==='Kick-off'){h.app.syncMatch();return m;}
+ const goal=m.goalX(team),own=m.ownGoalX(team),d=m.direction(team);
+ const x=type==='Goal Kick'?own:type==='Corner Kick'?goal:550;
+ m.phase='restart';m.restart={type,team,x,y:type==='Throw-in'||type==='Corner Kick'?FIELD.top:FIELD.cy};
+ h.app.syncMatch();assert.ok(h.elements.get('kickoffCue').classList.contains('hidden'));h.click('takeCorner');return m;
+}
+test('visible restart cue names every human-owned restart and the correct local or solo action in both halves',()=>{
+ const types=['Kick-off','Direct Free Kick','Indirect Free Kick','Corner Kick','Throw-in','Goal Kick','Penalty Kick'];
+ for(const mode of ['practice','local'])for(const team of [0,1])for(const period of [1,2])for(const type of types){
+  const h=uiHarness(html);if(mode==='local'){h.chooseMode('multi');h.click('startLocal');}else h.chooseMode('practice');h.flush();
+  const m=installCueRestart(h,type,team,period),cue=h.elements.get('kickoffCue'),before=JSON.stringify(m.snapshot());
+  if(mode!=='local'&&team===1){assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');continue;}
+  assert.ok(!cue.classList.contains('hidden'),mode+' '+team+' '+type);
+  assert.ok(cue.textContent.startsWith(type.toUpperCase()+' · '));
+  if(mode==='local'){
+   assert.ok(cue.textContent.includes('P'+(team+1)+': '));
+   assert.ok(!cue.textContent.includes('P'+(2-team)+': '));
+   assert.ok(cue.textContent.includes(type==='Penalty Kick'?(team===0?'G shoot':'L shoot'):type==='Throw-in'?(team===0?'F throw':'K throw'):(team===0?'F pass / G':'K pass / L')));
+   assert.ok(!/drag|release|Space/.test(cue.textContent));
+  }else{
+   assert.ok(cue.textContent.includes('release'));
+   assert.ok(cue.textContent.includes(type==='Penalty Kick'?'Space shoot':type==='Throw-in'?'E throw':'E pass / Space'));
+  }
+  if(type==='Throw-in')assert.ok(!/shoot|Space|G |L /.test(cue.textContent));
+  if(type==='Indirect Free Kick')assert.ok(cue.textContent.includes('Another touch needed'));
+  for(let n=0;n<5;n++)h.app.syncMatch();
+  assert.equal(JSON.stringify(m.snapshot()),before,'cue must not move the ball or mutate players');
+  h.window.handlers.keydown(keyEvent(type==='Penalty Kick'?(mode==='local'?(team===0?'g':'l'):' '):(mode==='local'?(team===0?'f':'k'):'e')));
+  assert.ok(m.pendingKick,mode+' '+type+' action accepted');h.app.syncMatch();
+  assert.ok(!cue.classList.contains('hidden'));assert.ok(/Kicking off|Taking kick|Throwing/.test(cue.textContent));
+  advanceToContact(m);h.app.syncMatch();assert.equal(m.setPiece,null);
+  assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');
+  assert.equal(m.ball.lastTouch,team);
+ }
+});
+test('restart cues persist while waiting, restore after pause and clear for overlays and shootouts',()=>{
+ for(const type of ['Direct Free Kick','Indirect Free Kick','Corner Kick','Throw-in','Goal Kick','Penalty Kick']){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=installCueRestart(h,type),cue=h.elements.get('kickoffCue');
+  const text=cue.textContent,owner=m.ball.owner;
+  for(let n=0;n<90;n++){m.step(1/60,{dx:0,dy:0});h.app.syncMatch();}
+  assert.equal(cue.textContent,text);assert.equal(m.ball.owner,owner);assert.equal(m.setPiece,type);
+  h.click('menuBtn');assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');
+  h.click('resumePause');assert.ok(!cue.classList.contains('hidden'));assert.equal(cue.textContent,text);
+  m.phase='half';h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');
+  m.phase='full';h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));
+  h.chooseMode('menu');assert.equal(cue.textContent,'');
+  h.chooseMode('shootout');h.flush();assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');
+  assert.ok(!h.elements.get('shootoutInfo').classList.contains('hidden'));
+ }
+ const h=localHarness(),m=h.app.match;installCueRestart(h,'Direct Free Kick');
+ m.scorer=0;m.phase='goal';h.app.syncMatch();assert.ok(h.elements.get('kickoffCue').classList.contains('hidden'));
+ m.phase='replay';h.app.syncMatch();assert.ok(h.elements.get('kickoffCue').classList.contains('hidden'));
+});
+test('real pointer restart release clears visible guidance only when the ball leaves the taker',()=>{
+ for(const type of ['Direct Free Kick','Indirect Free Kick','Corner Kick','Throw-in','Goal Kick','Penalty Kick'])for(const width of [1180,500]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+  h.chooseMode('practice');h.flush();const m=installCueRestart(h,type),cue=h.elements.get('kickoffCue'),owner=m.owner;
+  const target=type==='Penalty Kick'?{x:m.goalX(0),y:FIELD.cy}:m.bestPass(owner);
+  const a=h.app.camera.project(owner.x,owner.y),b=h.app.camera.project(target.x,target.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));h.app.syncMatch();
+  assert.ok(!cue.classList.contains('hidden'));assert.equal(m.ball.owner,owner.id);assert.equal(m.pendingKick,null);
+  c.handlers.pointerup(pointerEvent(h,b.x,b.y));assert.ok(m.pendingKick,type+' pointer release');
+  h.app.syncMatch();assert.ok(!cue.classList.contains('hidden'));advanceToContact(m);h.app.syncMatch();
+  assert.ok(cue.classList.contains('hidden'));assert.equal(cue.textContent,'');assert.equal(m.ball.owner,null);
+ }
+});
+test('visible restart cue remains an edge-indicator obstacle and never changes legal restart ownership',()=>{
+ for(const width of [1180,500,320]){
+  const h=localHarness(),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:20,top:10,width,height:757});
+  const m=installCueRestart(h,'Direct Free Kick',1),cue=h.elements.get('kickoffCue'),owner=m.owner.id;
+  cue.getBoundingClientRect=()=>({left:36,top:655,right:width+4,bottom:751,width:width-32,height:96});
+  const obstacles=h.app.controlEdgeObstacles(),block=obstacles.find(r=>r.left===16&&r.top===645);
+  assert.ok(block);const indicator=h.app.edgePointer({x:width/2,y:900},width,757,obstacles);assert.ok(indicator);
+  assert.ok(indicator.rect.bottom<=block.top||indicator.rect.left>=block.right||indicator.rect.right<=block.left);
+  h.window.handlers.keydown(keyEvent('f'));assert.equal(m.pendingKick,null);assert.equal(m.owner.id,owner);
+  assert.ok(cue.textContent.includes('P2: K pass / L shoot'));
+  h.click('menuBtn');assert.ok(!h.app.controlEdgeObstacles().some(r=>r.left===16&&r.top===645));
+ }
 });

@@ -233,3 +233,12 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - A framed YOU edge arrow (cyan), or local P1/P2 arrows (cyan/orange), locates an off-screen controlled player. Its arrow points toward the projected selection marker after placement avoids the scoreboard, pause control, hints, shootout panel, goal-aim markers and other active aim labels. Two local cues avoid each other. When no unobstructed edge location exists, the cue is suppressed rather than covering controls.
 - Edge indicators are limited to live controllable play, disappear when the selection is on-screen, and are hidden under pause, restart cards, goals/replay, halftime and results. A polite text status reports off-screen direction without announcing continuously changing coordinates.
 - Tests cover palette/mesh/HUD consistency, halftime/restart stability, edge geometry at desktop/portrait/short widths, overlay avoidance, local ownership and non-mutation of match state. Engine, camera, on-screen selection markers and possession rings are unchanged. These are simulation/DOM/canvas-harness checks; no real-browser rendering, screen-reader or physical-device verification was available.
+
+
+### Visible stationary-restart guidance
+
+- The existing bottom contextual cue now covers human-owned kickoffs, direct/indirect free kicks, corners, throw-ins, goal kicks and normal match penalties. It names the restart and shows solo drag/release plus keyboard controls, or the correct local P1/P2 keys.
+- Throw-ins advertise an inward throw and E/F/K, rather than a shot. Penalties advertise Space/G/L shooting. Indirect free kicks retain the reminder that another touch is needed.
+- Guidance remains visible while waiting and through the kick/throw wind-up, then clears at contact. It hides for AI-owned restarts, restart setup cards, pause, goals/replay, halftime and results. Shootouts retain their separate guidance panel.
+- The cue uses the existing unobtrusive placement and remains an obstacle for off-screen player indicators. No restart physics, rules, input handling, ownership or tournament behavior changed.
+- Regression coverage exercises all seven restart types, both local owners and halves, solo human/AI ownership, keyboard release, mouse-event release at desktop/portrait dimensions, waiting, pause/resume, overlay suppression and edge-indicator avoidance. These are event/simulation/DOM-harness checks; no live browser or physical touch verification was available.

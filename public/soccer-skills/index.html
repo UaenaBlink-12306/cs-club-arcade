@@ -1958,7 +1958,7 @@ function show(id){
   $('#hint').classList.toggle('hidden',id!=='match');
   $('#attackDirection').classList.toggle('hidden',id==='replay');
   if(id!=='match'){cancelDrag();keys.clear();}
-  if(id!=='match'){$('#kickoffCue').classList.add('hidden');$('#shootoutInfo').classList.add('hidden');$('#controlledLocation').textContent='';}
+  if(id!=='match'){$('#kickoffCue').classList.add('hidden');$('#kickoffCue').textContent='';$('#shootoutInfo').classList.add('hidden');$('#controlledLocation').textContent='';}
 }
 function toast(message){
   const routine=/^(?:Player 2: )?(?:Pass!|Shot!)$/.test(message);
@@ -2029,15 +2029,29 @@ function shootoutLedger(p){
     return '<div class="kick-row"><b>'+n.code+'</b><span class="kick-dots" role="group" aria-label="'+n.name+' kicks '+(first+1)+' to '+(first+5)+'">'+dots+'</span><strong>'+p.score[team]+'</strong></div>';
   }).join('');
 }
-function updateContextCues(){
-  const live=view==='match',p=match?.penalties,cue=$('#kickoffCue');
-  const kickoff=live&&match?.phase==='playing'&&match.setPiece==='Kick-off';
-  cue.classList.toggle('hidden',!kickoff);
-  if(kickoff){
-    const text=match.pendingKick?'Kicking off…':mode==='local'?'KICK-OFF · P'+(match.owner.team+1)+': '+(match.owner.team===0?'F pass / G shoot':'K pass / L shoot'):
-      match.owner.team===0?'KICK-OFF · Hold + drag, then release to pass':'Opposition kick-off · Get ready to defend';
-    if(cue.textContent!==text)cue.textContent=text;
+function stationaryRestartCue(){
+  // Shootouts have their own taking/keeping panel. This cue only explains a
+  // stationary restart that a human owns; no input or match state is changed.
+  if(view!=='match'||match?.phase!=='playing'||match.penalties||!match.owner)return '';
+  const type=match.setPiece,team=match.owner.team;
+  if(mode!=='local'&&team!==0)return '';
+  if(!['Kick-off','Direct Free Kick','Indirect Free Kick','Corner Kick','Throw-in','Goal Kick','Penalty Kick'].includes(type))return '';
+  if(match.pendingKick)return type==='Kick-off'?'Kicking off…':type.toUpperCase()+' · '+(type==='Throw-in'?'Throwing…':'Taking kick…');
+  const title=type.toUpperCase()+' · ';
+  if(mode==='local'){
+    const pass=team===0?'F':'K',shoot=team===0?'G':'L',owner='P'+(team+1)+': ';
+    if(type==='Throw-in')return title+owner+pass+' throw into the pitch';
+    if(type==='Penalty Kick')return title+owner+shoot+' shoot';
+    return title+owner+pass+' pass / '+shoot+(type==='Kick-off'||type==='Direct Free Kick'?' shoot':' kick')+(type==='Indirect Free Kick'?' · Another touch needed':'');
   }
+  if(type==='Throw-in')return title+'Aim into the pitch + release · E throw';
+  if(type==='Penalty Kick')return title+'Aim toward goal + release · Space shoot';
+  return title+'Hold + drag, then release'+(type==='Kick-off'?' to pass':'')+' · E pass / Space '+(type==='Direct Free Kick'?'shoot':'kick')+(type==='Indirect Free Kick'?' · Another touch needed':'');
+}
+function updateContextCues(){
+  const live=view==='match',p=match?.penalties,cue=$('#kickoffCue'),text=stationaryRestartCue();
+  cue.classList.toggle('hidden',!text);
+  if(cue.textContent!==text)cue.textContent=text;
   $('#shootoutInfo').classList.toggle('hidden',!live||!p);
   if(!p||!['match','penalties'].includes(view))return;
   const result=match.phase==='shootoutResult',entry=p.history.at(-1),team=result?entry.team:p.turn;
