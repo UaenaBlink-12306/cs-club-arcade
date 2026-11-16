@@ -300,3 +300,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Local help names each player's auto-pass, central goal-shot and defender-switch keys. Shootout aim instructions remain separate because keyboard arrows/WASD actually adjust the penalty target.
 - Routine Pass!/Shot! feedback remains concise. No ownership, receiver selection, pointer recovery, engine, camera or physics changes.
 - Regression coverage includes the E/W/Tab investigation, keeper kicks for both teams/halves, opponent-possession switching, updated visible/accessible instructions and pause/resume at 333×505 and desktop harness dimensions. Narrow layout checks assert wrapping and the existing scrollable pause container; native-browser wrapping/scroll reachability and physical-device play are not verified by this harness.
+
+
+### Readable restart announcements
+
+- Restart announcements use a definite card width (up to 420 CSS pixels, with 12-pixel viewport margins), instead of an auto-width box anchored near the touchline. The card stays centred in the area below the measured HUD and scrolls internally if text exceeds available height.
+- Continue / Set Up is now a visible, keyboard-accessible action rather than screen-reader-only until focus. It invokes the existing setup handler; the existing automatic setup countdown remains unchanged.
+- Shared styling covers throw-ins, corners, goal kicks, direct/indirect free kicks, offside and penalties. No camera, ownership, restart placement, timing, input, engine or physics changes.
+- Regression checks cover 333×505, 400×606, desktop and short landscape CSS geometry contracts, varying HUD heights, both owners in solo/local modes, every restart type, visible action labels and automatic/manual setup transitions. Native browser glyph wrapping, clipping and physical-device play remain for independent verification.

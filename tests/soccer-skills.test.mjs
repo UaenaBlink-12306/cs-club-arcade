@@ -4249,3 +4249,49 @@ test('local help describes both auto-pass goal-shot and defensive-switch key set
   assert.ok(!h.elements.get('coreControls').innerHTML.includes('After a kick'));
  }
 });
+
+test('restart announcement has a definite readable width and visible action below the measured HUD',()=>{
+ const card=html.match(/#corner \.card\{([^}]+)\}/)[1],panel=html.match(/#corner\{([^}]+)\}/)[1];
+ assert.ok(card.includes('width:min(420px,100%)'));assert.ok(card.includes('max-height:100%'));
+ assert.ok(card.includes('overflow-y:auto'));assert.ok(card.includes('transform:none'));assert.ok(card.includes('pointer-events:auto'));
+ assert.ok(panel.includes('left:12px;right:12px'));assert.ok(panel.includes('bottom:max(12px,env(safe-area-inset-bottom))'));
+ assert.ok(/<button class="primary" id="takeCorner">/.test(html),'action is visible without keyboard focus');
+ assert.ok(!html.includes("notice.style.left=clamp"),'restart position cannot shrink the card near the touchline');
+ for(const [width,height] of [[333,505],[400,606],[1180,757],[757,333]]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:20,top:30,width,height});
+  h.chooseMode('practice');h.flush();const m=h.app.match;
+  m.phase='restart';m.restart={type:'Throw-in',team:1,x:550,y:FIELD.top};h.app.syncMatch();
+  for(const hudHeight of [38,82]){
+   h.elements.get('hud').getBoundingClientRect=()=>({left:28,top:38,right:width+12,bottom:38+hudHeight,width:width-16,height:hudHeight});
+   const before=JSON.stringify(m.snapshot());h.app.render(0);
+   const top=Number.parseFloat(h.elements.get('corner').style.top);
+   assert.equal(top,Math.max(64,8+hudHeight+12));assert.equal(JSON.stringify(m.snapshot()),before);
+   // Explicit CSS box geometry, not browser font/layout measurement.
+   const availableWidth=width-24,cardWidth=Math.min(420,availableWidth),left=(width-cardWidth)/2;
+   assert.ok(cardWidth>=309);assert.ok(left>=12);assert.ok(left+cardWidth<=width-12);
+   assert.ok(height-12-top>=200,'scrolling card area remains usable in short landscape');
+  }
+  assert.ok(h.elements.get('restartHelp').textContent.includes('The opposition takes the restart.'));
+  assert.equal(h.elements.get('takeCorner').textContent,'CONTINUE');
+ }
+});
+test('shared restart presentation preserves every owner action and automatic setup countdown',()=>{
+ for(const local of [false,true])for(const team of [0,1])for(const type of ['Throw-in','Corner Kick','Goal Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:333,height:505});
+  h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();const m=h.app.match;
+  const reason=type==='Direct Free Kick'||type==='Penalty Kick'?'Challenge from behind':null;
+  m.phase='restart';m.restart={type,team,x:type==='Goal Kick'?m.ownGoalX(team):type==='Corner Kick'?m.goalX(team):550,
+   y:['Throw-in','Corner Kick'].includes(type)?FIELD.top:FIELD.cy,...(reason?{reason}:{} )};
+  h.app.syncMatch();h.app.render(0);
+  assert.equal(h.app.view,'corner');assert.equal(h.elements.get('restartType').textContent,type);
+  assert.equal(h.elements.get('takeCorner').textContent,local||team===0?'SET UP '+type.toUpperCase():'CONTINUE');
+  const expected=m.restart;h.tick(100);h.tick(200);assert.equal(m.phase,'restart');assert.equal(m.restart,expected);
+  for(let time=300;time<=1500;time+=100)h.tick(time);
+  assert.equal(m.phase,'playing');assert.equal(m.setPiece,type);assert.equal(m.owner.team,team);
+  assert.ok(h.elements.get('corner').classList.contains('hidden'));
+ }
+ // Clicking the visible action remains the same optional early setup.
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ m.phase='restart';m.restart={type:'Throw-in',team:1,x:550,y:FIELD.top};h.app.syncMatch();h.click('takeCorner');
+ assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Throw-in');assert.equal(m.owner.team,1);
+});
