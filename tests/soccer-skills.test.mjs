@@ -3899,7 +3899,7 @@ test('shootout aim feedback avoids the measured progress panel at narrow portrai
  }
 });
 test('compact shootout progress retains role countdown and both complete five-attempt histories',()=>{
- const css=html.slice(html.indexOf('/* Short portrait shootout progress'),html.indexOf('</style>'));
+ const css=html.slice(html.indexOf('/* Short portrait shootout progress'),html.indexOf('/* Shared halftime/result score band'));
  assert.ok(/@media\(max-width:420px\) and \(max-height:640px\) and \(orientation:portrait\)/.test(css));
  assert.ok(/#shootoutLiveHistory\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/.test(css));
  assert.ok(!/display:none|visibility:hidden/.test(css));
@@ -4061,4 +4061,82 @@ test('intentional keyboard navigation and button activation stay available in me
  assert.equal(h.document.activeElement,h.elements.get('continueCup'));
  focusKey(h,' ');assert.equal(h.app.view,'menu');
  h.elements.get('chooseCountry').focus();const menuTab=focusKey(h,'Tab','next');assert.ok(!menuTab.prevented);assert.equal(h.document.activeElement,h.elements.get('next'));
+});
+
+function winCupForCelebration(h,scores=[[3,2],[2,0],[2,0]]){
+ for(let stage=0;stage<3;stage++){
+  h.click('startMatch');h.flush();const m=h.app.match;
+  assert.equal(h.app.round,stage);m.score=scores[stage].slice();m.finish();h.app.syncMatch();
+  if(stage===2)h.elements.get('cupContent').scrollTop=2400;
+  h.click('continueCup');
+ }
+}
+test('winning the cup opens on its trophy and actual final summary before the retained roster and bracket',()=>{
+ for(const [width,height] of [[333,505],[400,606],[1180,757],[757,360]])for(const country of ['UZB','USA']){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  const index=NATIONS.findIndex(n=>n.code===country);for(let i=0;i<index;i++)h.click('next');
+  h.chooseMode('cup');assert.ok(h.elements.get('cupCelebration').classList.contains('hidden'));
+  assert.ok(!h.elements.get('trophy').classList.contains('cup-won'));
+  winCupForCelebration(h);
+  assert.equal(h.app.view,'trophy');assert.ok(h.app.champion);assert.equal(h.app.round,2);
+  assert.ok(h.elements.get('trophy').classList.contains('cup-won'));
+  assert.ok(!h.elements.get('cupCelebration').classList.contains('hidden'));
+  assert.equal(h.elements.get('cupContent').scrollTop,0);
+  assert.equal(h.document.activeElement,h.elements.get('championTitle'));
+  assert.equal(h.elements.get('championTitle').textContent,NATIONS[index].flag+' '+NATIONS[index].name);
+  assert.equal(h.elements.get('championTitle').getAttribute('aria-label'),NATIONS[index].name+' — Cup champions');
+  const final=NATIONS[h.app.opponentFor(index,2)];
+  assert.equal(h.elements.get('championFinal').textContent,'FINAL · '+NATIONS[index].name+' 2 – 0 '+final.name);
+  assert.ok(h.elements.get('championPens').classList.contains('hidden'));
+  const cup=h.elements.get('championTrophy').innerHTML;
+  assert.ok(cup.includes('International Cup trophy'));assert.ok(cup.includes('id="championGold"'));
+  assert.ok(!cup.includes('id="cupGold"'));
+  assert.equal((h.elements.get('worldRoster').innerHTML.match(/data-country=/g)||[]).length,32);
+  assert.ok(h.elements.get('cupBracket').innerHTML.includes(country+' · CHAMPIONS'));
+  assert.equal((h.elements.get('cupBracket').innerHTML.match(/class="complete"/g)||[]).length,3);
+  assert.equal(h.elements.get('startMatch').textContent,'PLAY ANOTHER CUP');
+ }
+ const content=html.slice(html.indexOf('id="cupContent"'),html.indexOf('<section class="panel hidden" id="loading"'));
+ assert.ok(content.indexOf('id="cupCelebration"')<content.indexOf('class="tournament-overview"'));
+ assert.ok(content.indexOf('id="cupCelebration"')<content.indexOf('id="cupBracket"'));
+ assert.ok(/id="championTitle" tabindex="-1" aria-describedby="championFinal championPens"/.test(html));
+ const css=html.slice(html.indexOf('/* Winner-only first viewport'),html.indexOf('</style>'));
+ assert.ok(/#trophy\.cup-won \.cup-celebration\{min-height:100%;display:flex/.test(css));
+ assert.ok(css.includes('#trophy.cup-won .trophy-content{display:block}'));
+ assert.ok(css.includes('@media(max-height:560px) and (orientation:portrait)'));
+ assert.ok(css.includes('@media(max-height:460px) and (orientation:landscape)'));
+});
+test('playing another cup and changing teams clear winner presentation without changing ordinary progression',()=>{
+ for(const reset of ['another','team']){
+  const h=uiHarness(html);h.chooseMode('cup');
+  const originalRoster=h.elements.get('worldRoster').innerHTML,originalBracket=h.elements.get('cupBracket').innerHTML;
+  winCupForCelebration(h);h.elements.get('cupContent').scrollTop=1900;
+  if(reset==='another'){h.click('startMatch');h.flush();assert.equal(h.app.match.away.name,NATIONS[h.app.opponentFor(0,0)].name);assert.deepEqual(h.app.match.score,[0,0]);}
+  else{h.chooseMode('team');h.chooseMode('cup');}
+  assert.equal(h.app.round,0);assert.ok(!h.app.champion);
+  assert.ok(h.elements.get('cupCelebration').classList.contains('hidden'));
+  assert.ok(!h.elements.get('trophy').classList.contains('cup-won'));
+  assert.equal(h.elements.get('championTitle').textContent,'');assert.equal(h.elements.get('championFinal').textContent,'');
+  assert.equal(h.elements.get('championTrophy').innerHTML,'');
+  assert.equal(h.elements.get('trophyTitle').textContent,'International Cup');assert.equal(h.elements.get('startMatch').textContent,'START MATCH');
+  assert.equal(h.elements.get('worldRoster').innerHTML,originalRoster);
+  assert.equal(h.elements.get('cupBracket').innerHTML,originalBracket);
+  if(reset==='another'){
+   assert.equal(h.elements.get('cupContent').scrollTop,0);
+   h.app.match.score=[0,1];h.app.match.finish();h.app.syncMatch();h.click('continueCup');
+   assert.equal(h.app.view,'trophy');assert.ok(!h.app.champion);assert.ok(h.elements.get('cupCelebration').classList.contains('hidden'));
+  }
+ }
+});
+test('champion summary preserves a drawn final and its actual shootout winning score',()=>{
+ const h=uiHarness(html);h.chooseMode('cup');
+ for(let round=0;round<2;round++){h.click('startMatch');h.flush();h.app.match.score=[1,0];h.app.match.finish();h.app.syncMatch();h.click('continueCup');}
+ h.click('startMatch');h.flush();const m=h.app.match;m.score=[0,0];m.finish();h.app.syncMatch();
+ while(!m.penalties.done){playShootoutKick(m,m.penalties.turn===0?'goal':'save');h.app.syncMatch();h.click('nextPenalty');}
+ assert.equal(h.app.view,'full');h.click('continueCup');
+ assert.ok(h.app.champion);assert.ok(h.elements.get('championFinal').textContent.includes('0 – 0'));
+ assert.ok(!h.elements.get('championPens').classList.contains('hidden'));
+ assert.equal(h.elements.get('championPens').textContent,'Won on penalties · '+m.penalties.score.join(' – '));
+ assert.equal(h.elements.get('cupContent').scrollTop,0);
+ h.click('startMatch');h.flush();assert.equal(h.elements.get('championPens').textContent,'');assert.ok(h.elements.get('championPens').classList.contains('hidden'));
 });

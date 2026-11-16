@@ -282,3 +282,12 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - The pause button is disabled during goal/replay/restart phases where its action cannot pause. Normal keyboard navigation and button activation remain available in actual menus and overlays.
 - Focus-aware event regressions model the Tab/replay boundary, automatic completion and Skip, then verify kickoff pass/shot, movement and clock progress at 333×505 and desktop in solo/local play. Additional cases cover halftime, automatic restarts, shootout next kick, pause/resume of a between-kick menu, finished shootout results and intentional menu navigation.
 - The harness tracks the active element and explicitly models Tab/button default actions. It is not native-browser focus/AX verification or a physical-device test. Game engine, camera, rules, physics, shootout decisions and timing are unchanged.
+
+
+### Winner-first Cup presentation
+
+- Lift the Cup now opens a winner-only section before the roster: champion identity, the original gold trophy, and the actual final score/opponent. Finals won on penalties retain their drawn regulation score and show a separate penalty tally.
+- The tournament scroll area resets to its top and focuses the champion heading with the final summary attached accessibly. Existing Play Another Cup / Change Team actions remain outside the scroll area.
+- All 32 countries and the completed eight-team bracket remain below. The ordinary pre-match overview is unchanged; starting another Cup clears the display-only victory snapshot and restores quarterfinal presentation.
+- UI regressions cover winner entry, scroll/focus, full retained roster/bracket, long country names, regular and shootout finals, another-Cup and change-team reset at 333×505, 400×606, desktop and short landscape dimensions. Responsive checks assert DOM order and winner-only layout contracts; native-browser first-viewport fit remains for independent live QA.
+- Only presentation state retains a copy of the completed final before the match is released. Cup format, match engine, physics, controls and scoring rules are unchanged.
