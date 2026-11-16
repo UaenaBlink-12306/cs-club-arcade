@@ -37,6 +37,7 @@ function uiHarness(html){
     script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
+    flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
     chooseMode(mode){go.find(e=>e.dataset.go===mode).onclick();}};
 }
@@ -3741,4 +3742,42 @@ test('visible restart cue remains an edge-indicator obstacle and never changes l
   assert.ok(cue.textContent.includes('P2: K pass / L shoot'));
   h.click('menuBtn');assert.ok(!h.app.controlEdgeObstacles().some(r=>r.left===16&&r.top===645));
  }
+});
+
+test('local kickoff introductions identify resolved kits and marker colors after selection restart and rematch',()=>{
+ for(const [home,away] of [['FRA','CRO'],['FRA','JPN'],['ARG','URU']]){
+  const h=uiHarness(html);h.chooseMode('multi');
+  h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code===home))}});
+  h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code===away))}});
+  const check=()=>{
+   const m=h.app.match,kits=h.app.currentKits(),text=h.elements.get('toast').textContent;
+   assert.ok(h.elements.get('toast').classList.contains('toastOn'));
+   for(const team of [0,1]){
+    const kit=kits[team],nation=team===0?m.home:m.away,marker=team===0?'cyan':'orange';
+    assert.ok(text.includes('Player '+(team+1)+': '+nation.name+' — '+kit.name+(kit.alternate?' alternate':'')+' kit / '+marker+' marker.'));
+    assert.equal(h.elements.get(team===0?'homeKit':'awayKit').style.backgroundColor,kit.shirt);
+    assert.equal(h.elements.get(team===0?'localHomeMarker':'localAwayMarker').textContent,marker.toUpperCase()+' P'+(team+1)+' MARKER');
+    assert.equal(h.app.playerMarkers(m.snapshot().players[team*11+9],m.snapshot(),true).color,team===0?'#39e8e1':'#ffb84e');
+   }
+   if(home==='FRA'&&away==='CRO')assert.equal(text,'Player 1: France — navy blue kit / cyan marker. Player 2: Croatia — white kit / orange marker.');
+   if(home==='FRA'&&away==='JPN')assert.ok(text.includes('Player 2: Japan — white alternate kit / orange marker.'));
+  };
+  h.click('startLocal');h.flushUntilMatch();check();
+  h.click('menuBtn');h.click('restartMatch');h.flushUntilMatch();check();
+  h.app.match.finish();h.app.syncMatch();h.click('rematchLocal');h.flushUntilMatch();check();
+  h.chooseMode('menu');assert.equal(h.elements.get('toast').textContent,'');
+ }
+});
+test('cup introductions identify the selected kit for every country instead of assuming white',()=>{
+ for(let index=0;index<NATIONS.length;index++){
+  const h=uiHarness(html);for(let n=0;n<index;n++)h.click('next');h.chooseMode('cup');h.click('startMatch');h.flushUntilMatch();
+  const m=h.app.match,kit=h.app.currentKits()[0],text=h.elements.get('toast').textContent;
+  assert.ok(text.includes(m.home.name+' — '+kit.name+' kit / cyan marker.'));
+  assert.ok(text.includes('Attack the left goal!'));
+ }
+ assert.ok(!html.includes('Player 1: white / cyan.'));
+ assert.ok(!html.includes('Player 2: blue / orange.'));
+ assert.ok(!html.includes('You are white.'));
+ assert.ok(!html.includes('id="localHomeKit">WHITE KIT'));
+ assert.ok(!html.includes('id="localAwayKit">BLUE KIT'));
 });

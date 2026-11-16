@@ -242,3 +242,10 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Guidance remains visible while waiting and through the kick/throw wind-up, then clears at contact. It hides for AI-owned restarts, restart setup cards, pause, goals/replay, halftime and results. Shootouts retain their separate guidance panel.
 - The cue uses the existing unobtrusive placement and remains an obstacle for off-screen player indicators. No restart physics, rules, input handling, ownership or tournament behavior changed.
 - Regression coverage exercises all seven restart types, both local owners and halves, solo human/AI ownership, keyboard release, mouse-event release at desktop/portrait dimensions, waiting, pause/resume, overlay suppression and edge-indicator avoidance. These are event/simulation/DOM-harness checks; no live browser or physical touch verification was available.
+
+
+### Kit-aware match introductions
+
+- Local kickoff/restart/rematch toasts use each nation's resolved outfield kit, including the alternate-kit designation, alongside its control-marker color. Marker color names and rendered colors share one definition with the local setup labels.
+- Cup introductions also identify the selected nation's actual kit rather than saying the player is white. Local setup HTML uses neutral placeholders before the resolved labels are populated.
+- Regression coverage captures the real loading-to-match toast before its timer expires for France/Croatia, clash-resolved France/Japan and Argentina/Uruguay, including restart and rematch. Cup introductions are checked for all 32 nations. No physics, camera, rules, controls, kit-resolution choices or tournament behavior changed.

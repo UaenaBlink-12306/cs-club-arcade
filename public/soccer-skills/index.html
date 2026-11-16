@@ -795,8 +795,8 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 
 <section class="panel hidden" id="local"><div class="card"><div class="pill">Same screen · Shared keyboard</div><h2>LOCAL TWO PLAYER</h2><p>Choose a team each. Two people, one keyboard. No online connection needed.</p>
 <div class="local-players">
-<div class="local-player p1"><h3>PLAYER 1 <small><span id="localHomeKit">WHITE KIT</span> · CYAN P1 MARKER</small></h3><div class="local-team-row"><button id="localHomePrev" aria-label="Previous player one team">‹</button><b id="localHome"></b><button id="localHomeNext" aria-label="Next player one team">›</button></div><label class="local-country-label" for="localHomeSelect">Player 1 country</label><select id="localHomeSelect"></select><small class="local-rating" id="localHomeRating"></small><p><kbd>W A S D</kbd> Move<br><kbd>F</kbd> Pass · <kbd>G</kbd> Shoot<br><kbd>Q</kbd> Switch defender</p></div>
-<div class="local-player p2"><h3>PLAYER 2 <small><span id="localAwayKit">BLUE KIT</span> · ORANGE P2 MARKER</small></h3><div class="local-team-row"><button id="localAwayPrev" aria-label="Previous player two team">‹</button><b id="localAway"></b><button id="localAwayNext" aria-label="Next player two team">›</button></div><label class="local-country-label" for="localAwaySelect">Player 2 country</label><select id="localAwaySelect"></select><small class="local-rating" id="localAwayRating"></small><p><kbd>↑ ← ↓ →</kbd> Move<br><kbd>K</kbd> Pass · <kbd>L</kbd> Shoot<br><kbd>O</kbd> Switch defender</p></div>
+<div class="local-player p1"><h3>PLAYER 1 <small><span id="localHomeKit">KIT</span> · <span id="localHomeMarker">P1 MARKER</span></small></h3><div class="local-team-row"><button id="localHomePrev" aria-label="Previous player one team">‹</button><b id="localHome"></b><button id="localHomeNext" aria-label="Next player one team">›</button></div><label class="local-country-label" for="localHomeSelect">Player 1 country</label><select id="localHomeSelect"></select><small class="local-rating" id="localHomeRating"></small><p><kbd>W A S D</kbd> Move<br><kbd>F</kbd> Pass · <kbd>G</kbd> Shoot<br><kbd>Q</kbd> Switch defender</p></div>
+<div class="local-player p2"><h3>PLAYER 2 <small><span id="localAwayKit">KIT</span> · <span id="localAwayMarker">P2 MARKER</span></small></h3><div class="local-team-row"><button id="localAwayPrev" aria-label="Previous player two team">‹</button><b id="localAway"></b><button id="localAwayNext" aria-label="Next player two team">›</button></div><label class="local-country-label" for="localAwaySelect">Player 2 country</label><select id="localAwaySelect"></select><small class="local-rating" id="localAwayRating"></small><p><kbd>↑ ← ↓ →</kbd> Move<br><kbd>K</kbd> Pass · <kbd>L</kbd> Shoot<br><kbd>O</kbd> Switch defender</p></div>
 </div><p class="local-note">Keyboard required. Movement follows the screen. Teammates support automatically; the ball carrier is yours to control. Switch to a defender near the ball. Escape pauses. Teams switch ends at halftime; a level final score is a draw.</p>
 <button class="primary" id="startLocal">START LOCAL MATCH</button><button data-go="menu">BACK</button></div></section>
 <section class="panel" id="menu"><div class="card"><div class="pill" id="modeText">INTERNATIONAL SOCCER</div><h2 class="selection-title">CHOOSE YOUR TEAM</h2><div class="teams"><button class="yellow" id="prev">‹ PREV</button><div class="teamBadge"><div class="flag" id="teamFlag">🇺🇿</div><div class="teamName" id="teamName">Uzbekistan</div></div><button class="yellow" id="next">NEXT ›</button></div><div class="carousel-tools"><span id="selectionPosition" aria-live="polite"></span><button id="chooseCountry" aria-expanded="false" aria-controls="countryChooser">CHOOSE COUNTRY</button></div><div id="countryChooser" class="hidden"><p class="roster-caption" id="rosterCaption">32 COUNTRIES · GAME RATINGS: ATT / MID / DEF · SCROLL TO EXPLORE</p><div class="nation-grid" id="nationGrid" role="group" aria-label="Choose from 32 countries" aria-describedby="rosterCaption"></div></div><div class="stats"><div class="stat"><span class="rating-label">ATTACK</span><div class="rating-track"><i id="atkBar"></i></div><b id="atk">74</b></div><div class="stat"><span class="rating-label">MIDFIELD</span><div class="rating-track"><i id="midBar"></i></div><b id="mid">71</b></div><div class="stat"><span class="rating-label">DEFENCE</span><div class="rating-track"><i id="defBar"></i></div><b id="def">68</b></div></div><div class="row selector-modes"><button data-go="practice">PRACTICE</button><button data-go="shootout">SHOOTOUT PRACTICE</button><button class="yellow" data-go="cup">PLAY CUP</button><button data-go="multi" title="Two players on one shared keyboard; no online play"><span>MULTIPLAYER</span><small class="mode-note">LOCAL · TWO PLAYERS</small></button></div></div></section>
@@ -1825,6 +1825,10 @@ let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=
 let shootoutPracticeRun=0;
 let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0,touchControls=false;
 // Original, unbranded palettes; these are not official kit reproductions.
+const CONTROL_MARKERS=Object.freeze([
+ Object.freeze({color:'#39e8e1',name:'cyan'}),
+ Object.freeze({color:'#ffb84e',name:'orange'})
+]);
 const KIT_PALETTES={
  white:{shirt:'#f4f7ed',shorts:'#243c5b',socks:'#f4f7ed',trim:'#b52638',name:'white'},
  navy:{shirt:'#183762',shorts:'#183762',socks:'#b52638',trim:'#f4f7ed',name:'navy blue'},
@@ -1866,6 +1870,11 @@ function matchKits(home,away){
  Object.freeze(kits);kitCache.set(key,kits);return kits;
 }
 function currentKits(){return matchKits(match?.home||NATIONS[selection],match?.away||NATIONS[mode==='local'?localAway:opponentFor(selection,round)]);}
+function kitDescription(kit){return kit.name+(kit.alternate?' alternate':'')+' kit';}
+function matchKitIntroduction(){
+ const kits=currentKits(),describe=team=>(team===0?match.home:match.away).name+' — '+kitDescription(kits[team])+' / '+CONTROL_MARKERS[team].name+' marker.';
+ return mode==='local'?'Player 1: '+describe(0)+' Player 2: '+describe(1):'You: '+describe(0);
+}
 function updateKitLegend(){
  const kits=currentKits();
  for(const [team,id] of [[0,'homeKit'],[1,'awayKit']]){
@@ -2098,7 +2107,7 @@ function startMatch(){
       resizeView();camera.ready=false;camera.update(match.snapshot(),0,false,true);
       lastEvent='';accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
       syncMatch();
-      toast(mode==='shootout'?'Shootout practice — your kick first':mode==='local'?'Player 1: white / cyan. Player 2: blue / orange.':mode==='practice'?'Untimed practice — pause to reset or finish':'You are white. Attack the '+(camera.portrait?'top':'left')+' goal!');
+      toast(mode==='shootout'?'Shootout practice — your kick first':mode==='local'?matchKitIntroduction():mode==='practice'?'Untimed practice — pause to reset or finish':matchKitIntroduction()+' Attack the '+(camera.portrait?'top':'left')+' goal!');
     }
   };loadTimer=setTimeout(advance,150);
 }
@@ -2402,7 +2411,8 @@ $('#next').onclick=()=>{selection=(selection+1)%NATIONS.length;round=0;champion=
 $('#startMatch').onclick=startMatch;
 function setLocalTeams(){
   const kits=matchKits(NATIONS[selection],NATIONS[localAway]);
-  $('#localHomeKit').textContent=kits[0].name.toUpperCase()+' KIT';$('#localAwayKit').textContent=kits[1].name.toUpperCase()+(kits[1].alternate?' ALTERNATE':'')+' KIT';
+  $('#localHomeKit').textContent=kitDescription(kits[0]).toUpperCase();$('#localAwayKit').textContent=kitDescription(kits[1]).toUpperCase();
+  $('#localHomeMarker').textContent=CONTROL_MARKERS[0].name.toUpperCase()+' P1 MARKER';$('#localAwayMarker').textContent=CONTROL_MARKERS[1].name.toUpperCase()+' P2 MARKER';
   $('#localHome').textContent=NATIONS[selection].flag+' '+NATIONS[selection].name;
   $('#localAway').textContent=NATIONS[localAway].flag+' '+NATIONS[localAway].name;
   for(const [side,index,other] of [['Home',selection,localAway],['Away',localAway,selection]]){
@@ -2761,7 +2771,7 @@ function playerMarkers(p,shot,local=false){
     selected:p.id===shot.active||(local&&p.id===shot.activeAway),
     ownsBall:p.id===shot.ball.owner,
     follow:shot.ball.owner!==p.id&&p.strikePhase==='follow'?clamp((1-p.strike)/.7,0,1):0,
-    color:local&&p.team===1?'#ffb84e':p.team===0?'#39e8e1':'#eef1dc'
+    color:local&&p.team===1?CONTROL_MARKERS[1].color:p.team===0?CONTROL_MARKERS[0].color:'#eef1dc'
   };
 }
 function drawPlayer(p,marker,ball){
