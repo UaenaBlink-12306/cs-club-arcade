@@ -791,7 +791,7 @@ test('half-time and full-time badges match teams and penalties occupy a separate
 });
 test('routine pass and shot messages use subtle feedback and other notices reset that style',()=>{
  const h=localHarness(),m=h.app.match;
- for(const event of ['Pass!','Shot!','Player 2: Pass!','Player 2: Shot!']){
+ for(const event of ['Pass!','Shot!','P1: Pass!','P1: Shot!','P2: Pass!','P2: Shot!']){
   m.event=event;h.app.syncMatch();
   assert.ok(h.elements.get('toast').classList.contains('routine'));
  }
@@ -4348,4 +4348,57 @@ test('HUD resize contracts swap codes and full names without altering play or in
    assert.equal(h.elements.get('resultAwayName').textContent,m.away.name);
   }
  }
+});
+
+test('local kick messages identify the actual kicker at contact and refresh separate identical actions',()=>{
+ for(const [width,height] of [[333,596],[887,597]])for(const team of [0,1])for(const shot of [false,true]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('multi');
+  h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='USA'))}});
+  h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='SUI'))}});
+  h.click('startLocal');h.flush();const m=h.app.match,toast=h.elements.get('toast'),key=team===0?(shot?'g':'f'):(shot?'l':'k');
+  for(let action=0;action<2;action++){
+   // Controlled possession fixture; kicks use the real keyboard, wind-up and release.
+   m.kickoff(team);h.app.syncMatch();h.flush();const p=m.owner,serial=m.feedbackSerial;
+   h.window.handlers.keydown(keyEvent(key));assert.equal(m.pendingKick.player,p.id);
+   h.app.syncMatch();assert.equal(m.feedbackSerial,serial,'no premature action feedback during wind-up');
+   advanceToContact(m);assert.equal(m.ball.owner,null);assert.ok(m.activeFor(team)!==p.id,'handoff happened before toast read');
+   assert.equal(m.event,'P'+(team+1)+': '+(shot?'Shot!':'Pass!'));
+   assert.equal(m.feedbackSerial,serial+1);h.app.syncMatch();
+   assert.equal(toast.textContent,m.event);assert.ok(toast.classList.contains('routine'));assert.ok(toast.classList.contains('toastOn'));
+   h.flush();assert.equal(toast.textContent,'');
+   for(let i=0;i<3;i++)h.app.syncMatch();
+   assert.equal(toast.textContent,'','ordinary render sync must not restart the expired toast');
+  }
+  h.click('menuBtn');h.click('restartMatch');h.flush();assert.equal(h.app.match.feedbackSerial,0);
+ }
+});
+test('local tackle and goalkeeper-save feedback names the winning actor while solo wording stays unchanged',()=>{
+ for(const mode of ['local','practice'])for(const team of [0,1]){
+  const h=uiHarness(html);h.chooseMode(mode==='local'?'multi':'practice');if(mode==='local')h.click('startLocal');h.flush();const m=h.app.match;
+  const victim=m.players[(1-team)*11+9],defender=m.players[team*11+9];
+  victim.x=550;victim.y=318;victim.angle=m.direction(victim.team)>0?0:Math.PI;
+  defender.x=550+m.direction(victim.team)*15;defender.y=318;m.giveBall(victim);
+  m.selectPlayer(team,defender.id);m.protection=0;m.random=()=>0;
+  m.step(1/60,mode==='local'?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0});
+  assert.equal(m.owner.id,defender.id);assert.equal(m.tackles,1);
+  assert.equal(m.event,mode==='local'?'P'+(team+1)+': Possession won':team===0?'Possession won':'Tackled — win it back');
+  h.app.syncMatch();assert.equal(h.elements.get('toast').textContent,m.event);
+  const keeper=m.players[team*11];keeper.x=m.ownGoalX(team)+m.direction(team)*18;keeper.y=FIELD.cy;
+  m.ball.owner=null;m.ball.lastTouch=1-team;m.ball.x=keeper.x;m.ball.y=keeper.y;m.ball.z=0;m.lastRestart=null;m.offside=null;
+  m.receiveBall(keeper);assert.equal(m.handOwner,keeper.id);assert.equal(m.saves[team],1);
+  assert.equal(m.event,mode==='local'?'P'+(team+1)+': Goalkeeper save':'Goalkeeper save');h.app.syncMatch();
+  assert.equal(h.elements.get('toast').textContent,m.event);
+  assert.ok(!h.elements.get('toast').classList.contains('routine'));
+ }
+});
+test('solo pass and shot wording and feedback durations remain unchanged with compact local labels',()=>{
+ for(const shot of [false,true]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+  h.window.handlers.keydown(keyEvent(shot?' ':'e'));advanceToContact(m);h.app.syncMatch();
+  assert.equal(m.event,shot?'Shot!':'Pass!');assert.equal(h.elements.get('toast').textContent,m.event);
+  assert.equal(m.feedbackSerial,0);
+ }
+ assert.ok(html.includes('routine?650:1600'),'same per-message durations');
+ assert.ok(/#bottomMessages>#toast,#bottomMessages>#kickoffCue\{[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/.test(html),'existing narrow wrapping retained');
 });

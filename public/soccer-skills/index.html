@@ -1001,7 +1001,7 @@ class SoccerMatch {
     this.home=home;this.away=away;this.mode=mode;this.seed=seed;
     this.score=[0,0];this.minute=0;this.period=1;this.elapsed=0;this.phase='playing';
     this.active=9;this.activeAway=20;this.players=[];this.history=[];this.replayFrames=[];this.replayTime=0;
-    this.recordAt=0;this.event='Kick off';this.restarts=0;this.tackles=0;this.fouls=[0,0];this.lastFoul=null;this.advantage=null;this.penaltyRun=null;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];this.interceptions=[0,0];
+    this.recordAt=0;this.event='Kick off';this.feedbackSerial=0;this.restarts=0;this.tackles=0;this.fouls=[0,0];this.lastFoul=null;this.advantage=null;this.penaltyRun=null;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];this.interceptions=[0,0];
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:0,lock:0};
     for(let team=0;team<2;team++) for(let slot=0;slot<11;slot++){
       this.players.push({id:team*11+slot,team,slot,keeper:slot===0,x:0,y:0,angle:0,speed:0,stride:0,cooldown:0,held:0,think:.1+slot*.03});
@@ -1013,6 +1013,11 @@ class SoccerMatch {
   direction(team){if(this.inShootout())return (this.penalties.goal===FIELD.right?1:-1)*(team===this.penalties.turn?1:-1);return (team===0?-1:1)*(this.period===1?1:-1);}
   goalX(team){return this.direction(team)>0?FIELD.right:FIELD.left;}
   ownGoalX(team){return this.direction(team)>0?FIELD.left:FIELD.right;}
+  actionFeedback(team,message){
+    // Use the actor's identity, not whichever player the HUD selects after contact.
+    this.event=this.mode==='local'?'P'+(team+1)+': '+message:message;
+    if(this.mode==='local')this.feedbackSerial++;
+  }
   activeFor(team){return team===0?this.active:this.activeAway;}
   selectPlayer(team,id){if(this.players[id]?.team!==team)return;if(team===0)this.active=id;else this.activeAway=id;}
   get owner(){return this.ball.owner===null?null:this.players[this.ball.owner];}
@@ -1235,7 +1240,7 @@ class SoccerMatch {
         p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(this.ball.y-p.y)*Math.cos(p.angle))/45,-1,1);
         p.saveAt=this.elapsed;
       }
-      this.saves[p.team]++;this.event='Goalkeeper save';
+      this.saves[p.team]++;this.actionFeedback(p.team,'Goalkeeper save');
     }
     this.giveBall(p);
     if(catches)this.handOwner=p.id;
@@ -1341,8 +1346,8 @@ class SoccerMatch {
     p.cooldown=.48;p.held=0;p.kickAt=this.elapsed;p.strikeId=action.id;p.throwAt=throwing?this.elapsed:-100;
     if(!this.inShootout()){if(shot&&!throwing)this.shots[p.team]++;else this.passes[p.team]++;}
     this.setPiece=null;
-    if(p.team===0){this.active=receiver?.team===0?receiver.id:this.nearest(0,target,p.id).id;this.event=shot?'Shot!':'Pass!';}
-    else if(this.mode==='local'){this.activeAway=receiver?.team===1?receiver.id:this.nearest(1,target,p.id).id;this.event='Player 2: '+(shot?'Shot!':'Pass!');}
+    if(p.team===0){this.active=receiver?.team===0?receiver.id:this.nearest(0,target,p.id).id;this.actionFeedback(p.team,shot?'Shot!':'Pass!');}
+    else if(this.mode==='local'){this.activeAway=receiver?.team===1?receiver.id:this.nearest(1,target,p.id).id;this.actionFeedback(p.team,shot?'Shot!':'Pass!');}
     if(this.inShootout()){
       this.penalties.stage='flight';this.penalties.releasedAt=this.elapsed;this.offside=null;
       this.active=this.penalties.turn===0?p.id:this.penalties.keeper;
@@ -1549,7 +1554,7 @@ class SoccerMatch {
           defender.cooldown=.6;defender.challengeUntil=this.elapsed+.6;defender.tackleAt=this.elapsed;
           if(this.random()<.8){
             if(this.advantage?.kind==='possession'&&defender.team!==this.advantage.team)return this.recallAdvantage();
-            owner.cooldown=.65;this.tackles++;this.giveBall(defender);this.event=defender.team===0?'Possession won':'Tackled — win it back';
+            owner.cooldown=.65;this.tackles++;this.giveBall(defender);this.actionFeedback(defender.team,this.mode==='local'||defender.team===0?'Possession won':'Tackled — win it back');
           }
         }
       }
@@ -1915,7 +1920,7 @@ const $=selector=>document.querySelector(selector);
 const panels=['menu','local','trophy','loading','replay','half','corner','full','pause','penalties'];
 let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0,introShot=null,restartCountdown=0;
 let shootoutPracticeRun=0,cupVictory=null;
-let lastFrame=0,accumulator=0,lastEvent='',toastTimer=0,touchControls=false;
+let lastFrame=0,accumulator=0,lastEvent='',lastFeedbackSerial=0,toastTimer=0,touchControls=false;
 // Original, unbranded palettes; these are not official kit reproductions.
 const CONTROL_MARKERS=Object.freeze([
  Object.freeze({color:'#39e8e1',name:'cyan'}),
@@ -2062,7 +2067,7 @@ function show(id){
   if(id!=='match'){$('#kickoffCue').classList.add('hidden');$('#kickoffCue').textContent='';$('#shootoutInfo').classList.add('hidden');$('#controlledLocation').textContent='';}
 }
 function toast(message){
-  const routine=/^(?:Player 2: )?(?:Pass!|Shot!)$/.test(message);
+  const routine=/^(?:P[12]: )?(?:Pass!|Shot!)$/.test(message);
   $('#toast').classList.toggle('routine',routine);
   $('#toast').textContent=message;$('#toast').classList.add('toastOn');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('#toast').classList.remove('toastOn');$('#toast').textContent='';},routine?650:1600);
@@ -2210,7 +2215,7 @@ function startMatch(){
       if(mode==='shootout'){match.period=2;match.minute=90;match.startShootout();}
       // Establish the live camera under the loading overlay before enabling input.
       resizeView();camera.ready=false;camera.update(match.snapshot(),0,false,true);
-      lastEvent='';accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
+      lastEvent='';lastFeedbackSerial=0;accumulator=0;show('match');updateHUD();canvas.focus({preventScroll:true});
       syncMatch();
       toast(mode==='shootout'?'Shootout practice — your kick first':mode==='local'?matchKitIntroduction():mode==='practice'?'Untimed practice — pause to reset or finish':matchKitIntroduction()+' Attack the '+(camera.portrait?'top':'left')+' goal!');
     }
@@ -2329,7 +2334,10 @@ function syncMatch(){
     'Advantage: the shot is allowed to finish. If no goal results, the original foul is awarded.';
   else if(match.phase==='playing'&&!restartLabel&&$('#matchStatus').textContent.startsWith('Advantage:'))$('#matchStatus').textContent='';
   updateContextCues();
-  if(match.event!==lastEvent){lastEvent=match.event;if(match.phase==='playing'&&lastEvent&&!match.penalties)toast(lastEvent);}
+  if(match.event!==lastEvent||(mode==='local'&&match.feedbackSerial!==lastFeedbackSerial)){
+    lastEvent=match.event;lastFeedbackSerial=match.feedbackSerial;
+    if(match.phase==='playing'&&lastEvent&&!match.penalties)toast(lastEvent);
+  }
 }
 function continueCup(){
   if(!match||match.phase!=='full')return;

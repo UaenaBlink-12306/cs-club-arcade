@@ -316,3 +316,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Full country-name text remains in the accessibility tree at narrow widths; the duplicate visual code is aria-hidden and has the full name as its tooltip. Kit swatches and their home/away, country and local P1/P2 descriptions remain intact.
 - CSS handles resize changes without match-state updates. Scores, clocks, pause clearance and halftime/result/champion names are unchanged.
 - Regression checks cover all 32 countries in practice, Cup, shootout practice and local modes; long-name and Norway cases across 333, 620, 621 and 887-pixel widths; score/time/kit consistency; and interval names. Visibility is checked through CSS contracts and UI-harness data, not native-browser font measurement or accessibility-tree inspection. Independent native visual verification remains necessary.
+
+
+### Local action feedback identity
+
+- Existing local pass/shot, successful-tackle and goalkeeper-save messages now name the acting player: P1 or P2. Identity comes from the kicker, tackler or saving keeper at the event, not the selected player or later possession state.
+- Solo wording is unchanged. Country-labelled goals, restart prompts and other rules notices keep their existing presentation; this does not add new interception effects.
+- A local feedback serial distinguishes separate identical actions so consecutive passes/shots can each display once. Ordinary frame sync does not revive an expired toast. Existing 650 ms routine kick and 1600 ms other-toast durations and the wrapping bottom-message layout remain unchanged.
+- Tests cover both local teams, contact versus wind-up, off-ball selection handoff, repeated actions, restart reset, successful tackles/saves, solo wording, and 333×596/desktop harness dimensions. A paired baseline/new simulation comparison also checks that sampled physics and match outcomes are identical. Native layout and real-input verification remain independent QA tasks.
