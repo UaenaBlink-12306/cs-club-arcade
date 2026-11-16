@@ -3361,3 +3361,118 @@ test('a live non-target teammate yields the addressed pass lane instead of runni
   assert.equal(m.owner?.id,r.id);assert.ok(q.y>333,'support run yields outside the lane');
  }
 });
+
+test('shootout practice is reachable from the menu without a regulation match or state injection',()=>{
+ for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?500:1180,height:757});
+  h.chooseMode('shootout');assert.equal(h.app.view,'loading');assert.ok(h.elements.get('loadText').textContent.includes('Shootout practice'));
+  h.flush();h.app.render(0);const m=h.app.match;
+  assert.equal(m.mode,'shootout');assert.equal(h.app.view,'match');assert.equal(m.penalties.stage,'aim');assert.equal(m.penalties.turn,0);
+  assert.equal(m.owner.id,m.penalties.taker);assert.equal(m.minute,90);assert.equal(h.app.round,0);
+  assert.ok(!h.elements.get('shootoutInfo').classList.contains('hidden'));
+  assert.equal(h.elements.get('shootoutRole').textContent,'PRACTICE · ROUND 1 · YOUR KICK');
+  assert.ok(h.elements.get('shootoutLiveHistory').innerHTML.includes('Kick 1: waiting'));
+  const p=m.owner,point=h.app.camera.project(p.x,p.y),goal=h.app.camera.project(m.penalties.goal+m.direction(0)*20,FIELD.cy+40);
+  c.handlers.pointerdown(shootoutEvent(h,point));c.handlers.pointermove(shootoutEvent(h,goal));c.handlers.pointerup(shootoutEvent(h,goal));
+  assert.ok(m.pendingKick);h.app.syncMatch();assert.equal(h.elements.get('shootoutAction').textContent,'Striking…');
+  for(let n=0;n<600&&m.phase!=='penalties';n++){m.step(1/60,h.app.input());h.app.syncMatch();h.app.render(1/60);h.draws.length=0;}
+  assert.equal(m.penalties.taken[0],1);assert.ok(h.elements.get('nextPenalty').focused);
+  h.click('nextPenalty');assert.equal(m.penalties.turn,1);assert.equal(m.active,m.penalties.keeper);
+  assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 2s');
+  for(let n=0;n<45;n++)m.step(1/60,h.app.input());h.app.syncMatch();
+  assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 1s');
+ }
+});
+test('shootout practice win and loss offer play again and return to teams without advancing the cup',()=>{
+ for(const winner of [0,1]){
+  const h=uiHarness(html);h.chooseMode('shootout');h.flush();const m=h.app.match,first=m.penalties.decision;
+  while(!m.penalties.done){playShootoutKick(m,m.penalties.turn===winner?'goal':'save');h.app.syncMatch();h.click('nextPenalty');}
+  assert.equal(h.app.view,'full');assert.equal(m.winner(),winner);
+  assert.equal(h.elements.get('resultEyebrow').textContent,'Shootout practice');
+  assert.equal(h.elements.get('resultGoals').textContent,m.penalties.score.join(' – '));
+  assert.ok(!h.elements.get('practiceAgain').classList.contains('hidden'));assert.equal(h.elements.get('continueCup').textContent,'BACK TO TEAMS');
+  assert.equal(h.app.round,0);assert.ok(!h.app.champion);
+  h.click('practiceAgain');h.flush();assert.equal(h.app.match.mode,'shootout');assert.deepEqual(h.app.match.penalties.score,[0,0]);
+  assert.ok(JSON.stringify(h.app.match.penalties.decision)!==JSON.stringify(first),'practice session varies plans without reading input');
+  const again=h.app.match;while(!again.penalties.done){playShootoutKick(again,again.penalties.turn===0?'goal':'save');h.app.syncMatch();h.click('nextPenalty');}
+  h.click('continueCup');assert.equal(h.app.view,'menu');assert.equal(h.app.match,null);assert.equal(h.app.round,0);
+  h.chooseMode('cup');assert.equal(h.app.view,'trophy');assert.equal(h.app.round,0);
+ }
+});
+test('shootout practice selected nation pause restart cancellation and quit preserve normal controls',()=>{
+ const h=uiHarness(html);h.click('next');h.chooseMode('shootout');h.flush();
+ assert.equal(h.app.match.home.name,'Argentina');assert.equal(h.elements.get('homeName').textContent,'Argentina');
+ const m=h.app.match,decision=JSON.stringify(m.penalties.decision),c=h.elements.get('game'),p=h.app.camera.project(m.owner.x,m.owner.y);
+ c.handlers.pointerdown(shootoutEvent(h,p));c.handlers.pointermove(shootoutEvent(h,{x:p.x+90,y:p.y}));
+ h.click('menuBtn');assert.equal(m.phase,'paused');assert.equal(h.app.drag,null);assert.ok(!m.pendingKick);
+ assert.ok(h.elements.get('coreControls').innerHTML.includes('Move your keeper'));assert.equal(h.elements.get('restartMatch').textContent,'RESTART SHOOTOUT');
+ assert.ok(h.elements.get('shootoutInfo').classList.contains('hidden'));
+ for(let i=0;i<60;i++)m.step(1/60);assert.equal(JSON.stringify(m.penalties.decision),decision);
+ h.click('resumePause');assert.equal(m.phase,'playing');assert.ok(!h.elements.get('shootoutInfo').classList.contains('hidden'));
+ h.click('menuBtn');h.click('restartMatch');h.flush();assert.ok(h.app.match!==m);assert.equal(h.app.match.penalties.history.length,0);
+ h.chooseMode('menu');assert.equal(h.app.match,null);assert.ok(h.elements.get('shootoutInfo').classList.contains('hidden'));
+ h.chooseMode('practice');h.flush();assert.ok(!h.app.match.penalties);h.click('menuBtn');
+ assert.equal(h.elements.get('restartMatch').textContent,'RESTART MATCH');assert.ok(h.elements.get('coreControls').innerHTML.includes('Switch defender'));
+});
+test('shootout ledger records outcomes and labels a fifth reply before switching to sudden death',()=>{
+ const h=uiHarness(html);h.chooseMode('shootout');h.flush();const m=h.app.match;
+ for(let n=0;n<10;n++){playShootoutKick(m,'goal');h.app.syncMatch();h.click('nextPenalty');}
+ assert.ok(h.elements.get('shootoutRole').textContent.includes('SUDDEN DEATH'));
+ assert.ok(h.elements.get('penaltyHistory').innerHTML.includes('Kick 5: goal'));
+ playShootoutKick(m,'goal');h.app.syncMatch();h.click('nextPenalty');
+ assert.ok(h.elements.get('shootoutLiveHistory').innerHTML.includes('kicks 2 to 6'));
+ playShootoutKick(m,'save');h.app.syncMatch();assert.ok(h.elements.get('penaltyHistory').innerHTML.includes('Kick 6: saved'));
+ h.click('nextPenalty');assert.equal(m.winner(),0);
+ const k=uiHarness(html);k.chooseMode('shootout');k.flush();const v=k.app.match;
+ for(let n=0;n<9;n++){playShootoutKick(v,n===8?'miss':'goal');k.app.syncMatch();k.click('nextPenalty');}
+ v.penalties.decision=Object.freeze({...v.penalties.decision,shot:Object.freeze({...v.penalties.decision.shot,y:FIELD.cy+45,power:.85})});
+ for(let n=0;n<500&&v.phase==='playing';n++)v.step(1/60,{dx:0,dy:0});k.app.syncMatch();
+ assert.equal(v.phase,'shootoutResult');assert.ok(k.elements.get('shootoutRole').textContent.includes('ROUND 5'));
+ assert.equal(k.elements.get('shootoutAction').textContent,'GOAL!');
+});
+test('shootout practice inputs do not alter precommitted opponent plans',()=>{
+ const trials=[];
+ for(const side of [-1,1]){
+  const h=uiHarness(html);h.chooseMode('shootout');h.flush();const m=h.app.match,copy=JSON.stringify(m.penalties.decision);
+  for(let n=0;n<90;n++)m.step(1/60,{dx:0,dy:0,aimDelta:n<80?side:-side});
+  assert.equal(JSON.stringify(m.penalties.decision),copy);trials.push(copy);
+ }
+ assert.equal(trials[0],trials[1]);
+});
+test('kickoff cue is visible only while awaiting contact and uses the correct team controls',()=>{
+ for(const local of [false,true])for(const portrait of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:portrait?500:1180,height:757});
+  if(local){h.chooseMode('multi');h.click('startLocal');}else h.chooseMode('practice');h.flush();
+  const m=h.app.match,cue=h.elements.get('kickoffCue');
+  assert.ok(!cue.classList.contains('hidden'));assert.ok(cue.textContent.includes(local?'P1: F pass / G shoot':'Hold + drag'));
+  h.click('menuBtn');assert.ok(cue.classList.contains('hidden'));h.click('resumePause');assert.ok(!cue.classList.contains('hidden'));
+  h.window.handlers.keydown(keyEvent(local?'f':'e'));h.app.syncMatch();assert.equal(cue.textContent,'Kicking off…');
+  advanceToContact(m);h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));
+  m.phase='half';h.app.syncMatch();assert.ok(cue.classList.contains('hidden'));h.click('resume');
+  assert.ok(!cue.classList.contains('hidden'));assert.ok(cue.textContent.includes(local?'P2: K pass / L shoot':'Opposition kick-off'));
+ }
+ assert.ok(/id="kickoffCue"[^>]*role="status"/.test(html));
+});
+test('pause separates concise core controls from the complete accessible advanced instructions',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();h.click('menuBtn');
+ const core=h.elements.get('coreControls').innerHTML,advanced=h.elements.get('soloPauseHelp').textContent;
+ for(const title of ['Move','Pass','Shoot','Switch defender','Pause / resume'])assert.ok(core.includes('<dt>'+title+'</dt>'));
+ assert.ok(core.length<600);assert.equal(advanced,h.elements.get('gameControls').textContent);
+ assert.ok(advanced.includes('After possession changes'));assert.ok(advanced.includes('shot forecast'));
+ assert.ok(/<details id="advancedControls" class="rules-note"><summary>More aiming/.test(html));
+ assert.ok(/#pause \.card\{max-height:[^}]*overflow-y:auto/.test(html));
+ h.chooseMode('menu');h.chooseMode('multi');h.click('startLocal');h.flush();h.click('menuBtn');
+ assert.ok(h.elements.get('coreControls').classList.contains('hidden'));assert.ok(h.elements.get('advancedControls').classList.contains('hidden'));
+ assert.ok(!h.elements.get('localPauseHelp').classList.contains('hidden'));
+});
+test('pass target feedback remains through wind-up and clears at contact without changing the release',()=>{
+ const {h,c,m,p,r}=passReceptionFixture(),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+ assert.ok(m.pendingKick);const target=m.pendingKick.target.receiverId,power=m.pendingKick.power;
+ h.draws.length=0;h.app.render(0);
+ assert.ok(h.draws.some(d=>d.method==='fillText'&&String(d.args[0]).includes('PASS TO #')));
+ assert.equal(m.pendingKick.target.receiverId,target);assert.equal(m.pendingKick.power,power);assert.equal(m.pendingKick.duration,.075);
+ advanceToContact(m);h.draws.length=0;h.app.render(0);
+ assert.ok(!h.draws.some(d=>d.method==='fillText'&&String(d.args[0]).includes('PASS TO #')));
+ runPassFrames(h);assert.equal(m.owner?.id,r.id);
+});
