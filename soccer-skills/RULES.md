@@ -249,3 +249,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Local kickoff/restart/rematch toasts use each nation's resolved outfield kit, including the alternate-kit designation, alongside its control-marker color. Marker color names and rendered colors share one definition with the local setup labels.
 - Cup introductions also identify the selected nation's actual kit rather than saying the player is white. Local setup HTML uses neutral placeholders before the resolved labels are populated.
 - Regression coverage captures the real loading-to-match toast before its timer expires for France/Croatia, clash-resolved France/Japan and Argentina/Uruguay, including restart and rematch. Cup introductions are checked for all 32 nations. No physics, camera, rules, controls, kit-resolution choices or tournament behavior changed.
+
+
+### Shared bottom-message layout
+
+- Toasts and stationary-restart guidance now occupy one responsive vertical flex stack. The restart cue stays below the toast; both children use normal flow and wrapping instead of independent bottom coordinates. Long country/kit introductions can grow in height without overlapping the action cue.
+- An inactive toast takes no layout space. Existing 650/1600 ms toast timers and all restart lifetimes are unchanged. The stack respects the bottom safe area and uses compact spacing on narrow and short landscape viewports.
+- Off-screen player indicators avoid the measured bounds of the entire stack, including the gap between its messages, as well as the existing individual obstacles.
+- Regression coverage checks simultaneous real UI introduction/cue states, expiry/pause behavior, the CSS normal-flow contract, and obstacle/indicator geometry at 1180×757, 500×757, 320×568 and 757×360. Geometry uses explicit conservative wrapped-height fixtures, not a browser font-layout measurement. Actual rendered wrapping remains for independent live QA.

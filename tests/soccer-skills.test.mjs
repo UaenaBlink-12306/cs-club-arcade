@@ -3781,3 +3781,76 @@ test('cup introductions identify the selected kit for every country instead of a
  assert.ok(!html.includes('id="localHomeKit">WHITE KIT'));
  assert.ok(!html.includes('id="localAwayKit">BLUE KIT'));
 });
+
+test('simultaneous introductions and restart guidance share a wrapping normal-flow bottom stack',()=>{
+ const start=html.indexOf('<div id="bottomMessages">'),end=html.indexOf('<p id="controlledLocation"',start);
+ const messages=html.slice(start,end);
+ assert.ok(start>=0);assert.ok(messages.includes('<div id="toast"></div>'));
+ assert.ok(messages.includes('<p id="kickoffCue"'));
+ assert.ok(messages.indexOf('id="toast"')<messages.indexOf('id="kickoffCue"'));
+ assert.ok(messages.trim().endsWith('</div>'));
+ // CSS contract: neither child can keep the old independent absolute placement.
+ const css=html.slice(html.indexOf('/* One normal-flow stack'),html.indexOf('</style>'));
+ assert.ok(/#bottomMessages\{[^}]*display:flex[^}]*flex-direction:column[^}]*gap:6px/.test(css));
+ assert.ok(/#bottomMessages>#toast,#bottomMessages>#kickoffCue\{[^}]*position:static[^}]*inset:auto[^}]*transform:none!important[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/.test(css));
+ assert.ok(/#bottomMessages>#toast\{display:none/.test(css));assert.ok(/#bottomMessages>#toast\.toastOn\{display:block/.test(css));
+ assert.ok(/@media\(max-width:620px\)/.test(css));assert.ok(/@media\(max-height:420px\)/.test(css));
+ for(const mode of ['local','cup']){
+  const h=uiHarness(html);
+  if(mode==='local'){
+   h.chooseMode('multi');
+   h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='FRA'))}});
+   h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='CRO'))}});
+   h.click('startLocal');
+  }else{for(let n=0;n<NATIONS.findIndex(n=>n.code==='FRA');n++)h.click('next');h.chooseMode('cup');h.click('startMatch');}
+  h.flushUntilMatch();
+  assert.ok(h.elements.get('toast').classList.contains('toastOn'));
+  assert.ok(h.elements.get('toast').textContent.includes('France — navy blue kit'));
+  assert.ok(!h.elements.get('kickoffCue').classList.contains('hidden'));
+  assert.ok(h.elements.get('kickoffCue').textContent.startsWith('KICK-OFF'));
+  h.flush();assert.ok(!h.elements.get('toast').classList.contains('toastOn'));
+  assert.ok(!h.elements.get('kickoffCue').classList.contains('hidden'));
+ }
+});
+test('combined message geometry reserves long introductions and restart cues across desktop portrait and short landscape',()=>{
+ // Explicit conservative wrapped-height fixtures, not a browser/font-layout claim.
+ // Exercise the production obstacle conversion and edge placement with BOTH
+ // message rectangles and the gap occupied by their shared normal-flow parent.
+ const sizes=[[1180,757,44,40],[500,757,64,58],[320,568,96,76],[757,360,44,38]];
+ for(const [width,height,toastHeight,cueHeight] of sizes)for(const local of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game'),left=27,top=19;
+  c.getBoundingClientRect=()=>({left,top,width,height});
+  if(local){
+   h.chooseMode('multi');
+   h.elements.get('localHomeSelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='USA'))}});
+   h.elements.get('localAwaySelect').handlers.change({target:{value:String(NATIONS.findIndex(n=>n.code==='SUI'))}});
+   h.click('startLocal');
+  }else{for(let n=0;n<NATIONS.findIndex(n=>n.code==='USA');n++)h.click('next');h.chooseMode('cup');h.click('startMatch');}
+  h.flushUntilMatch();
+  assert.ok(h.elements.get('toast').textContent.includes('United States'));
+  const messageWidth=Math.min(680,width-(width<=620?24:32)),x=(width-messageWidth)/2,bottom=height-(height<=420?8:12);
+  const gap=height<=420?4:width<=620?5:6,stackTop=bottom-cueHeight-gap-toastHeight;
+  const dom=(x,y,w,h)=>({left:left+x,top:top+y,right:left+x+w,bottom:top+y+h,width:w,height:h});
+  const toast=dom(x,stackTop,messageWidth,toastHeight),cue=dom(x,bottom-cueHeight,messageWidth,cueHeight),stack=dom(x,stackTop,messageWidth,bottom-stackTop);
+  assert.ok(toast.bottom+gap<=cue.top);assert.ok(stackTop>64);
+  h.elements.get('toast').getBoundingClientRect=()=>toast;
+  h.elements.get('kickoffCue').getBoundingClientRect=()=>cue;
+  h.elements.get('bottomMessages').getBoundingClientRect=()=>stack;
+  let blocks=h.app.controlEdgeObstacles();
+  const reserved=blocks.find(r=>r.left===x&&r.right===x+messageWidth&&r.top===stackTop&&r.bottom===bottom);
+  assert.ok(reserved,'whole stack, including its gap, is reserved');
+  for(const target of [{x:width/2,y:height+200},{x:-100,y:height+100},{x:width+100,y:height+100}]){
+   const first=h.app.edgePointer(target,width,height,blocks);assert.ok(first);
+   const q=first.rect;assert.ok(q.bottom<=reserved.top||q.top>=reserved.bottom||q.right<=reserved.left||q.left>=reserved.right);
+   if(local){const second=h.app.edgePointer(target,width,height,[...blocks,q]);assert.ok(second);const s=second.rect;
+    assert.ok(s.bottom<=reserved.top||s.top>=reserved.bottom||s.right<=reserved.left||s.left>=reserved.right);
+   }
+  }
+  // Real expiry still leaves the restart cue; browser flex layout collapses
+  // the hidden toast, represented here by the parent's newly measured bounds.
+  h.flush();h.elements.get('bottomMessages').getBoundingClientRect=()=>cue;
+  blocks=h.app.controlEdgeObstacles();assert.ok(blocks.some(r=>r.top===bottom-cueHeight&&r.bottom===bottom));
+  assert.ok(!blocks.some(r=>r.top===stackTop));
+  h.click('menuBtn');assert.ok(!h.app.controlEdgeObstacles().some(r=>r.left===x&&r.bottom===bottom));
+ }
+});

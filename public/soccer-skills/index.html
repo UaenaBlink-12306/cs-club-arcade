@@ -782,6 +782,23 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 .kit-swatch{display:inline-block;flex:0 0 11px;width:11px;height:14px;border:1px solid #dbe8e8;border-bottom:4px solid;box-shadow:0 0 0 1px #071b26;border-radius:2px}
 @media(max-width:620px){#homeName,#awayName{max-width:60px}.kit-swatch{flex-basis:9px;width:9px;height:12px}}
 @media(max-width:380px){#hud .score{gap:4px;padding-left:6px;padding-right:6px}#homeName,#awayName{max-width:44px}}
+
+/* One normal-flow stack owns bottom feedback, including wrapped introductions.
+   The primary restart action remains last, nearest the bottom safe area. */
+#bottomMessages{position:absolute;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(680px,calc(100% - 32px));display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+#bottomMessages>#toast,#bottomMessages>#kickoffCue{position:static;inset:auto;transform:none!important;flex:0 0 auto;width:max-content;max-width:100%;margin:0;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere}
+#bottomMessages>#toast{display:none;line-height:1.4;text-align:left}
+#bottomMessages>#toast.toastOn{display:block}
+#bottomMessages>#kickoffCue{line-height:1.4}
+@media(max-width:620px){
+ #bottomMessages{width:calc(100% - 24px);gap:5px}
+ #bottomMessages>#toast{font-size:11px;padding:6px 9px}
+ #bottomMessages>#kickoffCue{font-size:12px;padding:8px 10px}
+}
+@media(max-height:420px) and (orientation:landscape){
+ #bottomMessages{bottom:max(8px,env(safe-area-inset-bottom));gap:4px}
+ #bottomMessages>#kickoffCue{padding:6px 10px;font-size:12px}
+}
 </style>
 </head>
 <body>
@@ -789,8 +806,8 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 <div id="ui">
 <div id="hud" class="hidden" aria-hidden="true"><div class="score" id="matchScoreboard"><span id="homeKit" class="kit-swatch" role="img"></span><span id="homeFlag">🇦🇷</span><span id="homeName">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">CRO</span><span id="awayFlag">🇭🇷</span><span id="awayKit" class="kit-swatch" role="img"></span><span class="clock" id="clock">00:00</span></div><span id="attackDirection"></span><button id="menuBtn" class="hamb" aria-label="Pause and controls">☰</button></div>
 <div id="hint" class="hidden">Drag from the active player to pass or shoot • release to kick</div>
-<div id="toast"></div><p id="controlledLocation" class="sr-only" role="status" aria-live="polite"></p>
-<p id="kickoffCue" class="hidden" role="status" aria-live="polite"></p>
+<div id="bottomMessages"><div id="toast"></div><p id="kickoffCue" class="hidden" role="status" aria-live="polite"></p></div>
+<p id="controlledLocation" class="sr-only" role="status" aria-live="polite"></p>
 <aside id="shootoutInfo" class="hidden" aria-label="Shootout progress"><b id="shootoutRole"></b><p id="shootoutAction" role="status" aria-live="polite"></p><div class="prep-track" aria-hidden="true"><i id="shootoutPrep"></i></div><div id="shootoutLiveHistory"></div></aside>
 
 <section class="panel hidden" id="local"><div class="card"><div class="pill">Same screen · Shared keyboard</div><h2>LOCAL TWO PLAYER</h2><p>Choose a team each. Two people, one keyboard. No online connection needed.</p>
@@ -3042,8 +3059,9 @@ function edgePointer(target,width,height,obstacles=[]){
 function controlEdgeObstacles(){
  const rect=canvas.getBoundingClientRect(),unit=W/rect.width;
  const blocks=aimPanelRects.map(r=>({left:r.left/unit,right:r.right/unit,top:r.top/unit,bottom:r.bottom/unit}));
- for(const id of ['matchScoreboard','menuBtn','attackDirection','hint','kickoffCue','shootoutInfo','toast']){
-  const e=$('#'+id);if(e.classList.contains('hidden')||id==='toast'&&!e.classList.contains('toastOn'))continue;
+ const messagesVisible=$('#toast').classList.contains('toastOn')||!$('#kickoffCue').classList.contains('hidden');
+ for(const id of ['matchScoreboard','menuBtn','attackDirection','hint','bottomMessages','kickoffCue','shootoutInfo','toast']){
+  const e=$('#'+id);if(e.classList.contains('hidden')||id==='toast'&&!e.classList.contains('toastOn')||id==='bottomMessages'&&!messagesVisible)continue;
   const r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)continue;
   blocks.push({left:r.left-rect.left,right:r.right-rect.left,top:r.top-rect.top,bottom:r.bottom-rect.top});
  }
