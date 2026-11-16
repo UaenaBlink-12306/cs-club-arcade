@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -5061,5 +5061,79 @@ test('keeper recovery permits normal distribution after a caught ball and clears
   assert.ok(m.activeFor(team)!==k.id);
   h.click('menuBtn');h.click('restartMatch');h.flush();
   assert.equal(h.app.match.handOwner,null);for(const p of h.app.match.snapshot().players)assert.equal(p.save,0);
+ }
+});
+
+test('ordinary saved shootout ball follows rendered gloves through recovery without moving the physics ball',()=>{
+ const rules=new Function(engine+';return RULES;')();
+ for(const hz of [30,60,120])for(const width of [333,888]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('shootout');h.flush();h.tick(100);let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  const m=h.app.match,key=width<500?'ArrowLeft':'ArrowRight';
+  h.window.handlers.keydown(keyEvent(key));for(let i=0;i<hz/3;i++)tick();h.window.handlers.keyup(keyEvent(key));h.window.handlers.keydown(keyEvent(' '));
+  while(m.phase==='playing'&&frame<hz*5)tick();
+  assert.equal(m.penalties.history[0].outcome,'save');const physical={...m.ball};
+  for(let i=0;i<Math.ceil(hz*.4);i++)tick();
+  const p=h.app.drawnPlayers.get(m.handOwner),pose=h.app.playerPose(p,m.snapshot().ball);
+  assert.equal(pose.hold,1);const world=h.app.playerWorldTransform(p,pose),hands=h.app.playerSkeleton(p,pose).arms.map(a=>world(a.hand));
+  const b=h.app.drawnBall,centre=[b.x,b.y,b.z*rules.heightScale+rules.radius];
+  assert.ok(Math.hypot(...centre.map((v,i)=>v-(hands[0][i]+hands[1][i])/2))<1e-8);
+  assert.ok(centre[2]>8);assert.deepEqual(m.ball,physical);
+  h.click('menuBtn');h.app.render();const frozen={...h.app.drawnBall};for(let i=0;i<hz/5;i++)tick();
+  assert.deepEqual(h.app.drawnBall,frozen);h.click('resumePause');
+  while(m.phase==='shootoutResult'&&frame<hz*6)tick();
+  h.click('nextPenalty');h.app.render();assert.deepEqual(h.app.drawnBall,m.ball);
+  h.click('menuBtn');h.click('restartMatch');h.flush();h.app.render();assert.deepEqual(h.app.drawnBall,h.app.match.ball);
+ }
+});
+test('only genuine keeper hand possession attaches the visual ball and distribution returns to physical flight',()=>{
+ for(const local of [false,true])for(const team of local?[0,1]:[0])for(const period of [1,2])for(const shot of [false,true]){
+  const h=uiHarness(html);h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();const m=h.app.match;
+  m.period=period;m.kickoff(team);const k=m.players[team*11];
+  // Contact fixtures distinguish a teammate delivery, an opposition catch and a loose ball.
+  Object.assign(m.ball,{owner:null,lastTouch:team,x:k.x+2,y:k.y,z:0});m.receiveBall(k);
+  h.app.render();assert.equal(m.handOwner,null);assert.deepEqual(h.app.drawnBall,m.ball);
+  Object.assign(m.ball,{owner:null,lastTouch:1-team,x:k.x+2,y:k.y,z:0});m.receiveBall(k);
+  h.app.render();assert.deepEqual(h.app.drawnBall,m.ball,'contact starts at the original drawn position');
+  const input=local?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0};
+  for(let i=0;i<50;i++)m.step(1/60,input);h.app.render();assert.ok(h.app.drawnBall.z>10);assert.equal(m.ball.z,0);
+  const state=JSON.stringify(m);h.app.render();assert.equal(JSON.stringify(m),state,'drawing cannot mutate simulation or history');
+  h.window.handlers.keydown(keyEvent(local?(team===0?(shot?'g':'f'):(shot?'l':'k')):(shot?' ':'e')));
+  assert.equal(m.pendingKick.player,k.id);let previous=Infinity,frames=0;
+  while(m.pendingKick&&frames++<30){h.app.render();assert.ok(h.app.drawnBall.z<=previous+1e-8,'ball lowers into existing kick');previous=h.app.drawnBall.z;m.step(Math.min(1/120,m.pendingKick.remaining),input);}
+  h.app.render();assert.equal(m.handOwner,null);assert.deepEqual(h.app.drawnBall,m.ball);assert.equal(shot?m.shots[team]:m.passes[team],1);
+  const loose=m.snapshot();loose.players[k.id].holding=true;assert.equal(h.app.keeperHeldBall(loose),loose.ball,'stale keeper metadata cannot attach a loose ball');
+  m.kickoff(team);h.app.render();assert.deepEqual(h.app.drawnBall,m.ball);
+ }
+});
+test('recorded keeper holds replay at actual ownership boundaries and require no live hand-owner state',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,k=m.players[0];
+ m.elapsed=2;Object.assign(m.ball,{owner:null,lastTouch:1,x:k.x+2,y:k.y,z:0});const before=m.snapshot();
+ m.elapsed=2.02;m.receiveBall(k);m.elapsed=2.05;const caught=m.snapshot();
+ for(const mix of [.1,.39,.41,.8,1]){
+  const s=h.app.replaySample([before,caught],mix),p=s.players[k.id];
+  assert.equal(!!p.holding,mix>=.4);assert.equal(s.ball.owner,mix>=.4?k.id:null);
+  const v=h.app.keeperHeldBall(s);if(mix<.4)assert.equal(v,s.ball);else assert.ok(v.z>=s.ball.z);
+ }
+ m.elapsed=2.3;const held=m.snapshot();m.kick(k,m.bestPass(k,true),.6,false);const winding=m.snapshot();
+ advanceToContact(m);const released=m.snapshot();
+ for(const mix of [0,.1,.5,.9,1]){
+  const s=h.app.replaySample([winding,released],mix);
+  if(s.ball.owner===null)assert.equal(h.app.keeperHeldBall(s),s.ball);
+ }
+ m.kickoff(0);assert.equal(m.handOwner,null);
+ const heldVisual=h.app.keeperHeldBall(held);assert.ok(heldVisual.z>10,'replay uses recorded possession rather than current match');
+ h.app.render();assert.deepEqual(h.app.drawnBall,m.ball);
+});
+test('held-ball visual blends have bounded catch and kick endpoints in both camera orientations',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,k=m.players[0];
+ Object.assign(m.ball,{owner:null,lastTouch:1,x:k.x+2,y:k.y,z:0});m.receiveBall(k);
+ const source=m.snapshot();
+ for(const angle of [0,Math.PI/2,Math.PI,-Math.PI/2])for(const save of [0,.2,.5,.8,1]){
+  const sample=(receive,strike=0)=>{const s={...source,players:source.players.map(p=>p.id===k.id?{...p,angle,receive,save,strike,strikePhase:strike>0?'windup':'idle'}:p)};return h.app.keeperHeldBall(s);};
+  const a=sample(1),b=sample(1-1e-5);assert.ok(Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-5);
+  const c=sample(0,.3-1e-5),d=sample(0,.3);assert.ok(Math.hypot(c.x-d.x,c.y-d.y,c.z-d.z)<1e-5);
+  assert.deepEqual(d,source.ball);
  }
 });
