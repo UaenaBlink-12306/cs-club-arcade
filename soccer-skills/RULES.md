@@ -324,3 +324,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Solo wording is unchanged. Country-labelled goals, restart prompts and other rules notices keep their existing presentation; this does not add new interception effects.
 - A local feedback serial distinguishes separate identical actions so consecutive passes/shots can each display once. Ordinary frame sync does not revive an expired toast. Existing 650 ms routine kick and 1600 ms other-toast durations and the wrapping bottom-message layout remain unchanged.
 - Tests cover both local teams, contact versus wind-up, off-ball selection handoff, repeated actions, restart reset, successful tackles/saves, solo wording, and 333×596/desktop harness dimensions. A paired baseline/new simulation comparison also checks that sampled physics and match outcomes are identical. Native layout and real-input verification remain independent QA tasks.
+
+
+### Routine action toast contrast
+
+- Pass!/Shot! feedback, including local P1/P2 labels, now uses an opaque dark-green backing and light 12-pixel bold text. Its settled visible foreground/background contrast exceeds 7:1, independent of bright turf, white goal nets or player artwork behind it.
+- The two routine-toast CSS rules replace transparent backing and the 80% opacity cap. The existing wrapping bottom stack, pointer-events:none, per-message durations, transition/reduced-motion rules, wording, and shootout-specific feedback remain unchanged. Production JavaScript is byte-for-byte unchanged.
+- Checks exercise keyboard pass and free-kick shot contact in solo/local modes, both owners, 333×596 and desktop harness dimensions, expiry, pause/resume suppression, repeated local actions, long notices and separate shootout feedback. Geometry fixtures retain lower-cue and edge-indicator spacing coverage.
+- These are harness/CSS/contrast checks, not native screenshots, animation-timing measurements or physical-device tests. Independent native verification of the new backing remains necessary.

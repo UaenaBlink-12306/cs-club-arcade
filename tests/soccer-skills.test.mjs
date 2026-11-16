@@ -8,7 +8,7 @@ const {SoccerMatch,NATIONS,FIELD,distance}=new Function(engine+';return {SoccerM
 
 
 function uiHarness(html){
-  const elements=new Map(),timers=new Map();let tid=0,animation=null;const draws=[];
+  const elements=new Map(),timers=new Map(),timerDelays=[];let tid=0,animation=null;const draws=[];
   const drawing=new Proxy({}, {get:(_,key)=>key==='canvas'?{}:key==='createLinearGradient'?(()=>({addColorStop(){}})):((...args)=>{
     if(args.some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('Nonfinite canvas '+String(key));
     if((key==='arc'||key==='ellipse')&&args[2]<0)throw Error('Negative radius');
@@ -36,8 +36,8 @@ function uiHarness(html){
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
     script+'\nreturn {get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
-  )(document,window,(fn)=>{timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
-  return {app,elements,go,penalties,document,window,draws,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
+  )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
+  return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
     tick(t){animation(t);},click(id){elements.get(id).onclick();},
     chooseMode(mode){go.find(e=>e.dataset.go===mode).onclick();}};
@@ -4401,4 +4401,49 @@ test('solo pass and shot wording and feedback durations remain unchanged with co
  }
  assert.ok(html.includes('routine?650:1600'),'same per-message durations');
  assert.ok(/#bottomMessages>#toast,#bottomMessages>#kickoffCue\{[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/.test(html),'existing narrow wrapping retained');
+});
+
+test('routine action feedback has opaque high-contrast backing and retains nonblocking wrapped placement',()=>{
+ const rule=html.match(/#bottomMessages>#toast\.routine\{([^}]+)\}/)[1];
+ const bg=rule.match(/background:(#[0-9a-f]+);/)[1],fg=rule.match(/(?:^|;)color:(#[0-9a-f]+);/)[1];
+ assert.equal(bg,'#102b23');assert.equal(fg,'#f3f7e7');assert.equal(bg.length,7,'backing is opaque over grass nets and players');
+ const luminance=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);
+ const contrast=(luminance(fg)+.05)/(luminance(bg)+.05);
+ assert.ok(contrast>=7,'steady visible text exceeds 7:1 contrast');
+ assert.ok(rule.includes('font-size:12px'));assert.ok(rule.includes('padding:5px 9px'));assert.ok(rule.includes('font-weight:700'));
+ assert.ok(html.includes('#toast.routine.toastOn{opacity:1!important}'));
+ assert.ok(!html.includes('#toast.routine.toastOn{opacity:.8!important}'));
+ assert.ok(/#toast\{[^}]*opacity:0[^}]*pointer-events:none/.test(html));
+ assert.ok(/#bottomMessages\{[^}]*pointer-events:none/.test(html));
+ assert.ok(/#bottomMessages>#toast,#bottomMessages>#kickoffCue\{[^}]*width:max-content[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/.test(html));
+ assert.ok(html.includes('button,#toast{transition:none}'),'reduced-motion exit treatment remains');
+});
+test('real kick feedback retains wording lifetime exit pause and shootout suppression across narrow and wide views',()=>{
+ for(const [width,height] of [[333,596],[887,597]])for(const local of [false,true])for(const team of local?[0,1]:[0]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();const m=h.app.match,toast=h.elements.get('toast');
+  m.kickoff(team);h.app.syncMatch();h.flush();
+  h.window.handlers.keydown(keyEvent(local?(team===0?'f':'k'):'e'));advanceToContact(m);h.app.syncMatch();
+  assert.equal(toast.textContent,(local?'P'+(team+1)+': ':'')+'Pass!');
+  assert.ok(toast.classList.contains('routine'));assert.equal(h.timerDelays.at(-1),650);
+  assert.ok(h.elements.get('kickoffCue').classList.contains('hidden'),'contact clears the separate restart cue');
+  h.flush();assert.equal(toast.textContent,'');assert.ok(!toast.classList.contains('toastOn'));
+  // Fixture awards the same direct free kick seen in live QA; actual setup/key/contact follows.
+  const p=m.players[team*11+6];m.giveBall(p);m.foul(m.players[(1-team)*11+9],p,'Late challenge');
+  h.app.syncMatch();h.click('takeCorner');
+  assert.ok(!h.elements.get('kickoffCue').classList.contains('hidden'));
+  h.window.handlers.keydown(keyEvent(local?(team===0?'g':'l'):' '));advanceToContact(m);h.app.syncMatch();
+  assert.equal(toast.textContent,(local?'P'+(team+1)+': ':'')+'Shot!');
+  assert.ok(toast.classList.contains('routine'));assert.equal(h.timerDelays.at(-1),650);
+  assert.ok(h.elements.get('kickoffCue').classList.contains('hidden'));
+  h.click('menuBtn');assert.equal(toast.textContent,'');assert.ok(!toast.classList.contains('toastOn'));
+  h.click('resumePause');assert.equal(toast.textContent,'','pause does not replay the action message');
+  // Long non-routine notices still use the same wrapping stack and duration.
+  m.event='United States and Switzerland: extended feedback must remain within the message stack.';h.app.syncMatch();
+  assert.equal(toast.textContent,m.event);assert.ok(!toast.classList.contains('routine'));assert.equal(h.timerDelays.at(-1),1600);
+  h.flush();assert.equal(toast.textContent,'');
+ }
+ const h=uiHarness(html);h.chooseMode('shootout');h.flush();
+ h.window.handlers.keydown(keyEvent(' '));advanceToContact(h.app.match);h.app.syncMatch();
+ assert.equal(h.elements.get('toast').textContent,'','shootout uses its existing dedicated feedback');
 });
