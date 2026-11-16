@@ -4295,3 +4295,57 @@ test('shared restart presentation preserves every owner action and automatic set
  m.phase='restart';m.restart={type:'Throw-in',team:1,x:550,y:FIELD.top};h.app.syncMatch();h.click('takeCorner');
  assert.equal(m.phase,'playing');assert.equal(m.setPiece,'Throw-in');assert.equal(m.owner.team,1);
 });
+
+test('compact HUD country codes retain full names tooltips flags and owner kit labels in every mode',()=>{
+ for(const mode of ['practice','cup','shootout','multi'])for(let n=0;n<NATIONS.length;n++){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:333,height:596});
+  for(let i=0;i<n;i++)h.click('next');h.chooseMode(mode);
+  if(mode==='cup')h.click('startMatch');if(mode==='multi')h.click('startLocal');h.flush();
+  const m=h.app.match;
+  for(const side of ['home','away']){
+   const nation=m[side],code=h.elements.get(side+'Code'),name=h.elements.get(side+'Name');
+   assert.equal(code.textContent,nation.code);assert.ok(/^[A-Z]{3}$/.test(code.textContent));
+   assert.equal(code.title,nation.name);assert.equal(name.textContent,nation.name);assert.equal(name.title,nation.name);
+   assert.equal(h.elements.get(side+'Flag').textContent,nation.flag);
+   const kit=h.elements.get(side+'Kit').getAttribute('aria-label');assert.ok(kit.includes(nation.name));
+   if(mode==='multi')assert.ok(kit.includes(side==='home'?'Player 1.':'Player 2.'));
+  }
+  assert.equal(h.elements.get('scoreText').textContent,mode==='shootout'?'0 - 0 pens':'0 - 0');
+  assert.equal(h.elements.get('clock').textContent,mode==='shootout'?'PENS':mode==='practice'?'PRACTICE':'00:00');
+ }
+ for(const side of ['home','away']){
+  assert.ok(html.includes('id="'+side+'Code" class="hud-team-code" aria-hidden="true"'),'visual code must not duplicate accessible full name');
+  assert.ok(!html.includes('id="'+side+'Name" aria-hidden="true"'));
+ }
+});
+test('HUD resize contracts swap codes and full names without altering play or interval identities',()=>{
+ const css=html.slice(html.indexOf('/* Compact match identity:'),html.indexOf('</style>'));
+ assert.ok(css.includes('.hud-team-code{display:none}'));
+ assert.ok(css.includes('@media(max-width:620px)'));
+ assert.ok(css.includes('#hud .hud-team-code{display:inline-block;flex:0 0 auto;white-space:nowrap}'));
+ assert.ok(/#hud #homeName,#hud #awayName\{[^}]*position:absolute[^}]*clip-path:inset\(50%\)/.test(css));
+ assert.ok(!/#hud #homeName,#hud #awayName\{[^}]*display:none/.test(css),'full name stays in accessibility tree');
+ assert.ok(html.includes('#hud .score{max-width:calc(100% - 42px);min-width:0}'),'pause clearance retained');
+ assert.ok(!html.includes('.score>span:nth-child(5)'),'adding codes must not change positional font targets');
+ assert.ok(html.includes('.score>#homeKit,.score>#awayName{font-size:14px}'),'existing wide label sizing is preserved');
+ for(const mode of ['practice','cup','shootout','multi'])for(const code of ['USA','SUI','KOR','NOR']){
+  const h=uiHarness(html);let width=887;
+  h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  for(let i=0;i<NATIONS.findIndex(n=>n.code===code);i++)h.click('next');h.chooseMode(mode);
+  if(mode==='cup')h.click('startMatch');if(mode==='multi')h.click('startLocal');h.flush();const m=h.app.match;
+  const before=JSON.stringify(m.snapshot()),score=h.elements.get('scoreText').textContent,clock=h.elements.get('clock').textContent;
+  for(width of [333,887,620,621,333]){
+   h.app.render(0);h.app.syncMatch();
+   assert.equal(h.elements.get('homeCode').textContent,m.home.code);assert.equal(h.elements.get('homeName').textContent,m.home.name);
+   assert.equal(h.elements.get('awayCode').textContent,m.away.code);assert.equal(h.elements.get('awayName').textContent,m.away.name);
+   assert.equal(h.elements.get('scoreText').textContent,score);assert.equal(h.elements.get('clock').textContent,clock);
+   assert.equal(JSON.stringify(m.snapshot()),before);
+  }
+  if(mode!=='shootout'){
+   m.phase='half';h.app.syncMatch();assert.equal(h.elements.get('halfHomeName').textContent,m.home.name);
+   assert.equal(h.elements.get('halfAwayName').textContent,m.away.name);
+   m.score=[2,1];m.finish();h.app.syncMatch();assert.equal(h.elements.get('resultHomeName').textContent,m.home.name);
+   assert.equal(h.elements.get('resultAwayName').textContent,m.away.name);
+  }
+ }
+});

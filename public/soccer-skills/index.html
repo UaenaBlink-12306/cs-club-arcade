@@ -44,7 +44,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #fbcb37;outline-offset:3p
 #hint{width:max-content;max-width:94%;text-align:center;letter-spacing:0}
 #hud{z-index:2}.score{font-size:14px;gap:9px}
 @media(max-width:620px){.panel{padding:12px}.card{width:96%}button{padding:11px 12px;margin:4px}
-.score{padding:8px;font-size:11px;gap:5px}.score>span:first-child,.score>span:nth-child(5){font-size:17px}
+.score{padding:8px;font-size:11px;gap:5px}.score>#homeKit,.score>#awayName{font-size:17px}
 #hud{left:8px;right:8px;top:8px;gap:4px}.hamb{padding:8px}#hint{font-size:10px;bottom:9px}
 .teams{gap:4px}.teamBadge{min-width:96px;padding:10px}.logo{margin-bottom:10px}}
 @media(max-width:620px) and (orientation:portrait){#stage{width:96vw;aspect-ratio:auto;height:calc(100svh - 24px);min-height:500px}}
@@ -159,7 +159,7 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 #hud{left:10px;right:10px;top:max(8px,env(safe-area-inset-top));justify-content:flex-start;align-items:flex-start;gap:6px}
 .score{gap:6px;padding:3px 6px;font-size:11px;border-radius:0;background:#112c24e8;box-shadow:none;min-height:27px}
 #scoreText{font-size:13px;padding:2px 7px;background:#d8e6c8;color:#1a3427}
-.clock{padding-left:6px;color:#fff1b7}.score>span:first-child,.score>span:nth-child(5){font-size:14px}
+.clock{padding-left:6px;color:#fff1b7}.score>#homeKit,.score>#awayName{font-size:14px}
 .hamb{border-radius:1px;padding:5px 9px;font-size:16px;background:#112c24d9}
 #attackDirection{color:#edf6e5;font-size:9px;line-height:27px;text-shadow:0 1px #123323}
 #hint{display:none!important}
@@ -700,7 +700,7 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
 }
 
 
-/* Full team names remain available to assistive technology when visually truncated. */
+/* Wide HUD names; compact view exposes country codes while retaining full accessible names. */
 #homeName,#awayName{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #hud .score{max-width:calc(100% - 42px);min-width:0}
 @media(max-width:620px){
@@ -867,12 +867,19 @@ kbd{font-family:inherit;font-weight:800;background:#fff;border-radius:3px;paddin
  #trophy.cup-won .cup-celebration>.pill,#trophy.cup-won #championTitle,#trophy.cup-won #championFinal,#trophy.cup-won #championPens,#trophy.cup-won .cup-celebration>small{grid-column:2}
  #trophy.cup-won #championTitle{font-size:28px}
 }
+
+/* Compact match identity: codes replace visual ellipses, not accessible names. */
+.hud-team-code{display:none}
+@media(max-width:620px){
+ #hud .hud-team-code{display:inline-block;flex:0 0 auto;white-space:nowrap}
+ #hud #homeName,#hud #awayName{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}
+}
 </style>
 </head>
 <body>
 <div id="app"><div id="stage"><canvas id="game" width="1100" height="620" tabindex="0" aria-label="Soccer pitch" aria-describedby="gameControls"></canvas><p id="gameControls" class="sr-only">Hold and drag to run; release to kick. WASD or arrows move. E auto-selects a teammate and passes; Space shoots toward goal centre. Tab switches defender while opponents have possession or the ball is loose. At kick contact, control moves to the receiver or chasing teammate while the kicker follows through. Escape pauses.</p><p id="matchStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p><p id="keeperStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
 <div id="ui">
-<div id="hud" class="hidden" aria-hidden="true"><div class="score" id="matchScoreboard"><span id="homeKit" class="kit-swatch" role="img"></span><span id="homeFlag">🇦🇷</span><span id="homeName">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">CRO</span><span id="awayFlag">🇭🇷</span><span id="awayKit" class="kit-swatch" role="img"></span><span class="clock" id="clock">00:00</span></div><span id="attackDirection"></span><button id="menuBtn" class="hamb" aria-label="Pause and controls">☰</button></div>
+<div id="hud" class="hidden" aria-hidden="true"><div class="score" id="matchScoreboard"><span id="homeKit" class="kit-swatch" role="img"></span><span id="homeFlag">🇦🇷</span><span id="homeName">Argentina</span><span id="homeCode" class="hud-team-code" aria-hidden="true" title="Argentina">ARG</span><b id="scoreText">0 - 0</b><span id="awayName">Croatia</span><span id="awayCode" class="hud-team-code" aria-hidden="true" title="Croatia">CRO</span><span id="awayFlag">🇭🇷</span><span id="awayKit" class="kit-swatch" role="img"></span><span class="clock" id="clock">00:00</span></div><span id="attackDirection"></span><button id="menuBtn" class="hamb" aria-label="Pause and controls">☰</button></div>
 <div id="hint" class="hidden">Drag from the active player to pass or shoot • release to kick</div>
 <div id="bottomMessages"><div id="toast"></div><p id="kickoffCue" class="hidden" role="status" aria-live="polite"></p></div>
 <p id="controlledLocation" class="sr-only" role="status" aria-live="polite"></p>
@@ -2182,6 +2189,8 @@ function updateHUD(){
   $('#menuBtn').disabled=['goal','replay','restart'].includes(match.phase);
   $('#homeFlag').textContent=match.home.flag;$('#homeName').textContent=match.home.name;$('#homeName').title=match.home.name;
   $('#awayFlag').textContent=match.away.flag;$('#awayName').textContent=match.away.name;$('#awayName').title=match.away.name;
+  $('#homeCode').textContent=match.home.code;$('#homeCode').title=match.home.name;
+  $('#awayCode').textContent=match.away.code;$('#awayCode').title=match.away.name;
   $('#scoreText').textContent=match.penalties&&view!=='full'?match.penalties.score.join(' - ')+' pens':match.score.join(' - ');$('#attackDirection').textContent=match.penalties?'SHOOTOUT':attackHint();
   const min=Math.floor(match.minute),sec=Math.floor((match.minute-min)*60);
   $('#clock').textContent=match.penalties?'PENS':mode==='practice'?'PRACTICE':String(min).padStart(2,'0')+':'+String(sec).padStart(2,'0');

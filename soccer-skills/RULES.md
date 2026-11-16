@@ -308,3 +308,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - Continue / Set Up is now a visible, keyboard-accessible action rather than screen-reader-only until focus. It invokes the existing setup handler; the existing automatic setup countdown remains unchanged.
 - Shared styling covers throw-ins, corners, goal kicks, direct/indirect free kicks, offside and penalties. No camera, ownership, restart placement, timing, input, engine or physics changes.
 - Regression checks cover 333×505, 400×606, desktop and short landscape CSS geometry contracts, varying HUD heights, both owners in solo/local modes, every restart type, visible action labels and automatic/manual setup transitions. Native browser glyph wrapping, clipping and physical-device play remain for independent verification.
+
+
+### Compact in-play country identity
+
+- At viewport widths up to 620 CSS pixels, the match HUD shows the existing three-letter nation codes instead of ellipsized country names. Wider layouts retain full visual names.
+- Full country-name text remains in the accessibility tree at narrow widths; the duplicate visual code is aria-hidden and has the full name as its tooltip. Kit swatches and their home/away, country and local P1/P2 descriptions remain intact.
+- CSS handles resize changes without match-state updates. Scores, clocks, pause clearance and halftime/result/champion names are unchanged.
+- Regression checks cover all 32 countries in practice, Cup, shootout practice and local modes; long-name and Norway cases across 333, 620, 621 and 887-pixel widths; score/time/kit consistency; and interval names. Visibility is checked through CSS contracts and UI-harness data, not native-browser font measurement or accessibility-tree inspection. Independent native visual verification remains necessary.
