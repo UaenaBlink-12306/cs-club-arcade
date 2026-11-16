@@ -664,10 +664,10 @@ test('canvas accessible instructions follow local, practice and cup modes withou
  assert.ok(/aria-describedby="gameControls"/.test(html));
  h.chooseMode('multi');
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — local two-player match');
- for(const expected of ['Player 1: WASD','F passes','G shoots','Q switches','Player 2: arrow keys','K passes','L shoots','O switches','Escape pauses']){
+ for(const expected of ['Player 1: WASD','F auto-selects a teammate and passes','G shoots','Q switches','Player 2: arrow keys','K auto-selects a teammate and passes','L shoots','O switches','Escape pauses']){
   assert.ok(description.textContent.includes(expected),expected);
  }
- assert.ok(!description.textContent.includes('Space shoots'));assert.ok(!description.textContent.includes('E passes'));
+ assert.ok(!description.textContent.includes('Space shoots'));assert.ok(!description.textContent.includes('E auto-selects a teammate and passes'));
  assert.ok(!description.textContent.includes('Hold and drag'));
  h.click('startLocal');h.flush();
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — local two-player match');
@@ -675,13 +675,13 @@ test('canvas accessible instructions follow local, practice and cup modes withou
  assert.ok(description.textContent.includes('Player 2'));
  h.chooseMode('menu');h.chooseMode('practice');h.flush();
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — untimed practice');
- assert.ok(description.textContent.includes('Space shoots'));assert.ok(description.textContent.includes('E passes'));
+ assert.ok(description.textContent.includes('Space shoots'));assert.ok(description.textContent.includes('E auto-selects a teammate and passes'));
  assert.ok(description.textContent.includes('Hold and drag'));assert.ok(!description.textContent.includes('Player 2'));
  h.chooseMode('menu');h.chooseMode('cup');h.click('startMatch');h.flush();
  assert.equal(canvas.getAttribute('aria-label'),'Soccer pitch — single-player cup');
- assert.ok(description.textContent.includes('Tab switches player'));
+ assert.ok(description.textContent.includes('Tab switches defender'));
  h.chooseMode('menu');h.chooseMode('multi');
- assert.ok(description.textContent.includes('K passes'));assert.ok(!description.textContent.includes('Space shoots'));
+ assert.ok(description.textContent.includes('K auto-selects a teammate and passes'));assert.ok(!description.textContent.includes('Space shoots'));
 });
 
 test('one compact selector directly launches practice, cup and local setup',()=>{
@@ -3460,7 +3460,7 @@ test('pause separates concise core controls from the complete accessible advance
  const h=uiHarness(html);h.chooseMode('practice');h.flush();h.click('menuBtn');
  const core=h.elements.get('coreControls').innerHTML,advanced=h.elements.get('soloPauseHelp').textContent;
  for(const title of ['Move','Pass','Shoot','Switch defender','Pause / resume'])assert.ok(core.includes('<dt>'+title+'</dt>'));
- assert.ok(core.length<600);assert.equal(advanced,h.elements.get('gameControls').textContent);
+ assert.ok(core.replace(/<[^>]*>/g,' ').split(/\s+/).length<110);assert.equal(advanced,h.elements.get('gameControls').textContent);
  assert.ok(advanced.includes('After possession changes'));assert.ok(advanced.includes('shot forecast'));
  assert.ok(/<details id="advancedControls" class="rules-note"><summary>More aiming/.test(html));
  assert.ok(/#pause \.card\{max-height:[^}]*overflow-y:auto/.test(html));
@@ -4139,4 +4139,113 @@ test('champion summary preserves a drawn final and its actual shootout winning s
  assert.equal(h.elements.get('championPens').textContent,'Won on penalties · '+m.penalties.score.join(' – '));
  assert.equal(h.elements.get('cupContent').scrollTop,0);
  h.click('startMatch');h.flush();assert.equal(h.elements.get('championPens').textContent,'');assert.ok(h.elements.get('championPens').classList.contains('hidden'));
+});
+
+
+test('ownership investigation: solo E W Tab sequence keeps every actionable carrier selected through natural play',()=>{
+ const records=[];
+ for(const [width,height] of [[333,505],[1180,757]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('cup');h.click('startMatch');h.flush();const m=h.app.match;
+  const check=()=>{
+   if(m.phase==='playing'&&m.owner?.team===0){
+    assert.equal(m.active,m.owner.id,'human carrier must be selected before input');
+    const shot=m.snapshot(),marker=h.app.playerMarkers(shot.players[m.owner.id],shot);
+    assert.equal(marker.selected,true);assert.equal(marker.ownsBall,true);
+   }
+  };
+  for(let i=0;i<16000&&m.phase!=='full';i++){
+   if(m.phase==='half'){h.app.syncMatch();h.click('resume');}
+   if(m.phase==='restart'){m.takeRestart();h.app.syncMatch();}
+   if(m.phase==='penalties'||m.phase==='shootoutResult')break;
+   check();
+   if(m.phase==='playing'){
+    if(i%180===0)h.window.handlers.keydown(keyEvent('w'));
+    if(i%180===90)h.window.handlers.keyup(keyEvent('w'));
+    if(i%67===0)h.window.handlers.keydown(keyEvent('Tab'));
+    check();
+    if(i%110===0){
+     const owner=m.owner?.id,active=m.active,pending=m.pendingKick?.id,key=i%220===0?'e':' ';
+     h.window.handlers.keydown(keyEvent(key));
+     if(m.pendingKick&&m.pendingKick.id!==pending){assert.equal(m.pendingKick.player,owner);assert.equal(m.pendingKick.player,active);records.push({width,key,player:owner});}
+    }
+   }
+   m.step(1/60,h.app.input());check();
+  }
+ }
+ assert.ok(records.length>10,'multiple actual keyboard kick starts exercised');
+});
+test('ownership investigation: goalkeeper pass and shot select the kicker until contact then transfer to a real receiver',()=>{
+ for(const local of [false,true])for(const team of local?[0,1]:[0])for(const period of [1,2])for(const shot of [false,true]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:333,height:505});
+  h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();const m=h.app.match;
+  m.period=period;m.kickoff(team);const keeper=m.players[team*11];
+  // Controlled fixture for an actual keeper possession; no manual selection changes.
+  m.giveBall(keeper);const own=m.activeFor(team);
+  h.window.handlers.keydown(keyEvent(local?(team===0?'q':'o'):'Tab'));
+  assert.equal(m.activeFor(team),keeper.id,'switch cannot detach control from owned ball');
+  h.window.handlers.keydown(keyEvent(local?(team===0?(shot?'g':'f'):(shot?'l':'k')):(shot?' ':'e')));
+  assert.equal(m.pendingKick.player,keeper.id);assert.equal(m.activeFor(team),keeper.id);
+  let s=m.snapshot();assert.equal(h.app.playerMarkers(s.players[keeper.id],s,local).selected,true);
+  advanceToContact(m);s=m.snapshot();
+  assert.equal(m.ball.owner,null);assert.ok(m.activeFor(team)!==own);
+  assert.equal(h.app.playerMarkers(s.players[keeper.id],s,local).selected,false);
+  assert.ok(h.app.playerMarkers(s.players[keeper.id],s,local).follow>0);
+  assert.equal(h.app.playerMarkers(s.players[m.activeFor(team)],s,local).selected,true);
+  const count=m.strikeSequence;
+  h.window.handlers.keydown(keyEvent(local?(team===0?'f':'k'):'e'));
+  assert.equal(m.strikeSequence,count,'loose-ball pass cannot command the old keeper');
+  const receiver=m.players[m.activeFor(team)],before={x:receiver.x,y:receiver.y};
+  m.step(1/60,local?{teams:[team===0?{dx:0,dy:1}:{dx:0,dy:0},team===1?{dx:0,dy:1}:{dx:0,dy:0}]}:{dx:0,dy:1});
+  assert.ok(distance(receiver,before)>0,'movement really targets transferred selection');
+ }
+});
+test('ownership investigation: local and solo defender selection remains independent while opponents own the ball',()=>{
+ for(const local of [false,true])for(const team of local?[0,1]:[0]){
+  const h=uiHarness(html);h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();const m=h.app.match;
+  m.giveBall(m.players[(1-team)*11+6]);const before=m.activeFor(team),other=m.activeFor(1-team);
+  h.window.handlers.keydown(keyEvent(local?(team===0?'q':'o'):'Tab'));
+  assert.ok(m.activeFor(team)!==before);assert.equal(m.activeFor(1-team),other);
+  for(const key of local?(team===0?['f','g']:['k','l']):['e',' ']){
+   h.window.handlers.keydown(keyEvent(key));assert.equal(m.pendingKick,null);
+  }
+  m.giveBall(m.players[team*11+4]);assert.equal(m.activeFor(team),m.owner.id);
+ }
+});
+
+test('pause instructions distinguish pointer aim from automatic keyboard kicks and explain the contact handoff',()=>{
+ for(const [width,height] of [[333,505],[1180,757]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('practice');h.flush();const m=h.app.match,before=JSON.stringify(m.snapshot());
+  h.click('menuBtn');const core=h.elements.get('coreControls').innerHTML,help=h.elements.get('soloPauseHelp').textContent;
+  for(const text of ['Pointer: aim at a teammate + release','E: auto-select a teammate and pass','Space: shoot toward goal centre','Tab: switch while defending or chasing a loose ball','At ball contact, control moves to the receiver or chasing teammate'])assert.ok(core.includes(text),text);
+  assert.ok(help.includes('These keyboard shortcuts do not use pointer aim'));
+  assert.ok(help.includes('while opponents have possession or the ball is loose'));
+  assert.ok(help.includes('while the kicker follows through'));
+  assert.equal(help,h.elements.get('gameControls').textContent);
+  assert.ok(!h.elements.get('advancedControls').classList.contains('hidden'));
+  h.elements.get('advancedControls').open=true;h.app.render(0);
+  assert.equal(JSON.stringify(m.snapshot()),before,'help does not mutate match');
+  h.click('resumePause');assert.equal(h.document.activeElement,h.elements.get('game'));
+  h.window.handlers.keydown(keyEvent('e'));assert.equal(m.pendingKick.player,m.active);advanceToContact(m);assert.equal(m.passes[0],1);
+ }
+ // Responsive layout contracts only: no native text measurement or scroll simulation.
+ assert.ok(/#pause \.card\{max-height:[^}]*overflow-y:auto/.test(html));
+ assert.ok(/grid-template-columns:100px minmax\(0,1fr\);gap:8px/.test(html));
+ assert.ok(/\.core-controls dd\{min-width:0;overflow-wrap:anywhere/.test(html));
+});
+test('local help describes both auto-pass goal-shot and defensive-switch key sets without changing shootout guidance',()=>{
+ for(const [width,height] of [[333,505],[1180,757]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('multi');h.click('startLocal');h.flush();h.click('menuBtn');
+  const help=h.elements.get('gameControls').textContent,markup=html.match(/<p id="localPauseHelp"[^>]*>([\s\S]*?)<\/p>/)[1];
+  for(const text of ['F auto-selects a teammate and passes','K auto-selects a teammate and passes','G shoots toward goal centre','L shoots toward goal centre','At kick contact, your control moves to the receiver or chasing teammate'])assert.ok(help.includes(text),text);
+  for(const text of ['F auto-pass','K auto-pass','Q switch defender','O switch defender','Goal shots aim toward goal centre','while opponents have possession or the ball is loose','kicker finishes following through'])assert.ok(markup.includes(text),text);
+  assert.ok(!h.elements.get('localPauseHelp').classList.contains('hidden'));
+  h.click('resumePause');h.window.handlers.keydown(keyEvent('f'));assert.ok(h.app.match.pendingKick);
+  h.chooseMode('menu');h.chooseMode('shootout');h.flush();h.click('menuBtn');
+  assert.ok(h.elements.get('coreControls').innerHTML.includes('Aim your kick'));
+  assert.ok(!h.elements.get('gameControls').textContent.includes('toward goal centre'),'shootout keyboard aim is independent');
+  assert.ok(!h.elements.get('coreControls').innerHTML.includes('After a kick'));
+ }
 });

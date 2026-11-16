@@ -291,3 +291,12 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - All 32 countries and the completed eight-team bracket remain below. The ordinary pre-match overview is unchanged; starting another Cup clears the display-only victory snapshot and restores quarterfinal presentation.
 - UI regressions cover winner entry, scroll/focus, full retained roster/bracket, long country names, regular and shootout finals, another-Cup and change-team reset at 333×505, 400×606, desktop and short landscape dimensions. Responsive checks assert DOM order and winner-only layout contracts; native-browser first-viewport fit remains for independent live QA.
 - Only presentation state retains a copy of the completed final before the match is released. Cup format, match engine, physics, controls and scoring rules are unchanged.
+
+
+### Keyboard and pointer control clarity
+
+- Solo pause help separates pointer aim-and-release from E's automatic teammate choice and Space's shot toward goal centre. Expanded accessible instructions explicitly state that these keyboard shortcuts do not use pointer aim.
+- Tab (Q/O in local play) switches defenders while opponents have possession or the ball is loose. Help explains that kick contact transfers control to the receiver/chasing teammate while the old kicker follows through; the outlined marker and edge arrow identify the newly controlled player.
+- Local help names each player's auto-pass, central goal-shot and defender-switch keys. Shootout aim instructions remain separate because keyboard arrows/WASD actually adjust the penalty target.
+- Routine Pass!/Shot! feedback remains concise. No ownership, receiver selection, pointer recovery, engine, camera or physics changes.
+- Regression coverage includes the E/W/Tab investigation, keeper kicks for both teams/halves, opponent-possession switching, updated visible/accessible instructions and pause/resume at 333×505 and desktop harness dimensions. Narrow layout checks assert wrapping and the existing scrollable pause container; native-browser wrapping/scroll reachability and physical-device play are not verified by this harness.
