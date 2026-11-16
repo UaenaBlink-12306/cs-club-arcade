@@ -1366,8 +1366,21 @@ class SoccerMatch {
     const side=across===0?(p.slot%2?1:-1):Math.sign(across),shift=side*38-across;
     this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
   }
-  bestPass(p){
-    let best=null,bestValue=-Infinity;
+  groundPassBlocked(p,q){
+    const len=distance(p,q),dx=(q.x-p.x)/len,dy=(q.y-p.y)/len;
+    const start=this.restartGuard||{x:p.x+dx*10,y:p.y+dy*10};
+    const vx=q.x-start.x,vy=q.y-start.y,length2=vx*vx+vy*vy;
+    return this.players.some(o=>{
+      if(o.team===p.team)return false;
+      const t=((o.x-start.x)*vx+(o.y-start.y)*vy)/length2;
+      if(t<=0||t>=1)return false;
+      // Existing ground-ball capture reach, not a new interception advantage.
+      const reach=o.keeper&&this.inPenalty(o,o.team)?14:19;
+      return Math.hypot(o.x-start.x-t*vx,o.y-start.y-t*vy)<reach;
+    });
+  }
+  bestPass(p,preferOpenGroundLane=false){
+    let best=null,bestValue=-Infinity,open=null,openValue=-Infinity;
     for(const q of this.players){
       if(q.team!==p.team||q.id===p.id||q.keeper)continue;
       const len=distance(p,q);if(len<25||(!this.setPiece&&len>430)||(this.setPiece==='Kick-off'&&len>240))continue;
@@ -1376,8 +1389,11 @@ class SoccerMatch {
       const progress=(q.x-p.x)*this.direction(p.team);
       const value=space*.6+progress*.42-Math.abs(len-180)*.12;
       if(value>bestValue){bestValue=value;best=q;}
+      if(preferOpenGroundLane&&value>openValue&&!this.groundPassBlocked(p,q)){openValue=value;open=q;}
     }
-    return best;
+    // Keep the original ranking when every lane is contested. A clear lane now
+    // is not a guarantee against defenders moving into it after the kick.
+    return open||best;
   }
   aiBallCarrier(p,dt){
     const d=this.direction(p.team),goal=this.goalX(p.team),pressure=distance(this.nearest(1-p.team,p),p);
@@ -2472,7 +2488,7 @@ function localMovement(team){
 function localKick(team,shot){
   const p=match?.owner;if(!p||p.team!==team)return;
   if(shot)match.kick(p,{x:match.goalX(team)+match.direction(team)*20,y:FIELD.cy},1,!!match.setPiece);
-  else{const receiver=match.bestPass(p);if(receiver)match.kick(p,receiver,.6,!!match.setPiece);}
+  else{const receiver=match.bestPass(p,match.setPiece!=='Throw-in');if(receiver)match.kick(p,receiver,.6,false);}
 }
 function input(){
   if(mode==='local'&&match)return {teams:[localMovement(0),localMovement(1)]};
@@ -2514,7 +2530,7 @@ window.addEventListener('keydown',event=>{
     match.kick(p,{x:match.penalties.goal+match.direction(0)*20,y:match.penalties.aimY,shot:true},.85,false);return;
   }
   if(p?.team===0&&key===' ')match.kick(p,{x:match.goalX(0)+match.direction(0)*20,y:FIELD.cy},1,false);
-  if(p?.team===0&&key==='e'){const receiver=match.bestPass(p);if(receiver)match.kick(p,receiver,.6,false);}
+  if(p?.team===0&&key==='e'){const receiver=match.bestPass(p,match.setPiece!=='Throw-in');if(receiver)match.kick(p,receiver,.6,false);}
 });
 window.addEventListener('keyup',event=>keys.delete(event.key.toLowerCase()));
 window.addEventListener('blur',pause);

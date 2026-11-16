@@ -4782,3 +4782,122 @@ test('blur pointer cancellation and lost capture discard stale input and permit 
   assert.ok(h.app.match.pendingKick);advanceToContact(h.app.match);assert.equal(h.app.match.passes[0],1);
  }
 });
+
+test('ordinary automatic passes avoid an occupied lane and reach the clear alternative',()=>{
+ for(const mode of ['practice','cup'])for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode(mode);if(mode==='cup')h.click('startMatch');h.flush();h.tick(100);const m=h.app.match;
+  const receptions=[],give=m.giveBall.bind(m);
+  m.giveBall=p=>{if(m.flight)receptions.push({id:p.id,team:p.team,target:m.flight.receiverId});return give(p);};
+  let third=null;
+  for(let f=0;f<hz*3;f++){
+   if(f===0||f===hz||f===hz*2){
+    if(f===hz*2){
+     assert.equal(m.owner.id,3);
+     assert.equal(m.bestPass(m.owner).id,9,'legacy ranking still prefers the contested forward target');
+     assert.ok(m.groundPassBlocked(m.owner,m.players[9]));
+     assert.ok(!m.groundPassBlocked(m.owner,m.players[1]));
+    }
+    h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));
+    if(f===hz*2)third=m.pendingKick.target.receiverId;
+   }
+   h.tick(100+(f+1)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;
+   if(receptions.length===3)break;
+  }
+  assert.equal(third,1);assert.deepEqual(receptions.map(r=>r.id),[6,3,1]);
+  assert.ok(receptions.every(r=>r.team===0&&r.id===r.target));
+ }
+});
+test('ground-lane preference preserves legacy ranking fallback manual choice and capture geometry',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local',23),p=m.players[team*11+9],q=m.players[team*11+6],safe=m.players[team*11+5],o=m.players[(1-team)*11+6];
+  const place=(p,x,y)=>{p.x=team?1100-x:x;p.y=team?636-y:y;};
+  for(const a of m.players)place(a,a.team===team?1000:950,a.team===team?80:500);
+  place(p,550,318);place(q,390,318);place(safe,650,200);place(o,470,318);m.giveBall(p);
+  assert.equal(m.bestPass(p).id,q.id);assert.ok(m.groundPassBlocked(p,q));
+  assert.equal(m.bestPass(p,true).id,safe.id);
+  place(o,470,318+19.1);assert.ok(!m.groundPassBlocked(p,q));
+  place(o,470,318+18.9);assert.ok(m.groundPassBlocked(p,q),'uses existing nineteen-unit ground capture radius');
+  place(o,470,318);
+  const other=m.players[(1-team)*11+7];place(other,600,259);
+  assert.ok(m.groundPassBlocked(p,safe));assert.equal(m.bestPass(p,true).id,m.bestPass(p).id,'all-contested situation retains the prior ranking');
+  assert.ok(m.kick(p,q,.6,false));assert.equal(m.pendingKick.target.receiverId,q.id,'manual choice is not vetoed');
+ }
+});
+test('local F and K kickoff passes match solo ground-pass timing instead of unintended lofted overshoots',()=>{
+ for(const hz of [60,120])for(const width of [333,887])for(const team of [0,1]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;
+  // P2 uses the normal second-half transition from an explicit halftime fixture.
+  if(team===1){m.phase='half';h.app.syncMatch();h.click('resume');}
+  h.tick(100);h.window.handlers.keydown(keyEvent(team?'k':'f'));
+  const target=m.pendingKick.target.receiverId;
+  assert.equal(m.pendingKick.power,.6);assert.equal(m.pendingKick.loft,false);
+  assert.equal(m.pendingKick.duration,.075);
+  let received=false;
+  for(let f=1;f<=hz;f++){
+   h.tick(100+f*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;
+   assert.equal(m.ball.z,0);
+   if(m.owner?.id===target){received=true;break;}
+  }
+  assert.ok(received);assert.ok(Math.abs(m.elapsed-.36666666666666664)<1e-8);
+  assert.equal(target,team*11+6);assert.equal(m.passes[team],1);
+ }
+ for(const team of [0,1]){
+  const h=uiHarness(html);h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;
+  m.stopForRestart({type:'Throw-in',team,x:550,y:FIELD.top});h.app.syncMatch();h.click('takeCorner');
+  h.window.handlers.keydown(keyEvent(team?'k':'f'));assert.ok(m.pendingKick);advanceToContact(m);
+  assert.equal(m.ball.z,30);assert.equal(m.ball.vz,121,'throw-in launch is unchanged by the pass-key correction');
+ }
+});
+test('ordinary pointer choices keep directional intent while moving receivers are retargeted at contact',()=>{
+ for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));while(frame<hz)tick();
+  assert.equal(m.owner.id,6);const p=m.owner,r=m.players[3],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,r.id);
+  const aimed={x:m.pendingKick.target.x,y:m.pendingKick.target.y},release=m.releaseKick.bind(m);let contact=null;
+  m.releaseKick=k=>{const position={x:r.x,y:r.y},ok=release(k);if(ok)contact={position,target:{...m.flight.target}};return ok;};
+  while(m.pendingKick)tick();
+  assert.ok(contact);assert.deepEqual(contact.target,contact.position);assert.ok(distance(aimed,contact.target)>.5,'actual moving teammate is retargeted during wind-up');
+  while(frame<hz*3&&m.owner?.id!==r.id)tick();
+  assert.equal(m.owner.id,r.id,'receiver meets the moving delivery');
+ }
+});
+test('manual pointer may choose a contested forward teammate without automatic-pass filtering',()=>{
+ for(const hz of [60,120])for(const width of [333,887]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;
+  let frame=0;const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));while(frame<hz)tick();
+  h.window.handlers.keydown(keyEvent('e'));while(frame<hz*2)tick();
+  assert.equal(m.owner.id,3);assert.equal(m.bestPass(m.owner,true).id,1);
+  const p=h.app.drawnPlayers.get(3),r=h.app.drawnPlayers.get(9),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,9);assert.equal(m.pendingKick.shot,false);
+  assert.ok(m.pendingKick.power>=.7,'manual strength remains independently controlled');
+  while(frame<hz*4&&!m.owner?.id)tick();
+  while(frame<hz*4&&m.owner?.id!==9)tick();
+  assert.equal(m.owner.id,9,'a sufficiently strong manual pass remains possible; lane preference is not a forced target');
+ }
+});
+test('fresh repeated pass presses after actual reception are accepted without a settling-input lock',()=>{
+ for(const local of [false,true])for(const hz of [60,120]){
+  const h=uiHarness(html);h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();h.tick(100);const m=h.app.match;
+  let lastPossession=-1,accepted=0,receptions=0;
+  for(let f=0;f<hz*4;f++){
+   if(m.owner?.team===0&&m.possessionSerial!==lastPossession&&!m.pendingKick&&m.bestPass(m.owner,true)){
+    if(accepted)receptions++;
+    lastPossession=m.possessionSerial;
+    h.window.handlers.keydown(keyEvent(local?'f':'e'));h.window.handlers.keyup(keyEvent(local?'f':'e'));
+    assert.ok(m.pendingKick,'a new press on a new possession must be actionable immediately');accepted++;
+   }
+   h.tick(100+(f+1)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;
+   if(receptions>=3)break;
+  }
+  assert.ok(receptions>=2);assert.ok(accepted>=3);
+ }
+});
