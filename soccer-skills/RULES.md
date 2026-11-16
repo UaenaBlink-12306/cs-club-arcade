@@ -257,3 +257,11 @@ Eight new tests cover menu-only entry, desktop and portrait pointer shooting, ro
 - An inactive toast takes no layout space. Existing 650/1600 ms toast timers and all restart lifetimes are unchanged. The stack respects the bottom safe area and uses compact spacing on narrow and short landscape viewports.
 - Off-screen player indicators avoid the measured bounds of the entire stack, including the gap between its messages, as well as the existing individual obstacles.
 - Regression coverage checks simultaneous real UI introduction/cue states, expiry/pause behavior, the CSS normal-flow contract, and obstacle/indicator geometry at 1180×757, 500×757, 320×568 and 757×360. Geometry uses explicit conservative wrapped-height fixtures, not a browser font-layout measurement. Actual rendered wrapping remains for independent live QA.
+
+
+### Short portrait shootout aim visibility
+
+- On portrait viewports up to 420 px wide and 640 px high, the progress panel becomes a shallower full-width strip below the scoreboard. Both five-attempt team histories remain visible side by side, with the round/role, action and countdown retained.
+- Aim/power/accuracy captions now reserve the visible progress panel's measured DOM rectangle, converted into canvas coordinates with a small gap. This also protects feedback if text wraps taller than expected or browser zoom changes the layout. The shootout taker's body joins the keeper and ball as a hard label-avoidance area.
+- Geometry regression reproduces the reported 333×505 overlap with the observed panel bounds, then checks captions against both the old tall panel and compact-panel fixtures at 333×505, 400×606 and 1180×757, at both goals. Keyboard preview, held pointer aiming, release, countdown, history and pause/resume are covered.
+- Layout checks use the production projection/drawing code plus supplied DOM bounds and explicit compact-height fixtures. They are not independent native-browser/font-layout, physical-touch or screen-reader verification. No shot physics, camera, rules, shootout decisions or timing changed.

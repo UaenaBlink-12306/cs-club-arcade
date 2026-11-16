@@ -3854,3 +3854,69 @@ test('combined message geometry reserves long introductions and restart cues acr
   h.click('menuBtn');assert.ok(!h.app.controlEdgeObstacles().some(r=>r.left===x&&r.bottom===bottom));
  }
 });
+
+test('shootout aim feedback avoids the measured progress panel at narrow portrait and desktop sizes',()=>{
+ const overlap=(a,b)=>Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+ for(const [width,height] of [[333,505],[400,606],[1180,757]])for(const period of [1,2])for(const compact of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game'),left=37,top=21;
+  c.getBoundingClientRect=()=>({left,top,width,height});
+  h.chooseMode('shootout');h.flush();const m=h.app.match;m.period=period;m.startShootout();h.app.syncMatch();
+  // The old 333px bounds come from independent live QA. Other dimensions are
+  // explicit geometry fixtures; compact height is not a browser font measurement.
+  const narrow=width<=420,panelWidth=narrow&&compact?width-16:width<=620?228:246;
+  const box={left:width-(width<=620?8:14)-panelWidth,right:width-(width<=620?8:14),top:width<=620?55:64,bottom:(width<=620?55:64)+(narrow&&compact?92:143)};
+  const panel=h.elements.get('shootoutInfo');
+  panel.getBoundingClientRect=()=>({left:left+box.left,right:left+box.right,top:top+box.top,bottom:top+box.bottom,width:box.right-box.left,height:box.bottom-box.top});
+  const unit=1100/width,visible={left:box.left*unit,right:box.right*unit,top:box.top*unit,bottom:box.bottom*unit};
+  const before=JSON.stringify(m.snapshot());
+  let releasePoint=null;
+  for(let frame=0;frame<4;frame++){
+   if(frame===2){const start=h.app.camera.project(m.owner.x,m.owner.y);releasePoint=h.app.camera.project(m.penalties.goal+m.direction(0)*20,FIELD.cy+30);
+    c.handlers.pointerdown(pointerEvent(h,start.x,start.y));c.handlers.pointermove(pointerEvent(h,releasePoint.x,releasePoint.y));}
+   h.draws.length=0;h.app.render(1/60);
+   const rectangles=[];
+   for(let i=0;i<h.draws.length;i++){
+    const d=h.draws[i];if(d.method!=='fillText'||!/^SHOT |IF CLEAR/.test(String(d.args[0])))continue;
+    const bg=h.draws[i-1];assert.equal(bg.method,'fillRect');const [x,y,w,boxHeight]=bg.args;
+    const rect={left:x,right:x+w,top:y,bottom:y+boxHeight};
+    assert.equal(overlap(rect,visible),0,width+'×'+height+' aim feedback hidden by progress');
+    for(const id of [m.penalties.taker,m.penalties.keeper]){
+     const p=m.players[id],foot=h.app.camera.project(p.x,p.y),head=h.app.camera.project(p.x,p.y,26),half=Math.max(12*unit,(p.keeper?13:9)*foot.scale);
+     const body={left:foot.x-half,right:foot.x+half,top:head.y-5*unit,bottom:foot.y+5*unit};
+     assert.equal(overlap(rect,body),0,'aim feedback covers taker/keeper');
+    }
+    for(const old of rectangles)assert.equal(overlap(rect,old),0,'aim captions overlap');
+    assert.ok(rect.left>=0&&rect.right<=1100&&rect.top>=0&&rect.bottom<=1100*height/width+1);
+    rectangles.push(rect);
+   }
+   assert.ok(rectangles.length>=2,'power and accuracy text must remain drawn');
+  }
+  assert.equal(JSON.stringify(m.snapshot()),before,'layout must not advance or alter the kick');
+  assert.ok(h.app.aimPanelObstacles().some(r=>r.hard&&r.left<=visible.left&&r.right>=visible.right&&r.top<=visible.top&&r.bottom>=visible.bottom));
+  c.handlers.pointerup(pointerEvent(h,releasePoint.x,releasePoint.y));assert.ok(m.pendingKick?.shot);advanceToContact(m);assert.equal(m.penalties.stage,'flight');
+  h.click('menuBtn');assert.ok(!h.app.aimPanelObstacles().some(r=>r.ui==='shootoutInfo'));
+ }
+});
+test('compact shootout progress retains role countdown and both complete five-attempt histories',()=>{
+ const css=html.slice(html.indexOf('/* Short portrait shootout progress'),html.indexOf('</style>'));
+ assert.ok(/@media\(max-width:420px\) and \(max-height:640px\) and \(orientation:portrait\)/.test(css));
+ assert.ok(/#shootoutLiveHistory\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/.test(css));
+ assert.ok(!/display:none|visibility:hidden/.test(css));
+ for(const [width,height] of [[333,505],[400,606]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('shootout');h.flush();const m=h.app.match;
+  assert.equal(h.elements.get('shootoutRole').textContent,'PRACTICE · ROUND 1 · YOUR KICK');
+  assert.ok(h.elements.get('shootoutAction').textContent.includes('Aim, then release'));
+  assert.equal((h.elements.get('shootoutLiveHistory').innerHTML.match(/class="kick-dot /g)||[]).length,10);
+  playShootoutKick(m,'save');h.app.syncMatch();h.click('nextPenalty');
+  assert.ok(h.elements.get('shootoutRole').textContent.includes('YOUR KEEPER'));
+  assert.ok(h.elements.get('shootoutLiveHistory').innerHTML.includes('Kick 1: saved'));
+  assert.equal((h.elements.get('shootoutLiveHistory').innerHTML.match(/class="kick-dot /g)||[]).length,10);
+  assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 2s');
+  for(let n=0;n<45;n++)m.step(1/60,h.app.input());h.app.syncMatch();
+  assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 1s');
+  h.click('menuBtn');assert.ok(h.elements.get('shootoutInfo').classList.contains('hidden'));
+  h.click('resumePause');assert.ok(!h.elements.get('shootoutInfo').classList.contains('hidden'));
+  assert.equal(h.elements.get('shootoutAction').textContent,'Move keeper now · Shot in 1s');
+ }
+});
