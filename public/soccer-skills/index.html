@@ -1649,12 +1649,14 @@ class SoccerMatch {
     if(!this.inShootout()&&this.checkChallenges(before,dt))return;
     if(this.checkPossessionAdvantage())return;
     // Give runs a little space; never stack the entire team onto the ball.
+    // Restart takers may stand inside the usual movement margin. Separate by
+    // the small overlap correction only; do not clamp them abruptly infield.
     for(let i=0;i<this.players.length;i++)for(let j=i+1;j<this.players.length;j++){
       if(this.inShootout())continue;
       const a=this.players[i],b=this.players[j],dx=a.x-b.x,dy=a.y-b.y,len=Math.hypot(dx,dy);
       if(len<24&&len>.01){const push=(24-len)*dt*3;const sx=dx/len*push,sy=dy/len*push;
-        if(a.id!==this.ball.owner){a.x=clamp(a.x+sx,FIELD.left+12,FIELD.right-12);a.y=clamp(a.y+sy,FIELD.top+12,FIELD.bottom-12);}
-        if(b.id!==this.ball.owner){b.x=clamp(b.x-sx,FIELD.left+12,FIELD.right-12);b.y=clamp(b.y-sy,FIELD.top+12,FIELD.bottom-12);}
+        if(a.id!==this.ball.owner){a.x=clamp(a.x+sx,Math.min(FIELD.left+12,a.x),Math.max(FIELD.right-12,a.x));a.y=clamp(a.y+sy,Math.min(FIELD.top+12,a.y),Math.max(FIELD.bottom-12,a.y));}
+        if(b.id!==this.ball.owner){b.x=clamp(b.x-sx,Math.min(FIELD.left+12,b.x),Math.max(FIELD.right-12,b.x));b.y=clamp(b.y-sy,Math.min(FIELD.top+12,b.y),Math.max(FIELD.bottom-12,b.y));}
       }
     }
     this.enforceRestart();

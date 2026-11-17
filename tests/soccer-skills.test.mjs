@@ -6443,3 +6443,73 @@ test('AI kickoff change leaves goal kicks throw-ins corners and free kicks equiv
   for(let i=0;i<300;i++){a.step(1/60,{dx:0,dy:0});b.step(1/60,{dx:0,dy:0});assert.equal(JSON.stringify(a),JSON.stringify(b),'unrelated restart remains identical');}
  }
 });
+
+function separationFixture(MatchClass,aPoint,bPoint,swap=false){
+ const m=new MatchClass(NATIONS[0],NATIONS[2],'practice');m.giveBall(m.players[0]);m.ball.owner=null;m.ball.z=100;m.ball.x=550;m.ball.y=318;
+ const a=m.players[swap?20:9],b=m.players[swap?9:20];
+ for(const p of m.players){p.x=400+p.slot*25;p.y=250+p.team*130;p.cooldown=1;}
+ Object.assign(a,aPoint);Object.assign(b,bPoint);m.lastRestart={type:'Throw-in',team:a.team,taker:a.id};
+ return {m,a,b};
+}
+test('separation at throw-in and corner boundaries never teleports a stationary restart taker inward',()=>{
+ const points=[
+  [{x:550,y:FIELD.top},{x:550,y:FIELD.top+20}],
+  [{x:550,y:FIELD.bottom},{x:550,y:FIELD.bottom-20}],
+  [{x:FIELD.left,y:318},{x:FIELD.left+20,y:318}],
+  [{x:FIELD.right,y:318},{x:FIELD.right-20,y:318}],
+  [{x:FIELD.left+6,y:FIELD.top+6},{x:FIELD.left+20,y:FIELD.top+20}],
+  [{x:FIELD.right-6,y:FIELD.bottom-6},{x:FIELD.right-20,y:FIELD.bottom-20}]
+ ];
+ for(const [ap,bp] of points)for(const swap of [false,true])for(const hz of [30,60,120]){
+  const {m,a,b}=separationFixture(SoccerMatch,ap,bp,swap),push=(24-distance(a,b))*3/hz;
+  m.step(1/hz,{dx:0,dy:0});
+  assert.ok(distance(a,ap)<=push+1e-8,'restart taker moves only by the separation correction');
+  assert.ok(distance(b,bp)<=push+1e-8);
+  for(const p of [a,b]){assert.ok(p.x>=FIELD.left&&p.x<=FIELD.right);assert.ok(p.y>=FIELD.top&&p.y<=FIELD.bottom);}
+ }
+});
+test('separation retains identical behavior for ordinary interior collisions',()=>{
+ let old=engine;
+ for(const p of ['a','b']){
+  old=old.replace('Math.min(FIELD.left+12,'+p+'.x),Math.max(FIELD.right-12,'+p+'.x)','FIELD.left+12,FIELD.right-12');
+  old=old.replace('Math.min(FIELD.top+12,'+p+'.y),Math.max(FIELD.bottom-12,'+p+'.y)','FIELD.top+12,FIELD.bottom-12');
+ }
+ const Baseline=new Function(old+';return SoccerMatch;')();
+ for(const hz of [30,60,120])for(const swap of [false,true]){
+  const a=separationFixture(SoccerMatch,{x:550,y:180},{x:567,y:187},swap);
+  const b=separationFixture(Baseline,{x:550,y:180},{x:567,y:187},swap);
+  for(let i=0;i<12;i++){a.m.step(1/hz,{dx:0,dy:0});b.m.step(1/hz,{dx:0,dy:0});assert.equal(JSON.stringify(a.m),JSON.stringify(b.m));}
+ }
+});
+function normalTouchlineThrow(challenge=false){
+
+const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let f=0;
+const tick=()=>{h.tick(100+(++f)*1000/60);h.draws.length=0;h.app.drawnPaths.length=0;};
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<45;i++)tick();
+h.window.handlers.keydown(keyEvent('a'));for(let i=0;i<210;i++)tick();h.window.handlers.keyup(keyEvent('a'));h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<180;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+if(m.owner?.team!==0)return {stage:'lost before exit',owner:m.owner?.id,phase:m.phase};
+const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,FIELD.top-160),anchor={x:a.x,y:a.y};
+c.handlers.pointerdown(pointerEvent(h,anchor.x,anchor.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));const intent=h.app.pointerAim(h.app.drag);c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+const painted=[],trace=[],restarts=[],receipts=[],contacts=[],release=m.releaseKick.bind(m),give=m.giveBall.bind(m),stop=m.stopForRestart.bind(m);
+m.stopForRestart=(r,...args)=>{restarts.push({at:m.elapsed,...r});return stop(r,...args);};
+m.releaseKick=k=>{const kind=m.setPiece,r=release(k);contacts.push({at:m.elapsed,type:kind,player:k.player,target:m.flight?.target,receiver:m.flight?.receiverId,loft:k.loft});return r;};
+m.giveBall=q=>{receipts.push({at:m.elapsed,id:q.id,team:q.team,keeper:q.keeper});return give(q);};
+const check=m.checkChallenges.bind(m);m.checkChallenges=(before,dt)=>{if(contacts.some(q=>q.type==='Throw-in'))trace.push({at:m.elapsed,before,players:m.players.map(q=>({id:q.id,x:q.x,y:q.y,speed:q.speed,kickAt:q.kickAt})),active:m.active,ball:{...m.ball}});return check(before,dt);};
+let challenged=false;for(let i=0;i<900;i++){tick();if(challenge&&!challenged&&contacts.some(q=>q.type==='Throw-in')){challenged=true;h.window.handlers.keydown(keyEvent('tab'));h.window.handlers.keydown(keyEvent('d'));h.window.handlers.keydown(keyEvent('w'));}if(contacts.some(q=>q.type==='Throw-in'))painted.push({at:m.elapsed,p:{...h.app.drawnPlayers.get(19)}});if(restarts.length>=2||contacts.some(q=>q.type==='Throw-in')&&receipts.some(q=>q.at>contacts.find(q=>q.type==='Throw-in').at))break;}
+return {painted,trace,lastFoul:m.lastFoul,start:{x:p.x,y:p.y},intent,restarts,contacts,receipts,phase:m.phase,ball:m.ball};
+
+}
+test('ordinary midfield throw-in keeps the painted taker on the line and reaches the receiver without a spurious foul',()=>{
+ const r=normalTouchlineThrow(),contact=r.contacts.find(q=>q.type==='Throw-in');
+ assert.ok(contact);assert.equal(r.restarts.length,1);assert.equal(r.lastFoul,null);
+ assert.equal(r.receipts[r.receipts.length-1].id,contact.receiver);
+ const frames=r.painted.filter(q=>q.at<=contact.at+.12);assert.ok(frames.length>=5);
+ assert.ok(frames.every(q=>Math.abs(q.p.y-FIELD.top)<1e-8),'canvas frame trace has no twelve-unit inward jump');
+});
+test('deliberate keyboard contact after the same throw-in remains a genuine late-challenge foul',()=>{
+ const r=normalTouchlineThrow(true);
+ assert.equal(r.lastFoul?.reason,'Late challenge');assert.equal(r.lastFoul?.offender,5);assert.equal(r.lastFoul?.victim,19);
+ assert.equal(r.trace[r.trace.length-1].active,5,'offender is now deliberately human controlled');
+ assert.equal(r.restarts[r.restarts.length-1].type,'Direct Free Kick');
+});
