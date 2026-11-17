@@ -6333,3 +6333,113 @@ test('arrival animation correction preserves simulation and bounds camera lead a
   assert.ok(a.app.match.players.every(p=>p.gaitSpeed===0),'restart clears the previous gait');
  }
 });
+
+test('AI kickoffs reach varied safe outfield outlets across the full roster both teams and both halves',()=>{
+ 
+const failures=[],outlets=new Set();let total=0;
+for(let nation=0;nation<NATIONS.length;nation++)for(const period of [1,2])for(const team of [0,1]){
+ const m=new SoccerMatch(NATIONS[nation],NATIONS[(nation+3)%NATIONS.length],'practice',23+nation*7);m.period=period;
+ for(let repeat=0;repeat<3;repeat++){
+  m.kickoff(team);let target=null,receipt=null;const release=m.releaseKick.bind(m),give=m.giveBall.bind(m);
+  m.releaseKick=a=>{const v=release(a);target=m.flight?.receiverId;return v;};
+  m.giveBall=p=>{if(target!==null&&!receipt)receipt={id:p.id,team:p.team,keeper:p.keeper};return give(p);};
+  for(let i=0;i<360&&!receipt&&m.phase==='playing';i++)m.step(1/60,team===1?{dx:0,dy:0}:null);
+  total++;if(!receipt||receipt.id!==target||receipt.team!==team||receipt.keeper)failures.push({nation,period,team,repeat,target,receipt,phase:m.phase});
+  if(receipt)outlets.add(receipt.id%11);m.releaseKick=release;m.giveBall=give;
+ }
+}
+assert.equal(total,384);assert.deepEqual(failures,[]);assert.deepEqual([...outlets].sort(),[5,6,7]);
+});
+test('AI ground kickoff delivery retains legal positioning timing and actual reception at 30 60 and 120 Hz',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.period=period;m.kickoff(team);
+  const input=team===1?{dx:0,dy:0}:null,shape=m.players.map(p=>({x:p.x,y:p.y}));
+  let target=null,received=null,contact=null;const release=m.releaseKick.bind(m),give=m.giveBall.bind(m);
+  m.releaseKick=a=>{assert.equal(a.loft,false);const r=release(a);target=m.flight.receiverId;contact=m.elapsed;assert.equal(m.ball.vz,0);return r;};
+  m.giveBall=p=>{if(target!==null&&!received)received=p;return give(p);};
+  for(let i=0;i<hz*4&&!received;i++){
+   m.step(1/hz,input);
+   if(m.setPiece){assertSpreadKickoff(m);assert.deepEqual(m.players.map(p=>({x:p.x,y:p.y})),shape);}
+  }
+  assert.ok(contact>=1.175-1/hz-1e-8&&contact<1.21);assert.equal(received?.id,target);assert.equal(received?.keeper,false);assert.equal(received?.team,team);
+  assert.equal(m.passes[team],1);assert.equal(m.setPiece,null);assert.ok(m.minute>0);
+ }
+});
+test('kickoff outlet variety never overrides pressure clear lanes or advances random state',()=>{
+ for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.period=period;m.kickoff(1);const p=m.owner,marker=m.players[9];
+  marker.x=550-m.direction(1)*2;marker.y=FIELD.cy-92;m.enforceRestart();
+  assert.equal(m.kickoffPass(p).id,18);m.kickoffOutlets[1][18]=99;
+  const seed=m.seed;assert.equal(m.kickoffPass(p).id,18,'safer opposite outlet wins despite extensive prior use');assert.equal(m.seed,seed);
+  // Adversarial planner fixture: cover the eligible lanes, independently of legal kickoff positioning.
+  m.kickoff(1);const options=m.players.filter(q=>q.team===1&&!q.keeper&&q.id!==p.id&&distance(q,p)>=25&&distance(q,p)<=240);
+  options.forEach((q,i)=>{m.players[i+1].x=(p.x+q.x)/2;m.players[i+1].y=(p.y+q.y)/2;m.players[i+1].speed=0;});
+  assert.equal(m.kickoffPass(p),null,'no forced recipient when every lane is blocked');
+  options.forEach((q,i)=>{m.players[i+1].x=q.x;m.players[i+1].y=q.y;});
+  assert.equal(m.kickoffPass(p),null,'a clear lane cannot make a tightly marked receiver safe');
+  m.players.slice(1,options.length+1).forEach(q=>{q.x=m.goalX(1);q.y=FIELD.top+15;});
+  assert.ok(m.kickoffPass(p),'a safe option becomes available again');
+ }
+});
+test('kickoff outlet history records contact once and resets only with a new match',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.kickoff(1);const p=m.owner,q=m.kickoffPass(p);
+ const seed=m.seed;for(let i=0;i<10;i++)assert.equal(m.kickoffPass(p).id,q.id);
+ assert.equal(m.seed,seed);assert.deepEqual(m.kickoffOutlets,[{},{}]);
+ m.kick(p,q,.75,false);m.pendingKick=null;assert.deepEqual(m.kickoffOutlets,[{},{}],'cancelled wind-up is not a used outlet');
+ m.kick(p,q,.75,false);advanceToContact(m);assert.equal(m.kickoffOutlets[1][q.id],1);
+ m.kickoff(1);assert.equal(m.kickoffOutlets[1][q.id],1);assert.ok(m.kickoffPass(m.owner).id!==q.id);
+ m.phase='half';m.resumeHalf();assert.equal(m.kickoffOutlets[1][q.id],1);
+ const fresh=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');assert.deepEqual(fresh.kickoffOutlets,[{},{}]);
+});
+test('a normal pointer goal automatic replay exit and opponent kickoff reach the intended midfielder',()=>{
+ 
+const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+h.chooseMode('practice');h.flush();const m=h.app.match,start=m.owner.id;
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));
+let received=false,shot=false,anchor=null,launch=null,reception=null;
+const release=m.releaseKick.bind(m),give=m.giveBall.bind(m);
+m.releaseKick=a=>{const kind=m.setPiece,r=release(a);if(kind==='Kick-off'&&a.player>=11)launch={at:m.elapsed,receiver:m.flight.receiverId,loft:a.loft};return r;};
+m.giveBall=p=>{if(launch&&!reception)reception={id:p.id,keeper:p.keeper,team:p.team};return give(p);};
+for(let frame=0;frame<1800&&!reception;frame++){
+ if(m.phase==='playing'&&!shot){
+  if(!received&&m.owner?.team===0&&m.owner.id!==start){received=true;anchor=h.app.camera.project(m.owner.x,m.owner.y);c.handlers.pointerdown(pointerEvent(h,anchor.x,anchor.y));}
+  if(received&&m.owner?.team===0){
+   const p=m.owner,at=h.app.camera.project(p.x,p.y),range=p.x-FIELD.left;
+   const dest=h.app.camera.project(range<180?FIELD.left:p.x-100,range<180?FIELD.cy+45:p.y-35);
+   const len=Math.hypot(dest.x-at.x,dest.y-at.y),q={x:anchor.x+(dest.x-at.x)/len*160,y:anchor.y+(dest.y-at.y)/len*160};
+   c.handlers.pointermove(pointerEvent(h,q.x,q.y));
+   if(range<180){c.handlers.pointerup(pointerEvent(h,q.x,q.y));shot=true;}
+  }
+ }
+ m.step(1/60,h.app.input());h.app.syncMatch();h.app.render(1/60);h.draws.length=0;h.app.drawnPaths.length=0;
+}
+assert.equal(m.score[0],1);assert.ok(launch);assert.equal(launch.loft,false);assert.equal(reception?.id,launch.receiver);assert.equal(reception?.keeper,false);assert.equal(reception?.team,1);
+});
+test('normal Cup clock halftime and Resume lead to an actual outfield opponent kickoff reception',()=>{
+ 
+const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+h.chooseMode('cup');h.click('startMatch');h.flush();h.tick(100);const m=h.app.match;
+let half=false,launch=null,reception=null,frames=0;const release=m.releaseKick.bind(m),give=m.giveBall.bind(m);
+m.releaseKick=a=>{const kind=m.setPiece,r=release(a);if(m.period===2&&kind==='Kick-off'&&a.player>=11&&!launch)launch={at:m.elapsed,receiver:m.flight.receiverId,loft:a.loft};return r;};
+m.giveBall=p=>{if(launch&&!reception)reception={id:p.id,keeper:p.keeper,team:p.team};return give(p);};
+for(let frame=1;frame<=6000&&!reception;frame++){
+ frames=frame;
+ if(m.phase==='playing'&&m.setPiece==='Kick-off'&&m.owner?.team===0&&!m.pendingKick){h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));}
+ h.tick(100+frame*1000/30);h.draws.length=0;h.app.drawnPaths.length=0;
+ if(m.phase==='half'){half=true;h.click('resume');}
+}
+assert.ok(half);assert.equal(m.period,2);assert.ok(m.minute>45);assert.ok(launch);assert.equal(launch.loft,false);assert.equal(reception?.id,launch.receiver);assert.equal(reception?.keeper,false);
+});
+test('AI kickoff change leaves goal kicks throw-ins corners and free kicks equivalent',()=>{
+ const old=engine.replace("const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);","const receiver=this.bestPass(p);if(receiver)this.kick(p,receiver,.75,true);");
+ const Baseline=new Function(old+';return SoccerMatch;')();
+ for(const period of [1,2])for(const type of ['Goal Kick','Throw-in','Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  const a=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),b=new Baseline(NATIONS[0],NATIONS[2],'practice');
+  for(const m of [a,b]){
+   m.period=period;m.kickoff(0);
+   const d=m.direction(1),r={type,team:1,x:type==='Goal Kick'?m.ownGoalX(1)+d*24:type==='Corner Kick'?m.goalX(1)-d*6:550,y:type==='Throw-in'||type==='Corner Kick'?FIELD.top:FIELD.cy};
+   m.stopForRestart(r);m.takeRestart();
+  }
+  for(let i=0;i<300;i++){a.step(1/60,{dx:0,dy:0});b.step(1/60,{dx:0,dy:0});assert.equal(JSON.stringify(a),JSON.stringify(b),'unrelated restart remains identical');}
+ }
+});

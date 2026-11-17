@@ -1003,7 +1003,7 @@ function gaitAmplitude(speed){return Math.sin(clamp(speed/110,0,1)*Math.PI/2);}
 class SoccerMatch {
   constructor(home,away,mode='cup',seed=23){
     this.home=home;this.away=away;this.mode=mode;this.seed=seed;
-    this.score=[0,0];this.minute=0;this.period=1;this.elapsed=0;this.phase='playing';
+    this.kickoffOutlets=[{},{}];this.score=[0,0];this.minute=0;this.period=1;this.elapsed=0;this.phase='playing';
     this.active=9;this.activeAway=20;this.players=[];this.history=[];this.replayFrames=[];this.replayTime=0;
     this.recordAt=0;this.event='Kick off';this.feedbackSerial=0;this.restarts=0;this.tackles=0;this.fouls=[0,0];this.lastFoul=null;this.advantage=null;this.penaltyRun=null;this.shots=[0,0];this.passes=[0,0];this.saves=[0,0];this.interceptions=[0,0];
     this.ball={x:550,y:318,z:0,vx:0,vy:0,vz:0,owner:null,lastTouch:0,lock:0};
@@ -1343,6 +1343,7 @@ class SoccerMatch {
         (q.x-550)*d>0&&q.x*d>this.ball.x*d+.1&&q.x*d>defenders[1]+.1).map(q=>q.id)
     };
     this.flight={id:action.id,team:p.team,shot:shot&&!throwing,receiverId:!shot?(receiver?.id??this.nearest(p.team,target,p.id).id):null,directed:!shot&&!!receiver,started:this.elapsed,target:{x:target.x,y:target.y}};
+    if(restart?.type==='Kick-off'&&receiver&&!shot)this.kickoffOutlets[p.team][receiver.id]=(this.kickoffOutlets[p.team][receiver.id]||0)+1;
     this.lastRestart=restart?{type:restart.type,team:p.team,taker:p.id}:null;
     this.restartGuard=null;this.handOwner=null;
     p.angle=Math.atan2(dy,dx);p.visualAngle=p.angle;
@@ -1436,6 +1437,21 @@ class SoccerMatch {
     // is not a guarantee against defenders moving into it after the kick.
     return safe||open||best;
   }
+  kickoffPass(p){
+    const candidates=[];
+    for(const q of this.players){
+      if(q.team!==p.team||q.id===p.id||q.keeper)continue;
+      const len=distance(p,q);if(len<25||len>240||this.groundPassBlocked(p,q,true))continue;
+      const space=distance(this.nearest(1-p.team,q),q),progress=(q.x-p.x)*this.direction(p.team);
+      if(space<35)continue;
+      candidates.push({p:q,value:space*.6+progress*.42-Math.abs(len-180)*.12,used:this.kickoffOutlets[p.team][q.id]||0});
+    }
+    if(!candidates.length)return null;
+    const best=Math.max(...candidates.map(q=>q.value));
+    // Vary build-up only among similarly strong, currently open outlets.
+    // Pressure and lane safety outrank variety; never force a marked receiver.
+    return candidates.filter(q=>q.value>=best-12).sort((a,b)=>a.used-b.used||b.value-a.value||a.p.id-b.p.id)[0].p;
+  }
   aiBallCarrier(p,dt){
     const d=this.direction(p.team),goal=this.goalX(p.team),pressure=distance(this.nearest(1-p.team,p),p);
     p.think-=dt;
@@ -1450,7 +1466,7 @@ class SoccerMatch {
         if(this.setPiece==='Penalty Kick'||(this.setPiece==='Direct Free Kick'&&Math.abs(goal-p.x)<270)){
           const keeper=this.players[(1-p.team)*11],y=FIELD.cy+(keeper.y>=FIELD.cy?-30:30);
           this.kick(p,{x:goal+d*20,y},.8,false);
-        }else{const receiver=this.bestPass(p);if(receiver)this.kick(p,receiver,.75,true);}
+        }else{const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);}
       }
       return;
     }
