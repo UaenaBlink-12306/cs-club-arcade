@@ -6431,7 +6431,7 @@ for(let frame=1;frame<=6000&&!reception;frame++){
 assert.ok(half);assert.equal(m.period,2);assert.ok(m.minute>45);assert.ok(launch);assert.equal(launch.loft,false);assert.equal(reception?.id,launch.receiver);assert.equal(reception?.keeper,false);
 });
 test('AI kickoff change leaves goal kicks throw-ins corners and free kicks equivalent',()=>{
- const old=engine.replace("const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);","const receiver=this.bestPass(p);if(receiver)this.kick(p,receiver,.75,true);");
+ const old=engine.replace("const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.setPiece==='Goal Kick'?this.goalKickPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);","const receiver=this.setPiece==='Goal Kick'?this.goalKickPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,true);");
  const Baseline=new Function(old+';return SoccerMatch;')();
  for(const period of [1,2])for(const type of ['Goal Kick','Throw-in','Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
   const a=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),b=new Baseline(NATIONS[0],NATIONS[2],'practice');
@@ -6512,4 +6512,96 @@ test('deliberate keyboard contact after the same throw-in remains a genuine late
  assert.equal(r.lastFoul?.reason,'Late challenge');assert.equal(r.lastFoul?.offender,5);assert.equal(r.lastFoul?.victim,19);
  assert.equal(r.trace[r.trace.length-1].active,5,'offender is now deliberately human controlled');
  assert.equal(r.restarts[r.restarts.length-1].type,'Direct Free Kick');
+});
+
+function normalBylineGoalKick(aFrames=330,wFrames=120,lower=false,hz=60,source=html){
+ const html=source;
+ 
+const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let f=0;
+const tick=()=>{h.tick(100+(++f)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<Math.round(45*hz/60);i++)tick();
+h.window.handlers.keydown(keyEvent('a'));for(let i=0;i<Math.round(aFrames*hz/60);i++)tick();h.window.handlers.keyup(keyEvent('a'));h.window.handlers.keydown(keyEvent(lower?'s':'w'));for(let i=0;i<Math.round(wFrames*hz/60);i++)tick();h.window.handlers.keyup(keyEvent(lower?'s':'w'));
+if(m.owner?.team!==0)return {stage:'lost before exit',owner:m.owner?.id,phase:m.phase};
+const p=m.owner,startPosition={id:p.id,x:p.x,y:p.y},a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(FIELD.left-160,p.y),anchor={x:a.x,y:a.y};
+c.handlers.pointerdown(pointerEvent(h,anchor.x,anchor.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));const intent=h.app.pointerAim(h.app.drag);c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+const restarts=[],receipts=[],contacts=[],release=m.releaseKick.bind(m),give=m.giveBall.bind(m),stop=m.stopForRestart.bind(m);
+m.stopForRestart=(r,...args)=>{restarts.push({at:m.elapsed,...r});return stop(r,...args);};
+m.releaseKick=k=>{const kind=m.setPiece,r=release(k);contacts.push({at:m.elapsed,type:kind,player:k.player,target:m.flight?.target,receiver:m.flight?.receiverId,loft:k.loft,ball:{...m.ball},players:m.players.map(q=>({id:q.id,x:q.x,y:q.y}))});return r;};
+m.giveBall=q=>{receipts.push({at:m.elapsed,id:q.id,team:q.team,keeper:q.keeper,x:q.x,y:q.y,ball:{...m.ball}});return give(q);};
+for(let i=0;i<15*hz;i++){tick();if(restarts.length>=2||contacts.some(q=>q.type==='Goal Kick')&&receipts.some(q=>q.at>contacts.find(q=>q.type==='Goal Kick').at))break;}
+return {start:startPosition,intent,restarts,contacts,receipts,phase:m.phase,ball:m.ball};
+
+}
+
+test('normal byline exits produce AI goal kicks to reachable unmarked midfield outlets',()=>{
+ for(const [a,w,lower,hz] of [[330,120,false,30],[345,120,false,60],[330,120,true,60],[330,150,true,120]]){
+  const r=normalBylineGoalKick(a,w,lower,hz),contact=r.contacts.find(c=>c.type==='Goal Kick');
+  assert.ok(contact,'normal pointer exit awarded a goal kick');
+  assert.equal(contact.player,11);assert.equal(contact.loft,true);
+  assert.equal(contact.ball.vz,252.5,'unchanged loft and power');
+  const receiver=contact.players.find(p=>p.id===contact.receiver);
+  assert.ok(distance(contact.ball,receiver)<=430);
+  const received=r.receipts.find(q=>q.at>contact.at);
+  assert.equal(received?.id,contact.receiver,'intended teammate actually receives');
+  assert.equal(received.team,1);assert.equal(received.keeper,false);
+ }
+});
+test('AI goal-kick planning respects pressure and retains long clearances when nearby outlets are marked',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice');m.period=period;m.kickoff(team);
+  const d=m.direction(team),p=m.players[team*11],near=m.players[team*11+6],far=m.players[team*11+8];
+  m.stopForRestart({type:'Goal Kick',team,x:m.ownGoalX(team)+d*24,y:318});m.takeRestart();
+  for(const q of m.players){q.x=m.ownGoalX(team)+d*34;q.y=318;}
+  p.x=m.ownGoalX(team)+d*24;p.y=318;near.x=p.x+d*275;near.y=318;far.x=p.x+d*530;far.y=318;
+  for(const q of m.players.filter(q=>q.team!==team)){q.x=p.x+d*440;q.y=FIELD.top+20;}
+  assert.equal(m.bestPass(p).id,far.id,'unbounded progress ranking favours a distant forward');
+  assert.equal(m.goalKickPass(p).id,near.id,'nearer open build-up receiver');
+  const marker=m.players[(1-team)*11+1];marker.x=near.x;marker.y=near.y+20;
+  assert.equal(m.goalKickPass(p).id,m.bestPass(p).id,'marked nearby outlet is not forced');
+  marker.y=near.y+40;
+  assert.equal(m.goalKickPass(p).id,near.id);
+ }
+});
+test('AI goal-kick choice does not modify collisions or guarantee a reception',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const p=m.players[team*11],d=m.direction(team),receiver=m.players[team*11+6],blocker=m.players[(1-team)*11+6];
+  m.stopForRestart({type:'Goal Kick',team,x:m.ownGoalX(team)+d*24,y:318});m.takeRestart();
+  for(const q of m.players){q.x=550;q.y=FIELD.top+25;}
+  p.x=m.ownGoalX(team)+d*24;p.y=318;receiver.x=p.x+d*275;receiver.y=318;
+  const selected=m.goalKickPass(p);assert.equal(selected.id,receiver.id);
+  m.kick(p,selected,.75,true);advanceToContact(m);
+  // Fixture: a defender deliberately occupies the later landing path.
+  const advance=new Function(engine+';return advanceFreeBall;')();
+  const predicted={...m.ball};for(let i=0;i<84;i++)advance(predicted,1/120);
+  blocker.x=predicted.x;blocker.y=predicted.y;blocker.cooldown=0;
+  m.selectPlayer(1-team,blocker.id);
+  let intercepted=false;
+  for(let i=0;i<180&&!m.owner&&m.phase==='playing';i++){m.step(1/120,{dx:0,dy:0});if(m.owner?.id===blocker.id)intercepted=true;}
+  assert.ok(intercepted,'normal opposing-player capture remains possible');
+ }
+});
+
+test('goal-kick outlet preference leaves other AI restarts and local human restarts unchanged',()=>{
+ const old=engine.replace("this.setPiece==='Goal Kick'?this.goalKickPass(p):this.bestPass(p)","this.bestPass(p)");
+ const Baseline=new Function(old+';return SoccerMatch;')();
+ for(const mode of ['practice','local'])for(const period of [1,2])
+ for(const type of ['Kick-off','Goal Kick','Throw-in','Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  if(mode==='practice'&&type==='Goal Kick')continue;
+  const a=new SoccerMatch(NATIONS[0],NATIONS[2],mode),b=new Baseline(NATIONS[0],NATIONS[2],mode);
+  for(const m of [a,b]){
+   m.period=period;m.kickoff(1);
+   if(type!=='Kick-off'){
+    const d=m.direction(1);
+    m.stopForRestart({type,team:1,x:type==='Goal Kick'?m.ownGoalX(1)+d*24:type==='Corner Kick'?m.goalX(1)-d*6:550,y:type==='Throw-in'||type==='Corner Kick'?FIELD.top:FIELD.cy});
+    m.takeRestart();
+   }
+   if(mode==='local'){
+    const p=m.owner,target=m.bestPass(p,type!=='Throw-in');
+    m.kick(p,target,.6,false);
+   }
+  }
+  for(let i=0;i<240;i++){a.step(1/60,{dx:0,dy:0});b.step(1/60,{dx:0,dy:0});assert.equal(JSON.stringify(a),JSON.stringify(b),'unrelated action identical');}
+ }
 });

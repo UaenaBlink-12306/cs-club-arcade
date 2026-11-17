@@ -1452,6 +1452,22 @@ class SoccerMatch {
     // Pressure and lane safety outrank variety; never force a marked receiver.
     return candidates.filter(q=>q.value>=best-12).sort((a,b)=>a.used-b.used||b.value-a.value||a.p.id-b.p.id)[0].p;
   }
+  goalKickPass(p){
+    let best=null,bestValue=-Infinity;
+    for(const q of this.players){
+      if(q.team!==p.team||q.id===p.id||q.keeper)continue;
+      const len=distance(p,q),space=distance(this.nearest(1-p.team,q),q);
+      // Use the existing open-play passing range for an unmarked build-up outlet.
+      // Unbounded restart ranking otherwise rewards distant forwards beyond
+      // the opposing midfield even while a nearer teammate is available.
+      if(len<25||len>430||space<35)continue;
+      const progress=(q.x-p.x)*this.direction(p.team);
+      const value=space*.6+progress*.42-Math.abs(len-180)*.12;
+      if(value>bestValue){bestValue=value;best=q;}
+    }
+    // Retain the normal clearance option when nearby outlets are marked.
+    return best||this.bestPass(p);
+  }
   aiBallCarrier(p,dt){
     const d=this.direction(p.team),goal=this.goalX(p.team),pressure=distance(this.nearest(1-p.team,p),p);
     p.think-=dt;
@@ -1466,7 +1482,7 @@ class SoccerMatch {
         if(this.setPiece==='Penalty Kick'||(this.setPiece==='Direct Free Kick'&&Math.abs(goal-p.x)<270)){
           const keeper=this.players[(1-p.team)*11],y=FIELD.cy+(keeper.y>=FIELD.cy?-30:30);
           this.kick(p,{x:goal+d*20,y},.8,false);
-        }else{const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);}
+        }else{const kickoff=this.setPiece==='Kick-off',receiver=kickoff?this.kickoffPass(p):this.setPiece==='Goal Kick'?this.goalKickPass(p):this.bestPass(p);if(receiver)this.kick(p,receiver,.75,!kickoff);}
       }
       return;
     }
