@@ -1796,6 +1796,8 @@ class SoccerMatch {
   }
   takeRestart(){
     if(this.phase!=='restart')return;
+    // A stopped foul reaction has finished before the restart is set up.
+    for(const p of this.players)p.foulAt=-100;
     const r={...this.restart};
     if(r.type==='Penalty Kick'){r.x=this.goalX(r.team)-this.direction(r.team)*RULES.penaltySpot;r.y=FIELD.cy;}
     if(r.type==='Throw-in')r.y=r.y<FIELD.cy?FIELD.top:FIELD.bottom;
@@ -2958,6 +2960,15 @@ function goalCelebrationFrame(shot,game){
   if(celebration<=0)return shot;
   return {...shot,players:shot.players.map(p=>p.team===game.scorer&&!p.keeper?{...p,celebration}:p)};
 }
+function restartFoulFrame(shot,game,remaining){
+  const foul=game?.lastFoul;
+  if(!shot||game?.phase!=='restart'||!foul||game.restart?.reason!==foul.reason)return shot;
+  // Simulation time pauses for the notice. Use its existing countdown to show
+  // the reaction now, rather than replaying it on the free-kick taker afterward.
+  const age=Math.max(0,game.elapsed-foul.at)+Math.max(0,1.2-remaining);
+  const fouled=clamp(1-age/.6,0,1);
+  return {...shot,players:shot.players.map(p=>p.id===foul.victim?{...p,fouled}:p)};
+}
 function playerPose(p,ball){
   const a=camera.project(p.x,p.y),b=camera.project(p.x+Math.cos(p.angle)*12,p.y+Math.sin(p.angle)*12);
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
@@ -3567,6 +3578,7 @@ function render(dt=0){
   if(shot&&match?.phase==='playing')shot=liveRenderSample(shot);
   else if(shot&&match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
   shot=goalCelebrationFrame(shot,match);
+  shot=restartFoulFrame(shot,match,restartCountdown);
   const paintedBall=shot?keeperHeldBall(shot):null;
   field(paintedBall);if(!shot)return;
   aimPanelRects=[];

@@ -6681,3 +6681,69 @@ test('local throw follow-through stays continuous in replay and pause and clears
   assert.ok(h.app.match.snapshot().players.every(p=>!p.throwing));
  }
 });
+
+function normalFoulPoseSequence(source=html,recordState=false){
+const html=source;const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let frame=0;
+const frames=[],events=[];let foul=null;
+const tick=()=>{h.tick(100+(++frame)*1000/60);if(m.lastFoul){foul||={...m.lastFoul};const p=h.app.drawnPlayers.get(foul.victim),pose=h.app.playerPose(p,h.app.drawnBall);frames.push({frame,time:frame/60,elapsed:m.elapsed,phase:m.phase,setPiece:m.setPiece,raw:p.fouled,pose:pose.fouled,owner:m.ball.owner,state:recordState?JSON.stringify(m,(k,v)=>['foulAt','fouled','history','replayFrames'].includes(k)?undefined:v):null,head:h.app.playerWorldTransform(p,pose)([0,0,30])});}h.draws.length=0;h.app.drawnPaths.length=0;};
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<45;i++)tick();
+h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<30;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,FIELD.top-160);
+c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+for(let i=0;i<1000;i++){tick();if(foul&&m.elapsed-foul.at>.8)break;}
+return {foul,frames,score:m.score,phase:m.phase,ball:m.ball};
+}
+
+test('a normal late challenge reacts during its notice rather than on the free-kick taker afterward',()=>{
+ const r=normalFoulPoseSequence();
+ assert.equal(r.foul.reason,'Late challenge');
+ const stopped=r.frames.filter(f=>f.phase==='restart'),resumed=r.frames.filter(f=>f.phase==='playing');
+ assert.ok(stopped.length>60);assert.ok(Math.max(...stopped.map(f=>f.pose))>.95);
+ assert.ok(stopped.slice(-20).every(f=>f.pose===0),'reaction settles before restart');
+ assert.ok(resumed.length>20&&resumed.every(f=>f.pose===0),'no delayed foul pose during free-kick setup');
+ assert.ok(stopped.every(f=>f.elapsed===r.foul.at),'notice still freezes simulation time');
+ assert.equal(resumed[0].setPiece,'Direct Free Kick');
+});
+test('foul presentation preserves normal-input physical state decisions clocks and restart timing',()=>{
+ const old=html.replace("    // A stopped foul reaction has finished before the restart is set up.\n    for(const p of this.players)p.foulAt=-100;\n",'').replace('  shot=restartFoulFrame(shot,match,restartCountdown);','');
+ const a=normalFoulPoseSequence(old,true),b=normalFoulPoseSequence(html,true);
+ assert.deepEqual(a.foul,b.foul);assert.deepEqual(a.ball,b.ball);assert.deepEqual(a.score,b.score);
+ assert.deepEqual(a.frames.map(f=>({frame:f.frame,phase:f.phase,state:f.state})),b.frames.map(f=>({frame:f.frame,phase:f.phase,state:f.state})));
+ assert.ok(a.frames.filter(f=>f.phase==='restart').every(f=>f.pose===0));
+ assert.ok(Math.max(...a.frames.filter(f=>f.phase==='playing').map(f=>f.pose))>.95);
+});
+test('foul reaction presentation is bounded at 30 60 and 120 Hz in both local halves and viewports',()=>{
+ for(const hz of [30,60,120])for(const team of [0,1])for(const period of [1,2])for(const penalty of [false,true]){
+  const [width,height]=team===0?[1180,757]:[333,596],h=localAimHarness(width,height,team,period),m=h.app.match;
+  const p=m.players[team*11+9],offender=m.players[(1-team)*11+9];
+  p.x=penalty?m.goalX(team)-m.direction(team)*70:550;p.y=318;
+  m.giveBall(p);m.foul(offender,p,'Late challenge');h.app.syncMatch();h.tick(100);
+  let peak=0;for(let frame=1;frame<=Math.ceil(hz*1.3);frame++){
+   h.tick(100+frame*1000/hz);const q=h.app.drawnPlayers.get(p.id),pose=h.app.playerPose(q,h.app.drawnBall);
+   assert.ok(Number.isFinite(pose.fouled));
+   if(m.phase==='restart')peak=Math.max(peak,pose.fouled);
+   else assert.equal(pose.fouled,0);
+   h.draws.length=0;h.app.drawnPaths.length=0;
+  }
+  assert.ok(peak>.95);assert.equal(m.setPiece,penalty?'Penalty Kick':'Direct Free Kick');
+  assert.equal(m.players[p.id].foulAt,-100);
+  const history=m.history.slice();assert.ok(history.every(s=>s.players.every(p=>p.fouled===0)));
+  h.click('menuBtn');const snapshot=JSON.stringify(m.snapshot());h.tick(5000);assert.equal(JSON.stringify(m.snapshot()),snapshot);
+  h.click('resumePause');h.click('menuBtn');h.click('restartMatch');h.flush();
+  assert.ok(h.app.match.snapshot().players.every(p=>p.fouled===0));
+ }
+});
+test('foul notice rendering does not mutate snapshots or replay completed reactions on advantage recall',()=>{
+ const source=html.slice(html.indexOf('function restartFoulFrame('),html.indexOf('function playerPose('));
+ const paint=new Function('clamp',source+';return restartFoulFrame;')((v,a,b)=>Math.max(a,Math.min(b,v)));
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice'),p=m.players[9],opponent=m.players[20];
+ m.giveBall(p);m.foul(opponent,p,'Late challenge');const snapshot=m.snapshot(),before=JSON.stringify(snapshot);
+ const painted=paint(snapshot,m,.9);
+ assert.ok(painted.players[p.id].fouled>0&&painted.players[p.id].fouled<1);
+ assert.equal(JSON.stringify(snapshot),before);
+ for(const phase of ['playing','paused','replay','goal','half','full'])assert.equal(paint(snapshot,{...m,phase},.9),snapshot);
+ assert.equal(paint(snapshot,{...m,restart:{type:'Throw-in'}},.9),snapshot);
+ assert.equal(paint(snapshot,{...m,elapsed:m.elapsed+2},1.2).players[p.id].fouled,0,'recalled advantage is not a new foul contact');
+ m.takeRestart();assert.ok(m.snapshot().players.every(p=>p.fouled===0));
+});
