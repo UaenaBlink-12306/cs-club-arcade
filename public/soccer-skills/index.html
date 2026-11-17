@@ -1577,8 +1577,14 @@ class SoccerMatch {
       if((!owner||owner.team!==p.team)&&chasers[p.team].includes(p.id)&&
         !(this.flight?.directed&&this.flight.team===p.team&&this.flight.receiverId!==p.id)){
         if(owner&&owner.team!==p.team&&p.id!==chasers[p.team][0]){
-          // One presses; the second defender protects a passing lane instead of stacking onto the carrier.
-          this.move(p,this.ball.x-d*60,clamp(this.ball.y+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25),85,dt);continue;
+          // One presses; the second defender covers rather than stacking onto the carrier.
+          // In a human side's defensive third, protect the ball-to-goal lane.
+          // A fixed slot-parity offset can send that cover away from a central shot.
+          const coverX=this.ball.x-d*60;
+          const goalDistance=Math.max(60,Math.abs(this.ball.x-own));
+          const coordinated=(localInputs||p.team===0&&input)&&goalDistance<320;
+          const coverY=coordinated?this.ball.y+(FIELD.cy-this.ball.y)*Math.min(1,60/goalDistance):this.ball.y+(p.slot%2?65:-65);
+          this.move(p,coverX,clamp(coverY,FIELD.top+25,FIELD.bottom-25),85,dt);continue;
         }
         if(owner&&this.kickoffGrace>0&&owner.id===this.kickoffOwner){
           const dx=p.x-owner.x,dy=p.y-owner.y,len=Math.hypot(dx,dy)||1;

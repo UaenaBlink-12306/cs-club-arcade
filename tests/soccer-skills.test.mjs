@@ -6137,3 +6137,75 @@ test('automatic pass planning retains the open-lane fallback when every option h
  assert.ok(!m.groundPassBlocked(p,safe));assert.ok(m.groundPassBlocked(p,safe,true));
  assert.equal(m.bestPass(p,true).id,m.bestPass(p).id,'do not disable passing when no generously clear lane exists');
 });
+
+test('human defensive-third cover protects the goal lane without moving the selected player or accelerating pressure',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120])for(const wing of [-1,0,1]){
+  const f=pressingAssignmentFixture(team,period),{m,o,front,rear,selected,input}=f;
+  o.y+=wing*70;front.y+=wing*70;rear.y+=wing*70;selected.y+=wing*70;m.followBall();
+  const before={x:selected.x,y:selected.y},moves=[],move=m.move.bind(m);
+  m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s,bx:m.ball.x,by:m.ball.y});return move(p,x,y,s,dt);};
+  m.step(1/hz,input);
+  const cover=moves.find(v=>v.id===rear.id),press=moves.find(v=>v.id===front.id);
+  assert.equal(cover.s,85);assert.equal(press.s,128);
+  const gx=m.ownGoalX(team),gy=FIELD.cy;
+  const cross=(cover.x-cover.bx)*(gy-cover.by)-(cover.y-cover.by)*(gx-cover.bx);
+  assert.ok(Math.abs(cross)<1e-7,'cover remains between the ball and own goal, on either wing');
+  assert.ok(Math.abs(cover.x-gx)<Math.abs(cover.bx-gx),'cover is goal-side');
+  assert.deepEqual({x:selected.x,y:selected.y},before);
+  input.teams[team]={dx:0,dy:1};m.step(1/hz,input);
+  assert.ok(selected.y>before.y,'human movement still overrides automatic coverage');
+ }
+});
+test('goal-lane cover leaves midfield fully automatic sides and stopped restarts unchanged',()=>{
+ for(const kind of ['midfield','automatic','restart']){
+  const f=pressingAssignmentFixture(0,1,'practice'),{m,o,front,rear,selected}=f,moves=[];
+  if(kind==='midfield'){for(const p of [o,front,rear,selected])p.x-=220;m.followBall();}
+  if(kind==='restart')m.stopForRestart({type:'Throw-in',team:1,x:550,y:FIELD.top});
+  const move=m.move.bind(m);m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s,by:m.ball.y});return move(p,x,y,s,dt);};
+  m.step(1/60,kind==='automatic'?null:f.input);
+  if(kind==='restart'){assert.equal(moves.length,0);continue;}
+  const cover=moves.find(v=>v.s===85);assert.ok(cover);
+  const p=m.players[cover.id];
+  assert.equal(cover.y,clampForTest(cover.by+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25));
+ }
+ function clampForTest(x,a,b){return Math.max(a,Math.min(b,x));}
+});
+function ordinarySavedForwardShotCounter(hz=60,delay=.4){
+
+ const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+ h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let frame=0;
+ const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+ h.window.handlers.keydown(keyEvent('e'));for(let i=0;i<hz;i++)tick();
+ h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<hz*2.5;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+ if(m.owner?.team!==0)return {saved:false,end:'lost possession before shot'};
+ const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(m.players[9].x,m.players[9].y);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+ for(let j=0;j<Math.round(delay*hz);j++)tick();h.window.handlers.keydown(keyEvent(' '));h.window.handlers.keyup(keyEvent(' '));
+ while(m.phase==='playing'&&!m.handOwner&&frame<400*hz/60)tick();
+ const saved=m.handOwner===11,start=m.elapsed,shots=[],receipts=[],receive=m.giveBall.bind(m),kick=m.kick.bind(m),samples=[];
+ m.giveBall=q=>{receipts.push({at:m.elapsed-start,team:q.team,id:q.id,x:q.x,y:q.y});return receive(q);};
+ m.kick=(q,target,power,loft)=>{
+ if(q.team===1&&!m.setPiece&&(target.shot||Math.abs(target.x-m.goalX(1))<90)){
+ const defenders=m.players.filter(r=>r.team===0&&!r.keeper&&r.id!==m.active).map(r=>({id:r.id,dist:distance(r,q),front:r.x>q.x,x:r.x,y:r.y,speed:r.speed})).sort((a,b)=>a.dist-b.dist);
+ shots.push({at:m.elapsed-start,x:q.x,y:q.y,age:m.elapsed-q.receiveAt,protection:m.protection,defenders:defenders.slice(0,4)});
+ }return kick(q,target,power,loft);};
+ for(let i=0;i<1800&&m.phase==='playing';i++){
+ m.step(1/60,{dx:0,dy:0});
+ if(i%30===0&&m.owner?.team===1&&!m.owner.keeper)samples.push({at:m.elapsed-start,owner:m.owner.id,x:m.owner.x,y:m.owner.y,age:m.elapsed-m.owner.receiveAt,frontGap:Math.min(...m.players.filter(q=>q.team===0&&!q.keeper&&q.id!==m.active&&q.x>=m.owner.x).map(q=>distance(q,m.owner)))});
+ if(m.owner?.team===0)break;
+ }
+ return {saved,start,end:m.phase,owner:m.owner?.id,score:m.score,shots,receipts,samples,active:m.active};
+
+}
+test('ordinary saved-shot counters retain a covering defender who can block without stopping fair shots',()=>{
+ for(const hz of [30,60,120]){
+  const r=ordinarySavedForwardShotCounter(hz,.4);
+  assert.ok(r.saved);assert.equal(r.shots.length,1,'attacker still gets a genuine shot');
+  assert.equal(r.owner,3,'covering defender actually receives the blocked shot');
+  assert.deepEqual(r.score,[0,0]);
+  assert.ok(r.receipts.some(v=>v.team===0&&v.id===3));
+ }
+ const chance=ordinarySavedForwardShotCounter(60,.2);
+ assert.ok(chance.saved);assert.equal(chance.shots.length,1);assert.equal(chance.end,'goal');
+ assert.deepEqual(chance.score,[0,1],'earlier unblocked opportunity still scores');
+});
