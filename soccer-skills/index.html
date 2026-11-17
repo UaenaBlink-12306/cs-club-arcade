@@ -1030,7 +1030,7 @@ class SoccerMatch {
       const f=formation[p.slot], d=this.direction(p.team);
       p.x=this.ownGoalX(p.team)+d*f[0]*(FIELD.right-FIELD.left);
       p.y=FIELD.top+f[1]*(FIELD.bottom-FIELD.top);
-      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.shotLane=null;p.held=0;p.think=.35+p.slot*.025;
+      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.shotLane=null;p.passLane=null;p.held=0;p.think=.35+p.slot*.025;
     }
   }
   kickoff(team){
@@ -1380,15 +1380,23 @@ class SoccerMatch {
     this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
   }
   avoidPassLane(p,dt){
-    const pending=this.pendingKick,flight=this.flight;
-    const receiverId=pending&&!pending.shot?pending.target.receiverId:flight?.directed?flight.receiverId:null;
-    const team=pending?this.players[pending.player].team:flight?.team;
-    if(!Number.isInteger(receiverId)||p.team!==team||p.id===receiverId||p.keeper)return false;
+    const pending=this.pendingKick&&!this.pendingKick.shot?this.pendingKick:null;
+    const flight=!this.owner&&this.flight?.directed&&!this.flight.shot?this.flight:null;
+    const receiverId=pending?.target.receiverId??flight?.receiverId;
+    const team=pending?this.players[pending.player].team:flight?.team,id=pending?.id??flight?.id;
+    if(!Number.isInteger(receiverId)||!Number.isInteger(id)||p.team!==team||p.id===receiverId||p.keeper){p.passLane=null;return false;}
     const receiver=this.players[receiverId],dx=receiver.x-this.ball.x,dy=receiver.y-this.ball.y,len=Math.hypot(dx,dy);
-    if(len<10)return false;
+    if(len<10){p.passLane=null;return false;}
     const ux=dx/len,uy=dy/len,px=p.x-this.ball.x,py=p.y-this.ball.y,along=px*ux+py*uy,across=-px*uy+py*ux;
-    if(along<0||along>len||Math.abs(across)>=32)return false;
-    const side=across===0?(p.slot%2?1:-1):Math.sign(across),shift=side*38-across;
+    if(along<0||along>len){p.passLane=null;return false;}
+    if(p.passLane?.id!==id){
+      if(Math.abs(across)>=32){p.passLane=null;return false;}
+      p.passLane={id,side:Math.abs(across)>1?Math.sign(across):(p.slot%2?1:-1)};
+    }
+    // Keep one clearance side until this delivery has passed the player.
+    // Returning to formation at the entry boundary makes support step back
+    // into the same lane and reverse direction on alternating frames.
+    const shift=p.passLane.side*38-across;
     this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
   }
   groundPassBlocked(p,q,anticipate=false){

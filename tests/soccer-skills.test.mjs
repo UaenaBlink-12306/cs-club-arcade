@@ -6209,3 +6209,69 @@ test('ordinary saved-shot counters retain a covering defender who can block with
  assert.ok(chance.saved);assert.equal(chance.shots.length,1);assert.equal(chance.end,'goal');
  assert.deepEqual(chance.score,[0,1],'earlier unblocked opportunity still scores');
 });
+
+test('ordinary consecutive passes clear supporting players once without alternating formation reversals',()=>{
+ for(const [hz,width] of [[30,508],[60,1180],[120,508]]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match,decisions=[],poses=[],received=[];
+  const avoid=m.avoidPassLane.bind(m),give=m.giveBall.bind(m);
+  m.avoidPassLane=(p,dt)=>{const id=m.pendingKick?.id??m.flight?.id,r=avoid(p,dt);if(id===3&&p.id===2)decisions.push(r);return r;};
+  m.giveBall=p=>{received.push(p.id);return give(p);};
+  for(let frame=1;frame<=hz*3;frame++){
+   if(frame%hz===1){h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));}
+   h.tick(100+frame*1000/hz);
+   if(m.elapsed>=2.2&&m.elapsed<=2.55)poses.push({...h.app.drawnPlayers.get(2)});
+   h.draws.length=0;h.app.drawnPaths.length=0;
+  }
+  assert.deepEqual(received.slice(0,3),[6,3,1]);assert.equal(m.passes[0],3);
+  assert.ok(decisions.some(Boolean));assert.ok(decisions.some(v=>!v));
+  const flips=decisions.slice(1).filter((v,i)=>v!==decisions[i]).length;
+  assert.ok(flips<=2,'one clearance phase, then normal support after the ball passes');
+  const turning=poses.slice(1).reduce((sum,p,i)=>sum+Math.abs(Math.atan2(Math.sin(p.angle-poses[i].angle),Math.cos(p.angle-poses[i].angle))),0);
+  assert.ok(turning<2.5,'rendered support no longer oscillates between opposing headings');
+ }
+});
+function passClearanceFixture(team,period){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+ const p=m.players[team*11+9],receiver=m.players[team*11+6],support=m.players[team*11+5],own=m.ownGoalX(team),d=m.direction(team);
+ for(const q of m.players){q.x=550;q.y=FIELD.top+20;}
+ Object.assign(p,{x:own+d*180,y:FIELD.cy,angle:d>0?0:Math.PI});
+ Object.assign(receiver,{x:own+d*480,y:FIELD.cy});
+ Object.assign(support,{x:own+d*300,y:FIELD.cy+3});
+ m.giveBall(p);assert.ok(m.kick(p,{...receiver,receiverId:receiver.id,pass:true},.6,false));
+ return {m,p,receiver,support,d};
+}
+test('pass clearance keeps its chosen side across the entry boundary and resets with delivery identity',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const {m,p,receiver,support,d}=passClearanceFixture(team,period);
+  assert.ok(m.avoidPassLane(support,1/hz));const plan={...support.passLane};
+  support.y=FIELD.cy+34;
+  assert.ok(m.avoidPassLane(support,1/hz),'clearing the entry boundary does not resume conflicting formation movement');
+  assert.equal(support.passLane.side,plan.side);
+  support.y=FIELD.cy-.1;
+  assert.ok(m.avoidPassLane(support,1/hz));assert.equal(support.passLane.side,plan.side,'minor lane rotation cannot flip the committed side');
+  m.pendingKick.id++;support.y=FIELD.cy-3;
+  assert.ok(m.avoidPassLane(support,1/hz));assert.ok(support.passLane.side!==plan.side,'new delivery chooses its own clearance side');
+  m.pendingKick=null;m.flight=null;
+  assert.ok(!m.avoidPassLane(support,1/hz));assert.equal(support.passLane,null);
+  assert.ok(m.kick(p,{...receiver,receiverId:receiver.id,pass:true},.6,false));
+  assert.ok(m.avoidPassLane(support,1/hz));
+  m.ball.x=support.x+d*5;
+  assert.ok(!m.avoidPassLane(support,1/hz));assert.equal(support.passLane,null,'ball passing the player releases cover immediately');
+  m.kickoff(team);assert.ok(m.players.every(q=>q.passLane===null));
+ }
+});
+test('pass clearance excludes receivers opponents keepers and shot deliveries',()=>{
+ for(const kind of ['receiver','opponent','keeper','shot','turnover']){
+  const {m,receiver,support}=passClearanceFixture(0,1);
+  assert.ok(m.avoidPassLane(support,1/60));
+  let p=support;
+  if(kind==='receiver')p=receiver;
+  if(kind==='opponent'){p=m.players[16];Object.assign(p,{x:support.x,y:support.y});}
+  if(kind==='keeper'){p=m.players[0];Object.assign(p,{x:support.x,y:support.y});}
+  if(kind==='shot')m.pendingKick.shot=true;
+  if(kind==='turnover')m.giveBall(m.players[16]);
+  const old={x:p.x,y:p.y};assert.ok(!m.avoidPassLane(p,1/60));assert.equal(p.passLane,null);
+  assert.deepEqual({x:p.x,y:p.y},old);
+ }
+});
