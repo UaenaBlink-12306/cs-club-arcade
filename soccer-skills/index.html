@@ -1470,8 +1470,22 @@ class SoccerMatch {
     else if(!this.inShootout()&&this.mode!=='local'&&!input && (this.players[this.active].keeper||distance(this.players[this.active],this.ball)>distance(this.nearest(0,this.ball),this.ball)+70))this.active=this.nearest(0,this.ball).id;
     if(this.mode==='local'&&owner?.team===1)this.activeAway=owner.id;
     const localInputs=this.mode==='local'?[0,1].map(team=>input?.teams?.[team]||{dx:0,dy:0}):null;
-    const chasers=[0,1].map(team=>this.players.filter(p=>p.team===team&&!p.keeper)
-      .sort((a,b)=>distance(a,this.ball)-distance(b,this.ball)).slice(0,2).map(p=>p.id));
+    const chasers=[0,1].map(team=>{
+      const manual=localInputs||team===0&&input,active=manual?this.activeFor(team):null;
+      const available=this.players.filter(p=>p.team===team&&!p.keeper&&p.id!==active)
+        .sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
+      // Human control is not an AI pressing assignment. In our defensive third,
+      // let a nearby goal-side teammate step up rather than leaving the only
+      // pressure to a trailing attacker while the back line retreats.
+      if(manual&&owner&&owner.team!==team&&!owner.keeper&&!this.setPiece&&Math.abs(owner.x-this.ownGoalX(team))<320){
+        const d=this.direction(team),nearest=available[0];
+        if(nearest&&(nearest.x-owner.x)*d>0){
+          const front=available.find(p=>(p.x-owner.x)*d<=0&&distance(p,owner)<180&&distance(p,owner)<=distance(nearest,owner)+80);
+          if(front){available.splice(available.indexOf(front),1);available.unshift(front);}
+        }
+      }
+      return available.slice(0,2).map(p=>p.id);
+    });
     for(const p of this.players){
       p.cooldown=Math.max(0,p.cooldown-dt);
       if(this.inShootout()&&p.id!==this.penalties.taker&&p.id!==this.penalties.keeper){p.speed=0;continue;}
@@ -2439,7 +2453,7 @@ function pointerAim(aim,screenDx=aim.screenDx,screenDy=aim.screenDy){
     const foot=camera.project(q.x,q.y),head=camera.project(q.x,q.y,26),rx=foot.x-at.x,ry=foot.y-at.y,screenRange=Math.hypot(rx,ry);
     const hover=pointer?Math.hypot(pointer.x-foot.x,pointer.y-clamp(pointer.y,Math.min(head.y,foot.y),Math.max(head.y,foot.y))):Infinity;
     const alignment=screenLength>0&&screenRange>0?(rx*screenDx+ry*screenDy)/(screenRange*screenLength):-1;
-    return {q,hover,hitRadius:Math.max(14*unit,6*foot.scale),endpoint:distance(q,target),alignment,range:distance(q,p)};
+    return {q,hover,screenRange,hitRadius:Math.max(14*unit,6*foot.scale),endpoint:distance(q,target),alignment,range:distance(q,p)};
   });
   // Absolute sprite hit testing survives camera movement and held-pointer handoffs.
   // A short drag may also point toward a distant teammate without reaching their sprite.
@@ -2448,11 +2462,15 @@ function pointerAim(aim,screenDx=aim.screenDx,screenDy=aim.screenDy){
   const directional=screenLength>=32*unit?candidates.filter(c=>(c.range<=240||power>=.7&&c.range<=430)&&c.alignment>.996)
     .sort((a,b)=>b.alignment-a.alignment||Math.abs(a.range-len)-Math.abs(b.range-len))[0]:null;
   // The drag vector wins over incidental cursor overlap in a different lane.
-  const receiver=endpoint||(direct&&(!directional||direct.alignment>=directional.alignment-.005)?direct:directional);
-  if(receiver)target={x:receiver.q.x,y:receiver.q.y,pass:true,receiverId:receiver.q.id};
+  const explicit=endpoint||(direct&&(!directional||direct.alignment>=directional.alignment-.005)?direct:null)||
+    (directional&&screenLength<directional.screenRange+directional.hitRadius?directional:null);
+  const receiver=explicit||directional;
+  // A deliberate teammate endpoint stays a pass. A goalward ray beyond them
+  // must not be captured by the automatic directional teammate assist.
+  if(explicit)target={x:receiver.q.x,y:receiver.q.y,pass:true,receiverId:receiver.q.id};
   else{
     const goal=match.goalX(p.team),d=match.direction(p.team),forward=dx*d,range=(goal-p.x)*d;
-    if(forward>3&&range>0&&range<=360&&power>=.35&&match.setPiece!=='Throw-in'){
+    if(forward>3&&range>0&&power>=.35&&match.setPiece!=='Throw-in'){
       // Intersect the screen aiming ray with the projected goal line. The angled camera is
       // not affine, so extending a short unprojected ground vector can bend a wide-angle shot.
       const at=camera.project(p.x,p.y),cross=y=>{
@@ -2466,6 +2484,7 @@ function pointerAim(aim,screenDx=aim.screenDx,screenDy=aim.screenDy){
       }
     }
   }
+  if(!shot&&!explicit&&receiver)target={x:receiver.q.x,y:receiver.q.y,pass:true,receiverId:receiver.q.id};
   if(match.inShootout()&&p.id===match.penalties.taker&&(target.x-p.x)*match.direction(p.team)>0){shot=true;target={x:target.x,y:target.y};}
   return {target:{...target,shot,pass:!shot},power,shot,len,screenLength};
 }
@@ -3185,7 +3204,7 @@ function placeAimPanel(anchor,width,above,below,preferred=[]){
 function goalAimGuide(p,intent=null,prediction=null){
   if(!p||match?.phase!=='playing'||match.setPiece==='Throw-in'||mode!=='local'&&p.team!==0)return null;
   const goal=match.goalX(p.team),range=(goal-p.x)*match.direction(p.team);
-  if(range<=0||range>360)return null;
+  if(range<=0||range>360&&!intent?.shot)return null;
   const unit=W/canvas.getBoundingClientRect().width,margin=14*unit;
   const posts=[camera.project(goal,FIELD.cy-FIELD.goalHalf),camera.project(goal,FIELD.cy+FIELD.goalHalf)];
   const frame=[...posts,camera.project(goal,FIELD.cy-FIELD.goalHalf,44),camera.project(goal,FIELD.cy+FIELD.goalHalf,44)];

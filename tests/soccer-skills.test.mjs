@@ -5813,3 +5813,90 @@ test('local forecast cache cannot follow the wrong owner and leaves solo pointer
  {const first=h.app.shotForecast();assert.deepEqual(first,s.previewKick(p,intent.target,intent.power,false));assert.ok(first!==h.app.shotForecast(),'solo pointer path remains unchanged');}
  c.handlers.pointercancel(pointerEvent(h,b.x,b.y));assert.equal(s.pendingKick,null);
 });
+
+
+test('ordinary goalward pointer drags beyond a forward teammate launch long shots instead of directional assist passes',()=>{
+ for(const hz of [60,120])for(const seconds of [0,1,2.5]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<hz;i++)tick();
+  h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<hz*seconds;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+  const m=h.app.match,p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(m.goalX(0),FIELD.cy);
+  assert.equal(p.team,0);c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+  const forecast=h.app.shotForecast();assert.ok(forecast);
+  c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.shot,true);assert.equal(m.pendingKick.target.receiverId,null);assert.equal(m.pendingKick.duration,.14);
+  while(m.pendingKick)tick();
+  assert.equal(m.shots[0],1);assert.ok(m.flight.shot);assert.ok(Math.hypot(m.ball.vx,m.ball.vy)>300);
+  assert.equal(m.passes[0],1,'only the intentional kickoff E was a pass');
+ }
+});
+test('explicit teammate endpoints stay passes on the same ray as a long or attacking-third shot',()=>{
+ for(const width of [508,1180])for(const period of [1,2])for(const range of [200,450,570]){
+  for(const destination of ['goal','teammate']){
+   const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+   h.chooseMode('practice');h.flush();const m=h.app.match,f=placeShot(m,range,0,0,period),r=m.players[6];
+   r.x=f.p.x+f.d*80;r.y=FIELD.cy;
+   h.app.camera.update(m.snapshot(),0,false,true);h.app.render(0);
+   const a=h.app.camera.project(f.p.x,f.p.y),b=h.app.camera.project(destination==='goal'?f.goal:r.x,FIELD.cy);
+   c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+   const intent=h.app.pointerAim(h.app.drag);
+   assert.equal(intent.shot,destination==='goal');
+   c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+   assert.equal(m.pendingKick.shot,destination==='goal');
+   assert.equal(m.pendingKick.target.receiverId,destination==='goal'?null:r.id);
+  }
+ }
+});
+test('long shooting classification preserves weak wide backward cancelled and throw-in pointer intent',()=>{
+ for(const kind of ['weak','wide','backward','cancel','throw']){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+  h.chooseMode('practice');h.flush();const m=h.app.match,f=placeShot(m,500,0);
+  h.app.camera.update(m.snapshot(),0,false,true);h.app.render(0);
+  if(kind==='throw')m.setPiece='Throw-in';
+  const a=h.app.camera.project(f.p.x,f.p.y),b=h.app.camera.project(f.goal,kind==='wide'?FIELD.bottom+200:FIELD.cy);
+  let dx=b.x-a.x,dy=b.y-a.y;
+  if(kind==='weak'){const n=Math.hypot(dx,dy);dx=dx/n*25;dy=dy/n*25;}
+  if(kind==='backward'){dx=-dx;dy=-dy;}
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,a.x+dx,a.y+dy));
+  if(kind!=='cancel')assert.equal(h.app.pointerAim(h.app.drag).shot,false);
+  if(kind==='cancel'){c.handlers.pointercancel(pointerEvent(h,a.x+dx,a.y+dy));assert.equal(m.pendingKick,null);}
+ }
+});
+function pressingAssignmentFixture(team=0,period=1,mode='local'){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);m.period=period;m.kickoff(1-team);
+ const d=m.direction(team),own=m.ownGoalX(team),o=m.players[(1-team)*11+9],selected=m.players[team*11+8],front=m.players[team*11+3],rear=m.players[team*11+10];
+ for(const q of m.players){q.x=550;q.y=FIELD.top+20+q.slot*8;}
+ o.x=own+d*182;o.y=FIELD.cy;o.angle=d>0?Math.PI:0;m.giveBall(o);o.receiveAt=-10;o.think=10;
+ selected.x=o.x-d*30;selected.y=o.y;front.x=o.x-d*90;front.y=o.y;rear.x=o.x+d*50;rear.y=o.y;
+ m.selectPlayer(team,selected.id);
+ const input=mode==='local'?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0};
+ return {m,d,o,selected,front,rear,input};
+}
+test('human defensive support excludes controlled players and steps goal-side cover toward a nearby carrier',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const f=pressingAssignmentFixture(team,period),{m,o,selected,front,rear,input}=f,old={x:selected.x,y:selected.y},moves=[];
+  const move=m.move.bind(m);m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s});move(p,x,y,s,dt);};
+  const gap=distance(front,o);m.step(1/hz,input);
+  const press=moves.find(a=>a.id===front.id),cover=moves.find(a=>a.id===rear.id);
+  assert.ok(press);assert.equal(press.s,128);assert.ok(distance(press,o)<gap,'nearby goal-side player closes rather than retreats');
+  assert.ok(distance(front,o)<gap);assert.equal(cover.s,85,'second automatic defender covers instead of piling onto the ball');
+  assert.deepEqual({x:selected.x,y:selected.y},old,'idle human control is never overridden');
+  assert.equal(m.activeFor(team),selected.id);assert.deepEqual(m.fouls,[0,0]);
+  input.teams[team]={dx:0,dy:-1};m.step(1/hz,input);
+  assert.ok(selected.y<old.y,'manual movement remains responsive');
+ }
+ const f=pressingAssignmentFixture(0,1,'practice'),gap=distance(f.front,f.o);f.m.step(1/60,f.input);assert.ok(distance(f.front,f.o)<gap);
+});
+test('defensive support does not abandon shape for distant threats or change unassisted AI assignments',()=>{
+ for(const manual of [false,true]){
+  const f=pressingAssignmentFixture(0,1,manual?'practice':'cup'),{m,front,rear,selected}=f,moves=[];
+  if(manual){front.x=1020;front.y=FIELD.top+20;}
+  const move=m.move.bind(m);m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s});move(p,x,y,s,dt);};
+  m.step(1/60,manual?f.input:null);
+  assert.ok(moves.find(a=>a.id===front.id).s!==128,'distant defender is not promoted to primary presser');
+  if(!manual)assert.equal(moves.find(a=>a.id===selected.id).s,128,'fully automatic side keeps nearest primary presser');
+  else assert.ok(moves.find(a=>a.id===rear.id),'nearer available player supplies pressure');
+ }
+});
