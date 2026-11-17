@@ -6831,3 +6831,56 @@ test('manual transition navigation and already-finished screens retain their exi
  }
  for(const phase of ['half','full']){m.phase=phase;h.app.syncMatch();h.window.handlers.blur();assert.equal(m.phase,phase);}
 });
+
+function heldShotAcrossNaturalThrow(repeats,hz=60,source=html){
+ const h=uiHarness(source),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+ h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let frame=0;
+ const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+ h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));
+ for(let i=0;i<Math.round(.75*hz);i++)tick();
+ h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<3*hz;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+ const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,FIELD.top-160);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+ h.window.handlers.keydown(keyEvent(' '));
+ const notices=[],setups=[],stop=m.stopForRestart.bind(m),take=m.takeRestart.bind(m);
+ m.stopForRestart=(r,...args)=>{notices.push({frame,...r});return stop(r,...args);};
+ m.takeRestart=(...args)=>{setups.push(frame);return take(...args);};
+ for(let i=0;i<2*hz&&!setups.length;i++){
+  tick();
+  if(repeats&&i>=Math.round(.4*hz)&&i%Math.max(1,Math.round(hz/30))===0)h.window.handlers.keydown(keyEvent(' ',true));
+ }
+ h.window.handlers.keyup(keyEvent(' '));
+ return {notices,setups,phase:m.phase,setPiece:m.setPiece,owner:m.owner?.id,passes:[...m.passes],shots:[...m.shots],ball:{...m.ball},pending:m.pendingKick};
+}
+test('holding a shot key across a natural touchline exit cannot skip the restart notice',()=>{
+ for(const hz of [30,60,120]){
+  const reference=heldShotAcrossNaturalThrow(false,hz),held=heldShotAcrossNaturalThrow(true,hz);
+  assert.equal(held.notices.length,1);assert.equal(held.notices[0].type,'Throw-in');
+  assert.equal(held.setups.length,1);assert.ok((held.setups[0]-held.notices[0].frame)/hz>=.9-1/hz);
+  assert.deepEqual(held,reference,'OS repeat does not shorten the notice or alter restart setup');
+  assert.equal(held.phase,'playing');assert.equal(held.setPiece,'Throw-in');assert.equal(held.pending,null);
+ }
+});
+test('restart notices ignore repeated kick keys while fresh keyboard actions still set up and kick once',()=>{
+ for(const mode of ['practice','multi'])for(const team of [0,1])
+ for(const type of ['Throw-in','Goal Kick','Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();h.tick(100);
+  const m=h.app.match,d=m.direction(team);
+  m.stopForRestart({type,team,x:type==='Goal Kick'?m.ownGoalX(team)+d*24:type==='Corner Kick'?m.goalX(team)-d*6:550,y:['Throw-in','Corner Kick'].includes(type)?FIELD.top:318});
+  h.app.syncMatch();const before=JSON.stringify(m.snapshot()),restart=m.restart;
+  for(const key of ['e',' ','f','g','k','l'])h.window.handlers.keydown(keyEvent(key,true));
+  assert.equal(m.phase,'restart');assert.equal(m.restart,restart);assert.equal(JSON.stringify(m.snapshot()),before);
+  for(let i=1;i<=12;i++){h.tick(100+i*1000/60);h.draws.length=0;h.app.drawnPaths.length=0;}
+  assert.equal(m.phase,'restart');
+  const key=mode==='multi'?(team===0?(type==='Penalty Kick'?'g':'f'):(type==='Penalty Kick'?'l':'k')):type==='Penalty Kick'?' ':'e';
+  h.window.handlers.keydown(keyEvent(key));
+  assert.equal(m.phase,'playing');assert.equal(m.owner.team,team);assert.equal(m.setPiece,type);
+  const pending=m.pendingKick,actions=m.passes.reduce((a,b)=>a+b,0)+m.shots.reduce((a,b)=>a+b,0);
+  if(mode==='multi'||team===0)assert.ok(pending,'fresh owning-player input still initiates the kick');
+  else assert.equal(pending,null,'solo input does not take an opponent kick');
+  for(let i=0;i<5;i++)h.window.handlers.keydown(keyEvent(key,true));
+  assert.equal(m.pendingKick,pending);
+  if(pending){advanceToContact(m);assert.equal(m.passes.reduce((a,b)=>a+b,0)+m.shots.reduce((a,b)=>a+b,0),actions+1);}
+  h.window.handlers.keyup(keyEvent(key));
+ }
+});

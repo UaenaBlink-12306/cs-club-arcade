@@ -2676,7 +2676,7 @@ function input(){
 window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
   if(key==='escape'){if(event.repeat)return;if(match?.phase==='paused')resume();else pause();return;}
-  if(match?.phase==='restart'&&['f','g','k','l','e',' '].includes(key)){match.takeRestart();syncMatch();}
+  if(!event.repeat&&match?.phase==='restart'&&['f','g','k','l','e',' '].includes(key)){match.takeRestart();syncMatch();}
   if(match?.phase!=='playing'||event.target?.tagName==='BUTTON'||event.target?.tagName==='A')return;
   if(mode==='local'){
     const movement=['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'];
