@@ -2342,7 +2342,8 @@ function offsideInvolvementFixture(team=0,period=1,shot=true){
  p.x=goal-d*180;p.y=FIELD.cy;p.angle=d>0?0:Math.PI;m.giveBall(p);
  a.x=goal-d*45;a.y=FIELD.cy;keeper.x=goal-d*18;keeper.y=FIELD.cy;
  m.kick(p,{x:goal+d*20,y:FIELD.cy,pass:!shot},.9);
- advanceToContact(m);
+ // This rules fixture deliberately keeps the obstruction in place through wind-up.
+ const move=m.move;m.move=()=>{};advanceToContact(m);m.move=move;
  return {m,p,a,keeper,d,goal};
 }
 test('an offside attacker blocking a shot from the keeper view is penalised without touching the ball',()=>{
@@ -2401,7 +2402,7 @@ test('restart exemptions survive direct involvement but end at a later teammate 
   a.x=goal-d*180;a.y=318;next.x=goal-d*45;next.y=318;m.followBall();
   for(const q of m.players)if(q.team!==team){q.x=goal-d*110;q.y=110;}
   const keeper=m.players[(1-team)*11];keeper.x=goal-d*18;keeper.y=318;
-  m.kick(a,{x:goal+d*20,y:318},1);advanceToContact(m);
+  m.move=()=>{};m.kick(a,{x:goal+d*20,y:318},1);advanceToContact(m);
   assert.ok(m.offside.ids.includes(next.id),'the next teammate play creates a new offside phase');
   m.move=()=>{};m.step(1/60,{dx:0,dy:0});
   assert.equal(m.phase,'restart');assert.equal(m.restart.team,1-team);
@@ -5899,4 +5900,77 @@ test('defensive support does not abandon shape for distant threats or change una
   if(!manual)assert.equal(moves.find(a=>a.id===selected.id).s,128,'fully automatic side keeps nearest primary presser');
   else assert.ok(moves.find(a=>a.id===rear.id),'nearer available player supplies pressure');
  }
+});
+
+
+test('ordinary long pointer shots clear the forward teammate and continue to real opponents or the keeper',()=>{
+ for(const [hz,seconds] of [[30,0],[60,1],[120,2.5]]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);let frame=0;const m=h.app.match;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<hz;i++)tick();
+  h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<hz*seconds;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+  const p=m.owner,q=m.players[9],before={x:q.x,y:q.y},a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(m.goalX(0),FIELD.cy);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.shot,true);let passed=false,flightFrames=0;
+  for(let i=0;i<hz*3&&m.phase==='playing';i++){
+   tick();if(m.flight?.shot){flightFrames++;if(m.ball.x<before.x-20)passed=true;}
+   if(!m.pendingKick&&m.owner)break;
+  }
+  assert.ok(passed,'real ball travels beyond the teammate instead of being trapped by him');assert.ok(flightFrames>3);
+  assert.ok(Math.abs(q.y-before.y)>8,'teammate actually steps clear instead of becoming collision-immune');
+  assert.ok(Math.abs(h.app.drawnPlayers.get(q.id).y-before.y)>5,'rendered teammate follows the actual clearance movement');
+  assert.equal(m.owner?.team,1,'a legitimate opponent block or keeper save still ends this central shot');
+  if(seconds===2.5)assert.ok(m.owner.keeper,'the nearer approach reaches the keeper');
+  assert.equal(m.shots[0],1);
+ }
+});
+test('automatic shot-lane clearance moves teammates during wind-up in both directions without overriding manual movement',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'local'),180,0,team,period),{m,p,d,goal}=f,q=m.players[team*11+6];
+  q.x=p.x+d*65;q.y=p.y;const before={x:q.x,y:q.y};
+  m.kick(p,{x:goal+d*20,y:FIELD.cy,shot:true},1);
+  const input={teams:[{dx:0,dy:0},{dx:0,dy:0}]};
+  m.step(1/hz,input);assert.ok(Math.abs(q.y-before.y)>0,'movement starts before contact');
+  const side=q.shotLane.side,id=q.shotLane.id;
+  while(m.pendingKick)m.step(Math.min(1/hz,m.pendingKick.remaining),input);
+  assert.equal(m.activeFor(team),q.id,'existing post-contact control handoff remains');
+  const at={x:q.x,y:q.y};input.teams[team]={dx:d,dy:0};m.step(1/hz,input);
+  assert.ok((q.x-at.x)*d>0,'actual input overrides automatic clearance');assert.equal(q.y,at.y);
+  assert.equal(q.shotLane,null,'manual movement discards the previous evasive plan');
+  input.teams[team]={dx:0,dy:0};m.step(1/hz,input);
+  if(q.shotLane?.id===id)assert.equal(q.shotLane.side,side,'same shot does not reverse evasive direction');
+  m.kickoff(team);assert.equal(q.shotLane,null);assert.equal(m.pendingKick,null);
+ }
+});
+test('shot avoidance never grants body immunity or changes opposing blocks and deliberate passes',()=>{
+ for(const team of [0,1])for(const blockingTeam of [0,1]){
+  const f=placeShot(new SoccerMatch(NATIONS[0],NATIONS[2],'local'),180,0,team),{m,p,d,goal}=f,q=m.players[blockingTeam*11+6];
+  q.x=p.x+d*65;q.y=p.y;const cover=m.players[(1-team)*11+2];cover.x=goal-d*25;cover.y=FIELD.top+25;m.move=()=>{};
+  m.kick(p,{x:goal+d*20,y:FIELD.cy,shot:true},1);
+  for(let i=0;i<100&&m.phase==='playing';i++){m.step(1/120,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});if(!m.pendingKick&&m.owner)break;}
+  assert.equal(m.owner?.id,q.id,'an immobile body still blocks the shot on either team');
+ }
+ const {h,c,m,p,r}=passReceptionFixture(),a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+ assert.equal(m.pendingKick.shot,false);runPassFrames(h);assert.equal(m.owner?.id,r.id);assert.ok(!r.shotLane);
+});
+test('nearby goal-side support closes before long shooting range even when a trailing teammate is closer',()=>{
+ // Normal match simulation: only a kickoff shot followed by idle human input.
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice',8);m.kick(m.owner,{x:48,y:FIELD.cy},1,false);
+ let early=null,pressure=null;const kick=m.kick.bind(m);
+ m.kick=(p,target,power,loft)=>{
+  if(p.team===1&&!m.setPiece&&Math.abs(target.x-m.goalX(1))<90){
+   pressure=Math.min(...m.players.filter(q=>q.team===0&&!q.keeper&&q.id!==m.active&&q.x>=p.x).map(q=>distance(q,p)));
+  }return kick(p,target,power,loft);
+ };
+ for(let i=0;i<60*12&&m.phase==='playing'&&pressure===null;i++){
+  m.step(1/60,{dx:0,dy:0});
+  const o=m.owner,range=o?m.ownGoalX(0)-o.x:0;
+  if(o?.team===1&&!o.keeper&&range>260&&range<285){
+   const q=m.players[3];early=Math.min(early??Infinity,distance(q,o));
+  }
+ }
+ assert.ok(early!==null&&early<150,'cover has already stepped out before ordinary AI shooting range');
+ assert.ok(pressure!==null&&pressure<30,'shot is pressured rather than leaving the carrier over 100 units clear');
 });

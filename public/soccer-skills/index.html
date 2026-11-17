@@ -1030,7 +1030,7 @@ class SoccerMatch {
       const f=formation[p.slot], d=this.direction(p.team);
       p.x=this.ownGoalX(p.team)+d*f[0]*(FIELD.right-FIELD.left);
       p.y=FIELD.top+f[1]*(FIELD.bottom-FIELD.top);
-      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.held=0;p.think=.35+p.slot*.025;
+      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.shotLane=null;p.held=0;p.think=.35+p.slot*.025;
     }
   }
   kickoff(team){
@@ -1360,6 +1360,25 @@ class SoccerMatch {
     }
     return true;
   }
+  avoidShotLane(p,dt){
+    const pending=this.pendingKick?.shot?this.pendingKick:null;
+    const flight=!this.owner&&this.flight?.shot?this.flight:null;
+    const team=pending?this.players[pending.player].team:flight?.team,id=pending?.id??flight?.id;
+    if(!Number.isInteger(id)||p.team!==team||p.keeper||pending?.player===p.id||
+      !pending&&Math.hypot(this.ball.vx,this.ball.vy)<=180){p.shotLane=null;return false;}
+    const dx=pending?pending.target.x-this.ball.x:this.ball.vx,dy=pending?pending.target.y-this.ball.y:this.ball.vy;
+    const len=Math.hypot(dx,dy);if(len<1)return false;
+    const ux=dx/len,uy=dy/len,px=p.x-this.ball.x,py=p.y-this.ball.y,along=px*ux+py*uy,across=-px*uy+py*ux;
+    if(along<0||along>260){p.shotLane=null;return false;}
+    if(p.shotLane?.id!==id){
+      if(Math.abs(across)>20)return false;
+      p.shotLane={id,side:Math.abs(across)>1?Math.sign(across):(p.slot%2?1:-1)};
+    }
+    // Step aside during wind-up and flight instead of chasing or standing in a
+    // teammate's shot. A committed side prevents alternating evasive steps.
+    const shift=p.shotLane.side*24-across;
+    this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
+  }
   avoidPassLane(p,dt){
     const pending=this.pendingKick,flight=this.flight;
     const receiverId=pending&&!pending.shot?pending.target.receiverId:flight?.directed?flight.receiverId:null;
@@ -1480,7 +1499,7 @@ class SoccerMatch {
       if(manual&&owner&&owner.team!==team&&!owner.keeper&&!this.setPiece&&Math.abs(owner.x-this.ownGoalX(team))<320){
         const d=this.direction(team),nearest=available[0];
         if(nearest&&(nearest.x-owner.x)*d>0){
-          const front=available.find(p=>(p.x-owner.x)*d<=0&&distance(p,owner)<180&&distance(p,owner)<=distance(nearest,owner)+80);
+          const front=available.find(p=>(p.x-owner.x)*d<=0&&distance(p,owner)<180);
           if(front){available.splice(available.indexOf(front),1);available.unshift(front);}
         }
       }
@@ -1500,6 +1519,8 @@ class SoccerMatch {
           continue;
         }
         if(this.setPiece&&this.ball.owner===p.id){p.speed=0;continue;}
+        if(control.target||control.dx||control.dy)p.shotLane=null;
+        if(!control.target&&!control.dx&&!control.dy&&this.avoidShotLane(p,dt))continue;
         if(!control.target&&!control.dx&&!control.dy&&this.ball.owner===null&&this.flight?.receiverId===p.id){
           // Selection transfers immediately; an idle receiver still meets the pass.
           this.move(p,this.ball.x+this.ball.vx*.12,this.ball.y+this.ball.vy*.12,128,dt);continue;
@@ -1529,7 +1550,7 @@ class SoccerMatch {
       // Let every pass leave the kicker's feet before off-ball AI chases it.
       if(p.cooldown>0&&this.ball.owner===null){p.speed=0;continue;}
       if(this.ball.owner===p.id){this.aiBallCarrier(p,dt);continue;}
-      if(this.avoidPassLane(p,dt))continue;
+      if(this.avoidShotLane(p,dt)||this.avoidPassLane(p,dt))continue;
       const d=this.direction(p.team),own=this.ownGoalX(p.team);
       if(p.keeper){
         const flight=this.flight,reacting=flight?.shot&&flight.team!==p.team&&this.ball.owner===null;
