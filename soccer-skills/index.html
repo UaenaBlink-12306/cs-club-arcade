@@ -2056,7 +2056,7 @@ const W=1100;let H=620;
 const camera=new ActionCamera();
 const $=selector=>document.querySelector(selector);
 const panels=['menu','local','trophy','loading','replay','half','corner','full','pause','penalties'];
-let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0,introShot=null,restartCountdown=0;
+let view='menu',selection=0,localAway=2,mode='cup',round=0,champion=false,match=null,drag=null,loadId=0,loadTimer=0,introShot=null,restartCountdown=0,pausedRestartCountdown=null;
 let shootoutPracticeRun=0,cupVictory=null;
 let lastFrame=0,accumulator=0,lastEvent='',lastFeedbackSerial=0,toastTimer=0,touchControls=false;
 let renderPair=null;
@@ -2340,6 +2340,7 @@ function updateHUD(){
   $('#clock').textContent=match.penalties?'PENS':mode==='practice'?'PRACTICE':String(min).padStart(2,'0')+':'+String(sec).padStart(2,'0');
 }
 function startMatch(){
+  pausedRestartCountdown=null;
   const current=++loadId;clearTimeout(loadTimer);
   if(champion){round=0;champion=false;cupVictory=null;updateTrophy();$('#cupContent').scrollTop=0;}
   const home=NATIONS[selection],away=NATIONS[mode==='local'?localAway:opponentFor(selection,round)];
@@ -2496,11 +2497,20 @@ function continueCup(){
 function quitToMenu(){
   ++loadId;clearTimeout(loadTimer);match=null;cancelDrag();keys.clear();show('menu');
 }
-function pause(){
-  if(match&&['playing','penalties','shootoutResult'].includes(match.phase)){match.pausedPhase=match.phase;match.phase='paused';cancelDrag();keys.clear();syncMatch();}
+function pause(includeTransitions=false){
+  if(match&&(['playing','penalties','shootoutResult'].includes(match.phase)||
+    includeTransitions===true&&['goal','replay','restart'].includes(match.phase))){
+    pausedRestartCountdown=match.phase==='restart'?restartCountdown:null;
+    match.pausedPhase=match.phase;match.phase='paused';cancelDrag();keys.clear();syncMatch();
+  }
 }
 function resume(){
-  if(match?.phase==='paused'){match.phase=match.pausedPhase||'playing';match.pausedPhase=null;accumulator=0;lastFrame=0;syncMatch();}
+  if(match?.phase==='paused'){
+    const countdown=pausedRestartCountdown;
+    match.phase=match.pausedPhase||'playing';match.pausedPhase=null;pausedRestartCountdown=null;
+    accumulator=0;lastFrame=0;syncMatch();
+    if(match.phase==='restart'){if(countdown!==null)restartCountdown=countdown;canvas.focus({preventScroll:true});}
+  }
 }
 function point(event){
   const r=canvas.getBoundingClientRect();return {x:(event.clientX-r.left)*W/r.width,y:(event.clientY-r.top)*H/r.height};
@@ -2691,8 +2701,8 @@ window.addEventListener('keydown',event=>{
   if(p?.team===0&&key==='e'){const receiver=match.bestPass(p,match.setPiece!=='Throw-in');if(receiver)match.kick(p,receiver,.6,false);}
 });
 window.addEventListener('keyup',event=>keys.delete(event.key.toLowerCase()));
-window.addEventListener('blur',pause);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+window.addEventListener('blur',()=>pause(true));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause(true);});
 document.querySelectorAll('[data-go]').forEach(button=>button.onclick=()=>{
   const next=button.dataset.go;
   if(next==='multi'){mode='local';round=0;champion=false;cupVictory=null;if(localAway===selection)localAway=(selection+1)%NATIONS.length;setLocalTeams();show('local');return;}
@@ -3554,8 +3564,10 @@ function liveRenderSample(current){
 
 function render(dt=0){
   resizeView();updateDrag();
+  const paused=match?.phase==='paused',presentationPhase=paused?match.pausedPhase:match?.phase;
+  const replaying=presentationPhase==='replay';
   let shot=match?match.snapshot():(view==='loading'?introShot:null);
-  if(match?.phase==='replay'&&match.replayFrames.length){
+  if(replaying&&match.replayFrames.length){
     const t=clamp(match.replayTime/4,0,.999);
     shot=replaySample(match.replayFrames,t);
     const last=match.replayFrames[match.replayFrames.length-1].ball;
@@ -3572,13 +3584,14 @@ function render(dt=0){
       if(Math.abs(shootingGoal-shot.ball.x)<360)shot={...shot,shootingGoal,...(!match.inShootout()&&aim?{aim}:{})};
     }
   }
-  if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
+  if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,paused?0:dt,replaying,false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   if(shot&&match?.phase==='playing')shot=liveRenderSample(shot);
-  else if(shot&&match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
-  shot=goalCelebrationFrame(shot,match);
-  shot=restartFoulFrame(shot,match,restartCountdown);
+  else if(shot&&replaying)shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
+  const presentationGame=paused&&['goal','restart'].includes(presentationPhase)?{...match,phase:presentationPhase}:match;
+  shot=goalCelebrationFrame(shot,presentationGame);
+  shot=restartFoulFrame(shot,presentationGame,restartCountdown);
   const paintedBall=shot?keeperHeldBall(shot):null;
   field(paintedBall);if(!shot)return;
   aimPanelRects=[];

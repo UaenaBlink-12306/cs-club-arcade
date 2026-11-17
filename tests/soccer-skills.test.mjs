@@ -6706,7 +6706,7 @@ test('a normal late challenge reacts during its notice rather than on the free-k
  assert.equal(resumed[0].setPiece,'Direct Free Kick');
 });
 test('foul presentation preserves normal-input physical state decisions clocks and restart timing',()=>{
- const old=html.replace("    // A stopped foul reaction has finished before the restart is set up.\n    for(const p of this.players)p.foulAt=-100;\n",'').replace('  shot=restartFoulFrame(shot,match,restartCountdown);','');
+ const old=html.replace("    // A stopped foul reaction has finished before the restart is set up.\n    for(const p of this.players)p.foulAt=-100;\n",'').replace('  shot=restartFoulFrame(shot,presentationGame,restartCountdown);','');
  const a=normalFoulPoseSequence(old,true),b=normalFoulPoseSequence(html,true);
  assert.deepEqual(a.foul,b.foul);assert.deepEqual(a.ball,b.ball);assert.deepEqual(a.score,b.score);
  assert.deepEqual(a.frames.map(f=>({frame:f.frame,phase:f.phase,state:f.state})),b.frames.map(f=>({frame:f.frame,phase:f.phase,state:f.state})));
@@ -6746,4 +6746,88 @@ test('foul notice rendering does not mutate snapshots or replay completed reacti
  assert.equal(paint(snapshot,{...m,restart:{type:'Throw-in'}},.9),snapshot);
  assert.equal(paint(snapshot,{...m,elapsed:m.elapsed+2},1.2).players[p.id].fouled,0,'recalled advantage is not a new foul contact');
  m.takeRestart();assert.ok(m.snapshot().players.every(p=>p.fouled===0));
+});
+
+function naturalRestartFocusSequence(source=html){
+const h=uiHarness(source),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let frame=0;
+const tick=()=>{h.tick(100+(++frame)*1000/60);h.draws.length=0;h.app.drawnPaths.length=0;};
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<45;i++)tick();
+h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<180;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,FIELD.top-160);
+c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+for(let i=0;i<120&&m.phase!=='restart';i++)tick();
+
+return {h,m,tick,get frame(){return frame}};}
+
+test('focus loss during a natural throw-in notice freezes play and preserves its remaining setup time',()=>{
+ const reference=naturalRestartFocusSequence();
+ for(let i=0;i<18;i++)reference.tick();
+ let remaining=0;while(reference.m.phase==='restart'&&remaining<90){reference.tick();remaining++;}
+ assert.ok(remaining>20&&remaining<45);
+ for(const reason of ['blur','hidden']){
+  const {h,m,tick}=naturalRestartFocusSequence();for(let i=0;i<18;i++)tick();
+  assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Throw-in');assert.equal(m.restart.team,1);
+  if(reason==='blur')h.window.handlers.blur();else{h.document.hidden=true;h.document.handlers.visibilitychange();}
+  assert.equal(m.phase,'paused');assert.equal(m.pausedPhase,'restart');assert.equal(h.app.view,'pause');
+  const snapshot=JSON.stringify(m.snapshot()),elapsed=m.elapsed,passes=[...m.passes];
+  h.window.handlers.blur();h.document.hidden=true;h.document.handlers.visibilitychange();
+  for(let i=0;i<120;i++)tick();
+  assert.equal(m.elapsed,elapsed);assert.equal(JSON.stringify(m.snapshot()),snapshot);assert.deepEqual(m.passes,passes);
+  h.document.hidden=false;h.document.handlers.visibilitychange();assert.equal(m.phase,'paused','returning focus does not silently resume');
+  h.click('resumePause');assert.equal(m.phase,'restart');assert.equal(h.document.activeElement,h.elements.get('game'));
+  let resumed=0;while(m.phase==='restart'&&resumed<90){tick();resumed++;}
+  assert.ok(Math.abs(resumed-remaining)<=1,'resume retains the partial countdown, not a fresh notice');
+  assert.equal(m.setPiece,'Throw-in');assert.equal(m.owner.team,1);
+ }
+});
+test('blur and hidden-tab pauses preserve goal and replay time and their displayed frames',()=>{
+ for(const mode of ['practice','multi'])for(const phase of ['goal','replay'])for(const reason of ['blur','hidden'])for(const hz of [30,60,120]){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();h.tick(100);
+  const m=h.app.match;
+  for(let i=0;i<30;i++)m.step(1/60,h.app.input());
+  celebrationGoalFixture(h,0);
+  if(phase==='replay'){m.step(1.2);m.step(.7);}else m.step(.3);
+  h.app.syncMatch();h.app.render(.016);
+  if(reason==='blur')h.window.handlers.blur();else{h.document.hidden=true;h.document.handlers.visibilitychange();}
+  h.app.render(0);
+  assert.equal(m.phase,'paused');assert.equal(m.pausedPhase,phase);
+  const elapsed=m.elapsed,goalTime=m.phaseTime,replayTime=m.replayTime,ball=JSON.stringify(h.app.drawnBall);
+  const players=JSON.stringify([...h.app.drawnPlayers.values()]);
+  const camera=JSON.stringify([h.app.camera.x,h.app.camera.y,h.app.camera.zoom,h.app.camera.yaw,h.app.camera.tilt]);
+  for(let i=1;i<=hz;i++){h.tick(100+i*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;}
+  assert.equal(m.elapsed,elapsed);assert.equal(m.phaseTime,goalTime);assert.equal(m.replayTime,replayTime);
+  assert.equal(JSON.stringify(h.app.drawnBall),ball);assert.equal(JSON.stringify([...h.app.drawnPlayers.values()]),players);
+  assert.equal(JSON.stringify([h.app.camera.x,h.app.camera.y,h.app.camera.zoom,h.app.camera.yaw,h.app.camera.tilt]),camera);
+  h.document.hidden=false;h.click('resumePause');h.tick(10000);
+  assert.equal(m.phase,phase);assert.equal(m.phaseTime,goalTime);assert.equal(m.replayTime,replayTime,'suspended frame gap is discarded');
+  h.tick(10000+Math.max(1000/60,1000/hz));
+  if(phase==='goal')assert.ok(m.phaseTime<goalTime);else assert.ok(m.replayTime>replayTime);
+  assert.equal(h.document.activeElement,h.elements.get(phase==='replay'?'skipReplay':'game'));
+ }
+});
+test('automatic pause retains foul presentation and every restart ownership through resume',()=>{
+ for(const mode of ['practice','multi'])for(const team of [0,1])
+ for(const type of ['Throw-in','Goal Kick','Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick']){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();h.tick(100);
+  const m=h.app.match,d=m.direction(team),victim=m.players[team*11+9];
+  if(type==='Direct Free Kick'){victim.x=550;victim.y=318;m.giveBall(victim);m.foul(m.players[(1-team)*11+9],victim,'Late challenge');}
+  else m.stopForRestart({type,team,x:type==='Goal Kick'?m.ownGoalX(team)+d*24:type==='Corner Kick'?m.goalX(team)-d*6:550,y:['Throw-in','Corner Kick'].includes(type)?FIELD.top:318});
+  h.app.syncMatch();for(let i=1;i<=15;i++)h.tick(100+i*1000/60);
+  const before=JSON.stringify([...h.app.drawnPlayers.values()]);
+  h.window.handlers.blur();h.app.render(0);assert.equal(m.pausedPhase,'restart');
+  for(let i=16;i<=45;i++)h.tick(100+i*1000/60);
+  assert.equal(JSON.stringify([...h.app.drawnPlayers.values()]),before);
+  h.click('resumePause');h.click('takeCorner');assert.equal(m.phase,'playing');assert.equal(m.owner.team,team);assert.equal(m.setPiece,type);
+  if(type==='Direct Free Kick')assert.ok(m.snapshot().players.every(p=>p.fouled===0));
+  h.click('menuBtn');h.click('restartMatch');h.flush();assert.equal(h.app.match.setPiece,'Kick-off');
+  h.window.handlers.blur();h.click('resumePause');assert.equal(h.app.match.phase,'playing');
+ }
+});
+test('manual transition navigation and already-finished screens retain their existing behavior',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ for(const phase of ['goal','replay','restart']){
+  if(phase==='restart')m.stopForRestart({type:'Throw-in',team:0,x:550,y:FIELD.top});else m.phase=phase;h.app.syncMatch();h.window.handlers.keydown(keyEvent('Escape'));assert.equal(m.phase,phase,'manual Escape remains unchanged');
+ }
+ for(const phase of ['half','full']){m.phase=phase;h.app.syncMatch();h.window.handlers.blur();assert.equal(m.phase,phase);}
 });
