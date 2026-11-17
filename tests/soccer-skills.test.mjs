@@ -6605,3 +6605,79 @@ test('goal-kick outlet preference leaves other AI restarts and local human resta
   for(let i=0;i<240;i++){a.step(1/60,{dx:0,dy:0});b.step(1/60,{dx:0,dy:0});assert.equal(JSON.stringify(a),JSON.stringify(b),'unrelated action identical');}
  }
 });
+
+function normalThrowArmSequence(hz=60,width=1180,height=757,lower=false,source=html){
+ const html=source;
+
+const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height});
+h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;let f=0;
+const tick=()=>{h.tick(100+(++f)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<Math.round(hz*.75);i++)tick();
+h.window.handlers.keydown(keyEvent(lower?'s':'w'));for(let i=0;i<hz*3;i++)tick();h.window.handlers.keyup(keyEvent(lower?'s':'w'));
+if(m.owner?.team!==0)return {stage:'lost before exit',owner:m.owner?.id,phase:m.phase};
+const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,lower?FIELD.bottom+160:FIELD.top-160),anchor={x:a.x,y:a.y};
+c.handlers.pointerdown(pointerEvent(h,anchor.x,anchor.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));const intent=h.app.pointerAim(h.app.drag);c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+const frames=[],restarts=[],receipts=[],contacts=[],release=m.releaseKick.bind(m),give=m.giveBall.bind(m),stop=m.stopForRestart.bind(m);
+m.stopForRestart=(r,...args)=>{restarts.push({at:m.elapsed,...r});return stop(r,...args);};
+m.releaseKick=k=>{const kind=m.setPiece,r=release(k);contacts.push({at:m.elapsed,type:kind,player:k.player,target:m.flight?.target,receiver:m.flight?.receiverId,loft:k.loft,ball:{...m.ball},players:m.players.map(q=>({id:q.id,x:q.x,y:q.y}))});return r;};
+m.giveBall=q=>{receipts.push({at:m.elapsed,id:q.id,team:q.team,keeper:q.keeper,x:q.x,y:q.y});return give(q);};
+for(let i=0;i<hz*15;i++){tick();const contact=contacts.find(q=>q.type==='Throw-in');if(contact){const p=h.app.drawnPlayers.get(contact.player),pose=h.app.playerPose(p,h.app.drawnBall),world=h.app.playerWorldTransform(p,pose),hands=h.app.playerSkeleton(p,pose).arms.map(a=>world(a.hand)),screen=hands.map(q=>h.app.camera.project(...q));frames.push({at:m.elapsed-contact.at,p:{...p},hands,screen,ball:{...h.app.drawnBall}});}if(restarts.length>=2||contacts.some(q=>q.type==='Throw-in')&&receipts.some(q=>q.at>contacts.find(q=>q.type==='Throw-in').at))break;}
+return {frames,start:{x:p.x,y:p.y},intent,restarts,contacts,receipts,phase:m.phase,ball:m.ball};
+
+}
+
+function beforeThrowRecovery(){return html.replace("const rawKick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle;\n  const throwProgress=p.throwing&&p.strikePhase==='follow'?clamp((p.strike-.3)/.7,0,1):0;\n  const throwing=p.throwing?1-poseEase(throwProgress):0;","const rawKick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle,throwing=p.throwing?1:0;").replace('cycle,stride,kick:throwing?0:kick,throwing,throwProgress,save,receive,hold,','cycle,stride,kick:throwing?0:kick,throwing,save,receive,hold,').replace("if(pose.throwing){\n      // Follow the released ball with both arms, then ease back to the live pose.\n      // The throw's contact clock and physical ball are unchanged.\n      const reach=Math.sin(Math.PI*(pose.throwProgress||0));\n      const throwElbow=[side*5,-2+reach*4,31],throwHand=[side*1.8,-1+reach*8,36];\n      for(let i=0;i<3;i++){elbow[i]+=(throwElbow[i]-elbow[i])*pose.throwing;hand[i]+=(throwHand[i]-hand[i])*pose.throwing;}\n    }","if(pose.throwing){elbow[0]=side*5;elbow[1]=-2;elbow[2]=31;hand[0]=side*1.8;hand[1]=-1;hand[2]=36;}");}
+
+test('ordinary throw-ins lower both arms continuously after release at 30 60 and 120 Hz',()=>{
+ for(const [hz,lower] of [[30,false],[60,false],[120,false],[60,true]]){
+  const r=normalThrowArmSequence(hz,1180,757,lower),contact=r.contacts.find(c=>c.type==='Throw-in');
+  assert.ok(contact);assert.equal(r.receipts[r.receipts.length-1].id,contact.receiver);
+  assert.ok(r.frames.some(f=>f.p.throwing)&&r.frames.some(f=>!f.p.throwing));
+  let movement=0;
+  for(let i=1;i<r.frames.length;i++){
+   const a=r.frames[i-1],b=r.frames[i];if(b.at>.6)break;
+   for(const side of [0,1]){
+    const delta=Math.hypot(...b.hands[side].map((v,j)=>v-a.hands[side][j]));
+    assert.ok(delta<120/hz,'no single-frame overhead-to-rest hand drop');
+    if(side===0)movement+=delta;
+   }
+  }
+  assert.ok(movement>8,'follow-through actually returns the arms to rest');
+ }
+});
+test('throw recovery changes rendered arms only while contacts receptions ball and player frames remain identical',()=>{
+ const before=normalThrowArmSequence(60,1180,757,false,beforeThrowRecovery()),after=normalThrowArmSequence();
+ assert.deepEqual(after.contacts,before.contacts);assert.deepEqual(after.receipts,before.receipts);
+ assert.deepEqual(after.restarts,before.restarts);
+ assert.deepEqual(after.frames.map(f=>({at:f.at,p:f.p,ball:f.ball})),before.frames.map(f=>({at:f.at,p:f.p,ball:f.ball})));
+ const jump=r=>Math.max(...r.frames.slice(1).map((b,i)=>Math.hypot(...b.hands[0].map((v,j)=>v-r.frames[i].hands[0][j]))));
+ assert.ok(jump(before)>10);assert.ok(jump(after)<1);
+});
+test('local throw follow-through stays continuous in replay and pause and clears on restart in both halves',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const [width,height] of [[1180,757],[333,596]]){
+  const h=localAimHarness(width,height,team,period),m=h.app.match;
+  m.stopForRestart({type:'Throw-in',team,x:550,y:team===0?FIELD.top:FIELD.bottom});m.takeRestart();h.app.syncMatch();h.app.render(0);
+  const p=m.owner,r=m.players[team*11+6];r.x=p.x+m.direction(team)*150;r.y=p.y+(team===0?150:-150);
+  h.window.handlers.keydown(keyEvent(team===0?'f':'k'));h.window.handlers.keyup(keyEvent(team===0?'f':'k'));
+  assert.ok(m.pendingKick);advanceToContact(m);const records=[m.snapshot()];
+  for(let i=0;i<30;i++){m.step(1/120,h.app.input());records.push(m.snapshot());}
+  h.app.render(0);const q=h.app.drawnPlayers.get(p.id),pose=h.app.playerPose(q,h.app.drawnBall);
+  assert.ok(pose.throwing>0&&pose.throwing<1);
+  const hands=h.app.playerSkeleton(q,pose).arms.map(a=>a.hand);
+  h.click('menuBtn');const snapshot=JSON.stringify(m.snapshot());h.tick(3000);h.app.render(0);
+  assert.equal(JSON.stringify(m.snapshot()),snapshot);
+  const paused=h.app.drawnPlayers.get(p.id);
+  assert.deepEqual(h.app.playerSkeleton(paused,h.app.playerPose(paused,h.app.drawnBall)).arms.map(a=>a.hand),hands);
+  h.click('resumePause');
+  for(let i=0;i<25;i++){m.step(1/120,h.app.input());records.push(m.snapshot());}
+  let prior=null;
+  for(let i=0;i<=120;i++){
+   const frame=h.app.replaySample(records,i/120),q=frame.players[p.id],pose=h.app.playerPose(q,frame.ball),arms=h.app.playerSkeleton(q,pose).arms;
+   const points=arms.flatMap(a=>a.hand);assert.ok(points.every(Number.isFinite));
+   if(prior)assert.ok(Math.hypot(...points.map((v,j)=>v-prior[j]))<1.2,'recorded recovery has no pose-flag snap');
+   prior=points;
+  }
+  h.click('menuBtn');h.click('restartMatch');h.flush();h.app.render(0);
+  assert.ok(h.app.match.snapshot().players.every(p=>!p.throwing));
+ }
+});

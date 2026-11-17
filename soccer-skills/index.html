@@ -2963,7 +2963,9 @@ function playerPose(p,ball){
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
   const celebration=clamp(p.celebration||0,0,1),settle=1-celebration;
   const baseRunning=gaitAmplitude(p.speed)*settle,cycle=p.stride*GAIT_CYCLE_SCALE+p.id*.47,stride=Math.sin(cycle);
-  const rawKick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle,throwing=p.throwing?1:0;
+  const rawKick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle;
+  const throwProgress=p.throwing&&p.strikePhase==='follow'?clamp((p.strike-.3)/.7,0,1):0;
+  const throwing=p.throwing?1-poseEase(throwProgress):0;
   // Short passes can be received while the passer is still following through.
   // Blend back to locomotion after the contact extension rather than sliding
   // the moving body on planted feet until the final fraction of the action.
@@ -2976,7 +2978,7 @@ function playerPose(p,ball){
   const reach=p.keeper&&save>0&&Number.isFinite(p.saveSide)?p.saveSide:p.keeper&&ball?clamp(((ball.x-p.x)*Math.sin(p.angle)-(ball.y-p.y)*Math.cos(p.angle))/45,-1,1):fx;
   const receive=posePulse(p.receive||0)*(1-clamp(Math.abs(kick)*2,0,1));
   const hold=p.keeper&&p.holding&&ball?.owner===p.id?poseEase(1-(p.receive||0))*(p.strikePhase==='windup'?1-poseEase(p.strike/.3):1):0;
-  return {fx,fy,celebration,running,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,save,receive,hold,
+  return {fx,fy,celebration,running,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,throwProgress,save,receive,hold,
     tackle:posePulse(p.tackle||0),fouled:posePulse(p.fouled||0),ready,reach,
     lean:clamp(p.bodyLean||0,-1,1),turn:clamp(p.turnLean||0,-1,1),
     twist:Math.sin(cycle)*running*.055-kick*.08,
@@ -3010,7 +3012,13 @@ function playerSkeleton(p,pose){
       const saluteHand=[side*9,-1,38],saluteElbow=[side*7,0,31];
       for(let i=0;i<3;i++){hand[i]+=(saluteHand[i]-hand[i])*pose.celebration;elbow[i]+=(saluteElbow[i]-elbow[i])*pose.celebration;}
     }
-    if(pose.throwing){elbow[0]=side*5;elbow[1]=-2;elbow[2]=31;hand[0]=side*1.8;hand[1]=-1;hand[2]=36;}
+    if(pose.throwing){
+      // Follow the released ball with both arms, then ease back to the live pose.
+      // The throw's contact clock and physical ball are unchanged.
+      const reach=Math.sin(Math.PI*(pose.throwProgress||0));
+      const throwElbow=[side*5,-2+reach*4,31],throwHand=[side*1.8,-1+reach*8,36];
+      for(let i=0;i<3;i++){elbow[i]+=(throwElbow[i]-elbow[i])*pose.throwing;hand[i]+=(throwHand[i]-hand[i])*pose.throwing;}
+    }
     const toe=stance?.12*Math.sin(Math.PI*progress):-.28*Math.sin(Math.PI*progress);
     legs.push({side,hip,knee,ankle,stance,phase,toe:toe*run+kicking*.16});arms.push({shoulder,elbow,hand});
   }
