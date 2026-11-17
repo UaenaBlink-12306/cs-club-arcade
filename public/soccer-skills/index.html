@@ -1702,8 +1702,13 @@ class SoccerMatch {
     }
     for(const p of this.players){
       const priorGait=p.gaitSpeed||0;
-      p.gaitSpeed=priorGait+(p.speed-priorGait)*(1-Math.exp(-dt*14));
-      const acceleration=clamp((p.speed-priorGait)/90,-1,1);
+      // Movement targets have a one-unit arrival tolerance. Their planned speed
+      // can remain nonzero there; a stationary player must still settle to idle.
+      // Keep that planning value unchanged for passing and challenge decisions.
+      const moved=Math.hypot(p.x-before[p.id].x,p.y-before[p.id].y)>1e-9;
+      const poseSpeed=moved?p.speed:0;
+      p.gaitSpeed=priorGait+(poseSpeed-priorGait)*(1-Math.exp(-dt*14));
+      const acceleration=clamp((poseSpeed-priorGait)/90,-1,1);
       p.bodyLean=(p.bodyLean||0)+(acceleration-(p.bodyLean||0))*(1-Math.exp(-dt*10));
       const delta=Math.atan2(Math.sin(p.angle-(p.visualAngle??p.angle)),Math.cos(p.angle-(p.visualAngle??p.angle)));
       p.visualAngle=(p.visualAngle??p.angle)+delta*(1-Math.exp(-dt*18));

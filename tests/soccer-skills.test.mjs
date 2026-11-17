@@ -6275,3 +6275,61 @@ test('pass clearance excludes receivers opponents keepers and shot deliveries',(
   assert.deepEqual({x:p.x,y:p.y},old);
  }
 });
+
+test('arrival tolerance settles the rendered gait while preserving movement planning and responsive restart',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const p=m.players[team*11+9];for(const q of m.players){q.x=200;q.y=FIELD.top+15+q.slot*3;}
+  Object.assign(p,{x:550,y:318,gaitSpeed:90});m.giveBall(p);
+  const input={teams:[{dx:0,dy:0},{dx:0,dy:0}]};input.teams[team]={target:{x:550.5,y:318}};
+  let previous=p.gaitSpeed;const stride=p.stride;
+  for(let i=0;i<hz/2;i++){
+   m.step(1/hz,input);assert.equal(p.x,550);assert.equal(p.y,318);assert.equal(p.stride,stride);
+   assert.ok(p.gaitSpeed<previous,'settling remains smooth');previous=p.gaitSpeed;
+   assert.ok(Math.abs(p.speed-.5*hz)<1e-8,'planning speed is intentionally unchanged');
+  }
+  assert.ok(p.gaitSpeed<.1);assert.ok(m.snapshot().players[p.id].speed<.1);
+  assert.ok(m.history[m.history.length-1].players[p.id].speed<.2,'replay records the settled pose');
+  input.teams[team]={dx:1,dy:0};m.step(1/hz,input);
+  assert.ok(p.x>550);assert.ok(p.stride>stride);assert.ok(p.gaitSpeed>1,'running resumes on the next input tick');
+ }
+});
+test('ordinary pass clearance settles a stationary supporting player without changing actual reception',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match;
+  let sample=null;
+  for(let frame=1;frame<=hz*2.45;frame++){
+   if(frame%hz===1){h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));}
+   h.tick(100+frame*1000/hz);
+   if(m.elapsed>2.40){const p=m.players[2];sample={x:p.x,y:p.y,planned:p.speed,gait:p.gaitSpeed,pose:h.app.playerPose(h.app.drawnPlayers.get(2),h.app.drawnBall)};}
+   h.draws.length=0;h.app.drawnPaths.length=0;
+  }
+  assert.ok(sample);assert.ok(sample.planned>20);assert.ok(sample.gait<sample.planned,'stationary clearance no longer sustains a running-speed floor');
+  assert.equal(m.passes[0],3);
+ }
+});
+test('arrival animation correction preserves simulation and bounds camera lead across ordinary solo local and shootout inputs',()=>{
+ const baseline=html.replace('const poseSpeed=moved?p.speed:0;','const poseSpeed=p.speed;');
+ const state=m=>JSON.stringify(m,(key,value)=>['gaitSpeed','bodyLean','turnLean','fromGait','history','replayFrames'].includes(key)?undefined:value);
+ for(const [mode,hz,seconds] of [['practice',30,3],['practice',60,3],['practice',120,3],['local',60,1],['local',120,1],['shootout',60,1],['shootout',120,1]]){
+  const a=uiHarness(html),b=uiHarness(baseline);
+  for(const h of [a,b]){
+   h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:hz===60?1180:508,height:757});
+   h.chooseMode(mode==='local'?'multi':mode);if(mode==='local')h.click('startLocal');h.flush();h.tick(100);
+  }
+  for(let frame=1;frame<=hz*seconds;frame++){
+   for(const h of [a,b]){
+    if(frame%hz===1){const key=mode==='practice'?'e':mode==='local'?'f':' ';h.window.handlers.keydown(keyEvent(key));h.window.handlers.keyup(keyEvent(key));}
+    h.tick(100+frame*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;
+   }
+   assert.equal(state(a.app.match),state(b.app.match),'positions, physics, decisions, ownership, timers and random state are unchanged');
+   const ca=a.app.camera,cb=b.app.camera;
+   assert.deepEqual(['zoom','yaw','tilt'].map(k=>ca[k]),['zoom','yaw','tilt'].map(k=>cb[k]));
+   assert.ok(Math.hypot((ca.x-cb.x)*ca.zoom,(ca.y-cb.y)*ca.zoom)<1,'pose-speed camera lead changes remain below one screen pixel');
+  }
+  a.click('menuBtn');const frozen=a.app.match.snapshot();a.tick(10000);
+  assert.equal(JSON.stringify(a.app.match.snapshot()),JSON.stringify(frozen),'pause never advances the settling animation');
+  a.click('resumePause');a.click('menuBtn');a.click('restartMatch');a.flush();
+  assert.ok(a.app.match.players.every(p=>p.gaitSpeed===0),'restart clears the previous gait');
+ }
+});
