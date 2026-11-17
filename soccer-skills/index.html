@@ -1498,6 +1498,20 @@ class SoccerMatch {
       if(this.setPiece==='Kick-off'&&this.ball.owner!==p.id){p.speed=0;continue;}
       // The restart taker must not chase their own untouched delivery. Human control still permits a penalised second touch.
       if(this.lastRestart?.taker===p.id){p.speed=0;continue;}
+      // Hands-held possession cannot be challenged. Nearby off-ball AI contains
+      // the keeper instead of chasing the ball into a charging foul. Human input
+      // above still moves freely and remains subject to the normal contact rules.
+      const holdingKeeper=this.owner;
+      if(holdingKeeper?.keeper&&this.handOwner===holdingKeeper.id&&holdingKeeper.team!==p.team&&distance(p,holdingKeeper)<80){
+        const dx=p.x-holdingKeeper.x,dy=p.y-holdingKeeper.y,len=Math.hypot(dx,dy)||1;
+        let tx=clamp(holdingKeeper.x+dx/len*50,FIELD.left+12,FIELD.right-12);
+        let ty=clamp(holdingKeeper.y+dy/len*50,FIELD.top+12,FIELD.bottom-12);
+        // Near an end line, retreat sideways rather than cutting through the keeper.
+        if(Math.hypot(tx-holdingKeeper.x,ty-holdingKeeper.y)<40){
+          tx=p.x;ty=clamp(holdingKeeper.y+(dy>=0?50:-50),FIELD.top+12,FIELD.bottom-12);
+        }
+        this.move(p,tx,ty,85,dt);continue;
+      }
       // Let every pass leave the kicker's feet before off-ball AI chases it.
       if(p.cooldown>0&&this.ball.owner===null){p.speed=0;continue;}
       if(this.ball.owner===p.id){this.aiBallCarrier(p,dt);continue;}

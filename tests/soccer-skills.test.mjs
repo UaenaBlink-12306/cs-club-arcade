@@ -5488,3 +5488,73 @@ test('goal mesh and projected raised arms remain finite in desktop and narrow po
   }
  }
 });
+
+test('ordinary local kickoff save can wait for observation then distribute without an AI charging foul',()=>{
+ for(const [hz,width,height] of [[30,1180,757],[60,1180,757],[120,1180,757],[60,333,596]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;
+  h.tick(100);h.window.handlers.keydown(keyEvent('g'));h.window.handlers.keyup(keyEvent('g'));
+  let caught=false,minGap=Infinity;
+  for(let f=1;f<=hz*8;f++){
+   if(f===Math.round(hz*6.5)){h.window.handlers.keydown(keyEvent('k'));h.window.handlers.keyup(keyEvent('k'));}
+   h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+f*1000/hz);
+   if(m.handOwner===11){caught=true;minGap=Math.min(minGap,...m.players.filter(p=>p.team===0).map(p=>distance(p,m.owner)));}
+   assert.equal(m.phase,'playing','idle inputs must not produce a charging stoppage');
+  }
+  assert.ok(caught);assert.ok(minGap>=39,'automatic press stays clear of the holding keeper');
+  assert.deepEqual(m.fouls,[0,0]);assert.equal(m.passes[1],1);assert.equal(m.handOwner,null);
+  assert.equal(m.owner?.team,1,'keeper distribution reaches an actual teammate');assert.ok(!m.owner.keeper);
+  h.click('menuBtn');const at=m.elapsed;h.tick(100+hz*8*1000/hz+400);assert.equal(m.elapsed,at);
+  h.click('resumePause');h.click('menuBtn');h.click('restartMatch');h.flush();
+  assert.deepEqual(h.app.match.fouls,[0,0]);assert.equal(h.app.match.handOwner,null);assert.equal(h.app.match.setPiece,'Kick-off');
+ }
+});
+function heldKeeperSpacingFixture(team=1,period=1,mode='local',manual=false){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode);m.period=period;m.kickoff(team);
+ for(const p of m.players){p.x=450+p.team*150;p.y=90+p.slot*16;p.cooldown=0;}
+ const k=m.players[team*11],p=m.players[(1-team)*11+10],d=m.direction(team);
+ k.x=m.ownGoalX(team)+d*18;k.y=FIELD.cy;k.angle=d>0?0:Math.PI;
+ p.x=k.x+d*45;p.y=k.y;
+ m.giveBall(k);m.ball.lastTouch=1-team;m.receiveBall(k);
+ m.active=(team===0?k.id:manual?p.id:9);m.activeAway=(team===1?k.id:manual?p.id:20);
+ const control=mode==='local'?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0};
+ if(manual){if(mode==='local')control.teams[1-team]={dx:-d,dy:0};else control.dx=-d;}
+ return {m,k,p,d,control};
+}
+test('AI gives hands-held keepers room in both halves and directions including end-line retreat',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const mode of ['practice','local'])for(const behind of [false,true]){
+  const {m,k,p,d,control}=heldKeeperSpacingFixture(team,period,mode);
+  if(behind){p.x=m.ownGoalX(team)+d*12;p.y=k.y;}
+  let heldFrames=0;
+  for(let i=0;i<180&&m.phase==='playing';i++){
+   m.step(1/60,control);
+   if(m.handOwner===k.id){heldFrames++;assert.ok(m.lastFoul?.reason!=='Charging the goalkeeper');}
+  }
+  assert.ok(heldFrames>30);assert.deepEqual(m.fouls,[0,0]);
+  if(mode==='local'||team===0){assert.equal(m.handOwner,k.id);assert.ok(distance(p,k)>=39);}
+  else assert.equal(m.handOwner,null,'solo AI keeper still releases promptly');
+ }
+});
+test('human movement into a holding keeper still earns the normal charging free kick',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  for(const mode of team===1?['local','practice']:['local']){
+   const {m,k,p,control}=heldKeeperSpacingFixture(team,period,mode,true);
+   for(let i=0;i<40&&m.phase==='playing';i++)m.step(1/60,control);
+   assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Direct Free Kick');
+   assert.equal(m.lastFoul.reason,'Charging the goalkeeper');assert.equal(m.lastFoul.offender,p.id);
+   assert.equal(m.lastFoul.victim,k.id);assert.equal(m.fouls[1-team],1);
+  }
+ }
+});
+test('AI containment ends on release and does not protect a keeper controlling with feet',()=>{
+ for(const team of [0,1])for(const feet of [false,true]){
+  const {m,k,p,d,control}=heldKeeperSpacingFixture(team);
+  for(let i=0;i<60;i++)m.step(1/60,control);
+  assert.ok(distance(p,k)>=39);const heldX=p.x;
+  if(feet)m.handOwner=null;
+  else{m.ball.owner=null;m.handOwner=null;m.ball.x=k.x+d*8;m.ball.y=k.y;m.ball.z=0;m.ball.vx=0;m.ball.vy=0;m.ball.lock=1;}
+  for(let i=0;i<6;i++)m.step(1/60,control);
+  assert.ok((p.x-heldX)*d<0,'AI pursues once hand protection is gone');
+  assert.ok(distance(p,k)<45);
+ }
+});
