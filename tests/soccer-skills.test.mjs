@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},goalCelebrationFrame,interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -5416,5 +5416,75 @@ test('ball ground shadow stays below goal structures in live replay pause and re
   m.scorer=end===FIELD.left?0:1;m.replayFrames=[m.snapshot(),m.snapshot()];m.replayTime=1;m.phase='replay';check();
   m.skipReplay();h.app.syncMatch();check();assert.equal(m.setPiece,'Kick-off');
   h.click('menuBtn');h.click('restartMatch');h.flush();check();
+ }
+});
+
+function celebrationGoalFixture(h,team=0,ownGoal=false){
+ const m=h.app.match;m.giveBall(m.players[(ownGoal?1-team:team)*11+9]);
+ const side=m.goalX(team),d=side===FIELD.left?-1:1;
+ m.lastRestart=null;m.offside=null;m.advantage=null;
+ Object.assign(m.ball,{owner:null,x:side+d*5,y:FIELD.cy,z:0,vx:d*200,vy:0});
+ assert.equal(m.checkBoundary({x:side-d*5,y:FIELD.cy,z:0}),true);
+ assert.equal(m.phase,'goal');assert.equal(m.scorer,team);return m;
+}
+test('goal acknowledgement raises credited outfield arms without celebrating own-goal defenders or keepers',()=>{
+ for(const mode of ['practice','local'])for(const team of [0,1])for(const ownGoal of [false,true]){
+  const h=uiHarness(html);h.chooseMode(mode==='local'?'multi':'practice');if(mode==='local')h.click('startLocal');h.flush();
+  const m=celebrationGoalFixture(h,team,ownGoal),record=JSON.stringify(m.replayFrames);
+  const start=m.snapshot();assert.equal(h.app.goalCelebrationFrame(start,m),start);
+  m.phaseTime=.6;const steady=JSON.stringify(m);h.app.render(0);
+  assert.equal(JSON.stringify(m),steady,'render never mutates match state');
+  for(const p of m.snapshot().players){
+   const painted=h.app.drawnPlayers.get(p.id),eligible=p.team===team&&!p.keeper;
+   assert.equal(painted.celebration||0,eligible?1:0);
+   const posed=h.app.playerPose(painted,m.ball),s=h.app.playerSkeleton(painted,posed),plain=h.app.playerSkeleton(p,h.app.playerPose(p,m.ball));
+   if(eligible){assert.ok(s.arms.every(a=>a.hand[2]>36&&a.elbow[2]>a.shoulder[2]),'two raised arms above head');
+    assert.ok(JSON.stringify(h.app.playerMesh(painted,posed))!==JSON.stringify(h.app.playerMesh(p,h.app.playerPose(p,m.ball))),'actual rendered mesh changes');
+   }else assert.deepEqual(s,plain,'opponent and keeper geometry unchanged');
+  }
+  assert.equal(JSON.stringify(m.replayFrames),record);
+  assert.ok(!JSON.stringify(m.snapshot()).includes('celebration'));
+  m.phaseTime=0;assert.equal(h.app.goalCelebrationFrame(start,m),start,'settles back before replay');
+ }
+});
+test('goal acknowledgement blends smoothly within the existing stoppage at 30 60 and 120 Hz',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=celebrationGoalFixture(h);
+  let prior=0,maxDelta=0,count=0,peak=0;
+  while(m.phase==='goal'&&count<hz*2){
+   const p=h.app.goalCelebrationFrame(m.snapshot(),m).players[9],c=p.celebration||0;
+   maxDelta=Math.max(maxDelta,Math.abs(c-prior));peak=Math.max(peak,c);prior=c;
+   m.step(1/hz);count++;
+  }
+  assert.equal(m.phase,'replay');assert.ok(Math.abs(count/hz-1.15)<=1/hz+1e-8);
+  assert.equal(peak,1);assert.ok(maxDelta<=1.51/(hz*.25),'bounded smooth pose ramp');
+  assert.ok(prior<=.05,'arms already settle at replay boundary');
+  assert.equal(m.score[0],1);
+ }
+});
+test('goal poses never enter replay recordings or leak into replay kickoff pause and reset',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');h.click('startLocal');h.flush();let m=celebrationGoalFixture(h,1);
+ m.phaseTime=.6;h.app.render(0);assert.equal(h.app.drawnPlayers.get(20).celebration,1);
+ m.step(.7);assert.equal(m.phase,'replay');h.app.render(0);
+ assert.ok([...h.app.drawnPlayers.values()].every(p=>!p.celebration));
+ for(const t of [0,.5,.999])assert.ok(h.app.replaySample(m.replayFrames,t).players.every(p=>!p.celebration));
+ m.skipReplay();h.app.syncMatch();h.app.render(0);
+ assert.equal(m.setPiece,'Kick-off');assert.ok([...h.app.drawnPlayers.values()].every(p=>!p.celebration));
+ h.click('menuBtn');assert.equal(m.phase,'paused');h.app.render(0);
+ assert.ok([...h.app.drawnPlayers.values()].every(p=>!p.celebration));
+ h.click('resumePause');assert.equal(m.phase,'playing');
+ m=celebrationGoalFixture(h,0);m.phaseTime=.6;h.app.render(0);
+ h.click('restartMatch');h.flush();h.app.render(0);
+ assert.deepEqual(h.app.match.score,[0,0]);assert.ok([...h.app.drawnPlayers.values()].every(p=>!p.celebration));
+});
+test('goal mesh and projected raised arms remain finite in desktop and narrow portrait',()=>{
+ for(const [width,height] of [[1180,757],[333,596]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('practice');h.flush();const m=celebrationGoalFixture(h);m.phaseTime=.6;h.app.render(0);
+  const p=h.app.drawnPlayers.get(9),pose=h.app.playerPose(p,m.ball),world=h.app.playerWorldTransform(p,pose);
+  for(const a of h.app.playerSkeleton(p,pose).arms){
+   const hand=h.app.camera.project(...world(a.hand)),shoulder=h.app.camera.project(...world(a.shoulder));
+   assert.ok(Number.isFinite(hand.x)&&Number.isFinite(hand.y));assert.ok(hand.y<shoulder.y,'raised gesture projects above shoulder');
+  }
  }
 });

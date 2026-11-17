@@ -2799,21 +2799,31 @@ function strikePose(t){
 }
 function poseEase(t){t=clamp(t,0,1);return t*t*(3-2*t);}
 function posePulse(remaining){return remaining>0?Math.sin(Math.PI*poseEase(1-remaining)):0;}
+// Goal acknowledgement is display-only: scorer is the credited team, including own goals.
+// Recorded match/replay snapshots and the existing stoppage duration stay untouched.
+function goalCelebrationFrame(shot,game){
+  if(!shot||game?.phase!=='goal'||!Number.isInteger(game.scorer))return shot;
+  const age=1.15-game.phaseTime;
+  const celebration=poseEase(age/.25)*poseEase(game.phaseTime/.25);
+  if(celebration<=0)return shot;
+  return {...shot,players:shot.players.map(p=>p.team===game.scorer&&!p.keeper?{...p,celebration}:p)};
+}
 function playerPose(p,ball){
   const a=camera.project(p.x,p.y),b=camera.project(p.x+Math.cos(p.angle)*12,p.y+Math.sin(p.angle)*12);
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
-  const baseRunning=gaitAmplitude(p.speed),cycle=p.stride*GAIT_CYCLE_SCALE+p.id*.47,stride=Math.sin(cycle);
-  const kick=p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0),throwing=p.throwing?1:0;
+  const celebration=clamp(p.celebration||0,0,1),settle=1-celebration;
+  const baseRunning=gaitAmplitude(p.speed)*settle,cycle=p.stride*GAIT_CYCLE_SCALE+p.id*.47,stride=Math.sin(cycle);
+  const kick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle,throwing=p.throwing?1:0;
   const planting=p.strikePhase==='windup'||(p.strikePhase==='follow'&&p.strike<.85);
   const recovery=p.strikePhase==='follow'?poseEase((p.strike-.85)/.15):1;
   const running=planting?0:baseRunning*recovery;
-  const entry=p.strikePhase==='windup'?(1-poseEase(p.strike/.16))*gaitAmplitude(p.strikeRun||0):0;
+  const entry=p.strikePhase==='windup'?(1-poseEase(p.strike/.16))*gaitAmplitude(p.strikeRun||0)*settle:0;
   const save=posePulse(p.save||0),ready=p.keeper&&ball&&ball.owner!==p.id?clamp((220-distance(p,ball))/100,0,1):0;
   // Keeper reach is expressed in the player's local frame, not screen left/right.
   const reach=p.keeper&&save>0&&Number.isFinite(p.saveSide)?p.saveSide:p.keeper&&ball?clamp(((ball.x-p.x)*Math.sin(p.angle)-(ball.y-p.y)*Math.cos(p.angle))/45,-1,1):fx;
   const receive=posePulse(p.receive||0)*(1-clamp(Math.abs(kick)*2,0,1));
   const hold=p.keeper&&p.holding&&ball?.owner===p.id?poseEase(1-(p.receive||0))*(p.strikePhase==='windup'?1-poseEase(p.strike/.3):1):0;
-  return {fx,fy,running,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,save,receive,hold,
+  return {fx,fy,celebration,running,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,save,receive,hold,
     tackle:posePulse(p.tackle||0),fouled:posePulse(p.fouled||0),ready,reach,
     lean:clamp(p.bodyLean||0,-1,1),turn:clamp(p.turnLean||0,-1,1),
     twist:Math.sin(cycle)*running*.055-kick*.08,
@@ -2842,6 +2852,10 @@ function playerSkeleton(p,pose){
     if(pose.hold>0){
       const cradleHand=[side*3.1,6,21.5],cradleElbow=[side*6,2,22];
       for(let i=0;i<3;i++){hand[i]+=(cradleHand[i]-hand[i])*pose.hold;elbow[i]+=(cradleElbow[i]-elbow[i])*pose.hold;}
+    }
+    if(pose.celebration>0){
+      const saluteHand=[side*9,-1,38],saluteElbow=[side*7,0,31];
+      for(let i=0;i<3;i++){hand[i]+=(saluteHand[i]-hand[i])*pose.celebration;elbow[i]+=(saluteElbow[i]-elbow[i])*pose.celebration;}
     }
     if(pose.throwing){elbow[0]=side*5;elbow[1]=-2;elbow[2]=31;hand[0]=side*1.8;hand[1]=-1;hand[2]=36;}
     const toe=stance?.12*Math.sin(Math.PI*progress):-.28*Math.sin(Math.PI*progress);
@@ -3377,6 +3391,7 @@ function render(dt=0){
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   if(shot&&match?.phase==='playing')shot=liveRenderSample(shot);
   else if(shot&&match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
+  shot=goalCelebrationFrame(shot,match);
   const paintedBall=shot?keeperHeldBall(shot):null;
   field(paintedBall);if(!shot)return;
   aimPanelRects=[];
