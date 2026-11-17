@@ -1391,21 +1391,26 @@ class SoccerMatch {
     const side=across===0?(p.slot%2?1:-1):Math.sign(across),shift=side*38-across;
     this.move(p,p.x-uy*shift,p.y+ux*shift,94,dt);return true;
   }
-  groundPassBlocked(p,q){
+  groundPassBlocked(p,q,anticipate=false){
     const len=distance(p,q),dx=(q.x-p.x)/len,dy=(q.y-p.y)/len;
     const start=this.restartGuard||{x:p.x+dx*10,y:p.y+dy*10};
     const vx=q.x-start.x,vy=q.y-start.y,length2=vx*vx+vy*vy;
+    const launch=anticipate?kickBallState(p,{...q,pass:true,receiverId:q.id},.6,false,this.restartGuard,false):null;
+    const speed=launch?Math.hypot(launch.vx,launch.vy):1;
     return this.players.some(o=>{
       if(o.team===p.team)return false;
       const t=((o.x-start.x)*vx+(o.y-start.y)*vy)/length2;
       if(t<=0||t>=1)return false;
       // Existing ground-ball capture reach, not a new interception advantage.
       const reach=o.keeper&&this.inPenalty(o,o.team)?14:19;
-      return Math.hypot(o.x-start.x-t*vx,o.y-start.y-t*vy)<reach;
+      // Automatic passes prefer room for a moving opponent to close during the
+      // wind-up and early flight. This is planning only, never collision reach.
+      const margin=anticipate?(o.speed||0)*Math.min(.25,.075+Math.sqrt(length2)*t/speed):0;
+      return Math.hypot(o.x-start.x-t*vx,o.y-start.y-t*vy)<reach+margin;
     });
   }
   bestPass(p,preferOpenGroundLane=false){
-    let best=null,bestValue=-Infinity,open=null,openValue=-Infinity;
+    let best=null,bestValue=-Infinity,open=null,openValue=-Infinity,safe=null,safeValue=-Infinity;
     for(const q of this.players){
       if(q.team!==p.team||q.id===p.id||q.keeper)continue;
       const len=distance(p,q);if(len<25||(!this.setPiece&&len>430)||(this.setPiece==='Kick-off'&&len>240))continue;
@@ -1414,11 +1419,14 @@ class SoccerMatch {
       const progress=(q.x-p.x)*this.direction(p.team);
       const value=space*.6+progress*.42-Math.abs(len-180)*.12;
       if(value>bestValue){bestValue=value;best=q;}
-      if(preferOpenGroundLane&&value>openValue&&!this.groundPassBlocked(p,q)){openValue=value;open=q;}
+      if(preferOpenGroundLane&&!this.groundPassBlocked(p,q)){
+        if(value>openValue){openValue=value;open=q;}
+        if(value>safeValue&&!this.groundPassBlocked(p,q,true)){safeValue=value;safe=q;}
+      }
     }
     // Keep the original ranking when every lane is contested. A clear lane now
     // is not a guarantee against defenders moving into it after the kick.
-    return open||best;
+    return safe||open||best;
   }
   aiBallCarrier(p,dt){
     const d=this.direction(p.team),goal=this.goalX(p.team),pressure=distance(this.nearest(1-p.team,p),p);
@@ -1595,7 +1603,11 @@ class SoccerMatch {
         this.move(p,clamp(this.ball.x+this.ball.vx*.13+d*lead,FIELD.left+14,FIELD.right-14),
           clamp(this.ball.y+this.ball.vy*.13,FIELD.top+14,FIELD.bottom-14),p.team===0||this.mode==='local'?128:115,dt);
       }else{
-        const f=formation[p.slot],attacking=owner?.team===p.team;
+        // A teammate's pass in flight is still our attacking phase. Treating
+        // every release as lost possession makes support retreat then reverse
+        // again on reception; a real turnover still switches shape immediately.
+        const f=formation[p.slot],attacking=owner?owner.team===p.team:
+          this.flight?.shot===false&&this.flight.team===p.team;
         const fraction=f[0]+(attacking?.09:-.06);
         const tx=own+d*fraction*(FIELD.right-FIELD.left)+(this.ball.x-550)*.24+Math.sin(this.elapsed*.7+p.slot)*10;
         const ty=FIELD.top+f[1]*(FIELD.bottom-FIELD.top)+(this.ball.y-FIELD.cy)*.24+Math.sin(this.elapsed*.8+p.id)*14;

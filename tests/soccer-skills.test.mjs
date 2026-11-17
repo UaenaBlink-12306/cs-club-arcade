@@ -4785,7 +4785,7 @@ test('blur pointer cancellation and lost capture discard stale input and permit 
  }
 });
 
-test('ordinary automatic passes avoid an occupied lane and reach the clear alternative',()=>{
+test('ordinary automatic passes avoid occupied or closing lanes and reach the clear alternative',()=>{
  for(const mode of ['practice','cup'])for(const hz of [60,120])for(const width of [333,887]){
   const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:596});
   h.chooseMode(mode);if(mode==='cup')h.click('startMatch');h.flush();h.tick(100);const m=h.app.match;
@@ -4796,7 +4796,7 @@ test('ordinary automatic passes avoid an occupied lane and reach the clear alter
    if(f===0||f===hz||f===hz*2){
     if(f===hz*2){
      assert.equal(m.owner.id,3);
-     assert.equal(m.bestPass(m.owner).id,9,'legacy ranking still prefers the contested forward target');
+     assert.ok(m.groundPassBlocked(m.owner,m.bestPass(m.owner),true),'unfiltered ranking prefers a lane a moving defender can close');
      assert.ok(m.groundPassBlocked(m.owner,m.players[9]));
      assert.ok(!m.groundPassBlocked(m.owner,m.players[1]));
     }
@@ -5955,26 +5955,36 @@ test('shot avoidance never grants body immunity or changes opposing blocks and d
  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
  assert.equal(m.pendingKick.shot,false);runPassFrames(h);assert.equal(m.owner?.id,r.id);assert.ok(!r.shotLane);
 });
-test('nearby goal-side support closes before long shooting range even when a trailing teammate is closer',()=>{
- // Normal match simulation: only a kickoff shot followed by idle human input.
+test('nearby goal-side support closes before shooting range in a carried attack with a closer trailing teammate',()=>{
+ // Isolate the carried-attack geometry: a changed preceding pass must not
+ // replace this scenario with a newly protected reception inside shooting range.
+ for(const period of [1,2]){
+  const f=pressingAssignmentFixture(0,period,'practice'),{m,o,front,rear,selected,d}=f;
+  o.x=m.ownGoalX(0)+d*290;o.y=FIELD.cy;o.receiveAt=-10;o.think=0;
+  front.x=o.x-d*170;front.y=o.y;rear.x=o.x+d*30;rear.y=o.y;
+  selected.x=550;selected.y=100;m.followBall();let early=null;
+  for(let i=0;i<240&&m.phase==='playing'&&m.owner?.id===o.id;i++){
+   m.step(1/60,f.input);const range=Math.abs(m.ownGoalX(0)-o.x);
+   if(range>260&&range<285)early=Math.min(early??Infinity,distance(front,o));
+  }
+  assert.ok(early!==null&&early<150,'cover steps out before the carrier reaches shooting range');
+  assert.ok(distance(front,o)<40,'a closer trailing player must not prevent frontal pressure');
+  assert.equal(m.flight?.team,1);assert.equal(m.flight.shot,false,'the pressured attacker releases a pass');
+ }
+});
+test('ordinary counterattack still provides defensive cover while preserving the existing first-touch window',()=>{
  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'practice',8);m.kick(m.owner,{x:48,y:FIELD.cy},1,false);
- let early=null,pressure=null;const kick=m.kick.bind(m);
+ let shot=null;const kick=m.kick.bind(m);
  m.kick=(p,target,power,loft)=>{
   if(p.team===1&&!m.setPiece&&Math.abs(target.x-m.goalX(1))<90){
-   pressure=Math.min(...m.players.filter(q=>q.team===0&&!q.keeper&&q.id!==m.active&&q.x>=p.x).map(q=>distance(q,p)));
+   const front=m.players.filter(q=>q.team===0&&!q.keeper&&q.id!==m.active&&q.x>=p.x);
+   shot={age:m.elapsed-p.receiveAt,pressure:Math.min(...front.map(q=>distance(q,p)))};
   }return kick(p,target,power,loft);
  };
- for(let i=0;i<60*12&&m.phase==='playing'&&pressure===null;i++){
-  m.step(1/60,{dx:0,dy:0});
-  const o=m.owner,range=o?m.ownGoalX(0)-o.x:0;
-  if(o?.team===1&&!o.keeper&&range>260&&range<285){
-   const q=m.players[3];early=Math.min(early??Infinity,distance(q,o));
-  }
- }
- assert.ok(early!==null&&early<150,'cover has already stepped out before ordinary AI shooting range');
- assert.ok(pressure!==null&&pressure<30,'shot is pressured rather than leaving the carrier over 100 units clear');
+ for(let i=0;i<60*12&&m.phase==='playing'&&!shot;i++)m.step(1/60,{dx:0,dy:0});
+ assert.ok(shot);assert.ok(shot.age>.2&&shot.age<.65,'this route is a fresh reception, not the carried-attack fixture');
+ assert.ok(shot.pressure<90,'cover approaches while honoring the receiver protection window');
 });
-
 
 test('ordinary attacking-third short pass blends the moving passer into gait instead of sliding on planted feet',()=>{
  for(const hz of [30,60,120]){
@@ -6041,4 +6051,89 @@ test('moving follow-through uses the same smooth pose in local halves recorded r
   h.click('resumePause');h.click('menuBtn');h.click('restartMatch');h.flush();
   assert.ok(h.app.match.snapshot().players.every(p=>p.strikePhase==='idle'));
  }
+});
+
+
+test('ordinary attacking-third passes keep support running forward instead of reversing at release and reception',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);let frame=0;const m=h.app.match;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<hz;i++)tick();
+  h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<hz*2.5;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+  const p=m.owner,r=m.players[9],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,r.id);
+  let prior=h.app.drawnPlayers.get(8),backward=0,turning=0,received=false;
+  for(let i=0;i<hz*.4;i++){
+   tick();const q=h.app.drawnPlayers.get(8);
+   backward+=Math.max(0,(q.x-prior.x)*-m.direction(0));
+   turning+=Math.abs(Math.atan2(Math.sin(q.angle-prior.angle),Math.cos(q.angle-prior.angle)));
+   prior={...q};if(m.owner?.id===r.id)received=true;
+  }
+  assert.ok(received);assert.equal(m.passes[0],2);
+  assert.ok(backward<.05,'support should not retreat merely because the pass is airborne');
+  assert.ok(turning<.15,'displayed support heading stays coherent through pass flight');
+ }
+});
+test('both teams retain their attacking formation during a teammate pass in either half',()=>{
+ const shape=new Function(engine+';return formation;')();
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const p=m.owner,r=m.players[team*11+6],support=m.players[team*11+1],d=m.direction(team);
+  m.kick(p,{...r,receiverId:r.id,pass:true},.6,false);advanceToContact(m);
+  assert.equal(m.owner,null);assert.equal(m.flight.team,team);assert.equal(m.flight.shot,false);
+  const ballX=m.ball.x,dt=1/hz,target={},move=m.move.bind(m);
+  m.move=(q,x,y,s,step)=>{if(q.id===support.id)Object.assign(target,{x,y,s});move(q,x,y,s,step);};
+  m.step(dt,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  const expected=m.ownGoalX(team)+d*(shape[support.slot][0]+.09)*(FIELD.right-FIELD.left)+(ballX-550)*.24+Math.sin(m.elapsed*.7+support.slot)*10;
+  assert.equal(target.s,94);assert.ok(Math.abs(target.x-expected)<1e-8,'attacking offset retained throughout delivery');
+ }
+});
+test('real turnovers switch support shape immediately while shots loose balls and stopped phases retain existing behavior',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const kind of ['interception','shot','loose','restart']){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
+  const p=m.owner,r=m.players[team*11+6],support=m.players[team*11+1];
+  m.kick(p,kind==='shot'?{x:m.goalX(team)+m.direction(team)*20,y:FIELD.cy,shot:true}:{...r,receiverId:r.id,pass:true},.6,false);
+  advanceToContact(m);
+  if(kind==='interception'){const other=m.players[(1-team)*11+9];m.giveBall(other);assert.equal(m.flight,null);}
+  if(kind==='loose')m.flight=null;
+  if(kind==='restart')m.stopForRestart({type:'Throw-in',team:1-team,x:550,y:FIELD.top});
+  const targets=[],move=m.move.bind(m);
+  m.move=(q,x,y,s,dt)=>{if(q.id===support.id)targets.push({x,y,s});move(q,x,y,s,dt);};
+  m.step(1/60,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+  if(kind==='restart'){assert.equal(targets.length,0);assert.equal(m.phase,'restart');}
+  else{assert.equal(targets.length,1);assert.equal(targets[0].s,88,'only own pass flight retains attack');}
+  m.kickoff(team);assert.equal(m.flight,null);assert.equal(m.setPiece,'Kick-off');
+ }
+});
+
+
+test('automatic pass clearance accounts for nearby moving opponents without changing manual choices or collision reach',()=>{
+ for(const team of [0,1]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.players[team*11+9],q=m.players[team*11+6],safe=m.players[team*11+5],o=m.players[(1-team)*11+6];
+  const place=(p,x,y)=>{p.x=team?1100-x:x;p.y=team?636-y:y;};
+  for(const a of m.players){place(a,a.team===team?1000:950,a.team===team?80:500);a.speed=0;}
+  place(p,550,318);place(q,390,318);place(safe,650,200);place(o,470,350);m.giveBall(p);
+  assert.equal(m.bestPass(p).id,q.id);assert.ok(!m.groundPassBlocked(p,q));
+  assert.ok(!m.groundPassBlocked(p,q,true));assert.equal(m.bestPass(p,true).id,q.id);
+  o.speed=66;const before=JSON.stringify(m);
+  assert.ok(m.groundPassBlocked(p,q,true));assert.equal(m.bestPass(p,true).id,safe.id);
+  assert.equal(JSON.stringify(m),before,'planning never changes physics or possession');
+  assert.ok(!m.groundPassBlocked(p,q),'actual nineteen-unit capture lane is unchanged');
+  place(o,470,318+19.1);assert.ok(!m.groundPassBlocked(p,q));
+  place(o,470,318+18.9);assert.ok(m.groundPassBlocked(p,q));
+  place(o,470,318+35.6);assert.ok(!m.groundPassBlocked(p,q,true),'projection is bounded to a quarter-second');
+  place(o,470,350);assert.ok(m.kick(p,{...q,pass:true,receiverId:q.id},.6));
+  assert.equal(m.pendingKick.target.receiverId,q.id,'manual intent can still choose the contested teammate');
+ }
+});
+test('automatic pass planning retains the open-lane fallback when every option has approaching pressure',()=>{
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),p=m.players[9],q=m.players[6],safe=m.players[5],a=m.players[17],b=m.players[18];
+ for(const r of m.players){r.x=r.team?950:1000;r.y=r.team?500:80;r.speed=0;}
+ Object.assign(p,{x:550,y:318});Object.assign(q,{x:390,y:318});Object.assign(safe,{x:650,y:200});
+ Object.assign(a,{x:470,y:350,speed:100});Object.assign(b,{x:623,y:278,speed:100});m.giveBall(p);
+ assert.ok(!m.groundPassBlocked(p,q));assert.ok(m.groundPassBlocked(p,q,true));
+ assert.ok(!m.groundPassBlocked(p,safe));assert.ok(m.groundPassBlocked(p,safe,true));
+ assert.equal(m.bestPass(p,true).id,m.bestPass(p).id,'do not disable passing when no generously clear lane exists');
 });
