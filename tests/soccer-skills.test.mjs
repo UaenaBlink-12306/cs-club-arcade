@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},goalCelebrationFrame,interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},localShotIntent,localShotPreview,localScreenDirection,localMovement,goalCelebrationFrame,interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -4239,8 +4239,8 @@ test('local help describes both auto-pass goal-shot and defensive-switch key set
   const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
   h.chooseMode('multi');h.click('startLocal');h.flush();h.click('menuBtn');
   const help=h.elements.get('gameControls').textContent,markup=html.match(/<p id="localPauseHelp"[^>]*>([\s\S]*?)<\/p>/)[1];
-  for(const text of ['F auto-selects a teammate and passes','K auto-selects a teammate and passes','G shoots toward goal centre','L shoots toward goal centre','At kick contact, your control moves to the receiver or chasing teammate'])assert.ok(help.includes(text),text);
-  for(const text of ['F auto-pass','K auto-pass','Q switch defender','O switch defender','Goal shots aim toward goal centre','while opponents have possession or the ball is loose','kicker finishes following through'])assert.ok(markup.includes(text),text);
+  for(const text of ['F auto-selects a teammate and passes','K auto-selects a teammate and passes','G shoots','L shoots','hold the direction across the visible goal mouth','The shot locks when G or L is pressed','At kick contact, your control moves to the receiver or chasing teammate'])assert.ok(help.includes(text),text);
+  for(const text of ['F auto-pass','K auto-pass','Q switch defender','O switch defender','Hold movement across the visible goal mouth + G/L','release it for centre','shot locks on key press','while opponents have possession or the ball is loose','kicker finishes following through'])assert.ok(markup.includes(text),text);
   assert.ok(!h.elements.get('localPauseHelp').classList.contains('hidden'));
   h.click('resumePause');h.window.handlers.keydown(keyEvent('f'));assert.ok(h.app.match.pendingKick);
   h.chooseMode('menu');h.chooseMode('shootout');h.flush();h.click('menuBtn');
@@ -5556,5 +5556,116 @@ test('AI containment ends on release and does not protect a keeper controlling w
   for(let i=0;i<6;i++)m.step(1/60,control);
   assert.ok((p.x-heldX)*d<0,'AI pursues once hand protection is gone');
   assert.ok(distance(p,k)<45);
+ }
+});
+
+function localAimHarness(width=1180,height=757,team=0,period=1){
+ const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+ h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;m.period=period;m.kickoff(team);h.app.syncMatch();h.app.render(0);
+ return h;
+}
+function localAimKeys(h,team){
+ const horizontal=h.app.camera.portrait;
+ return {horizontal,minus:team===0?(horizontal?'a':'w'):(horizontal?'ArrowLeft':'ArrowUp'),
+  plus:team===0?(horizontal?'d':'s'):(horizontal?'ArrowRight':'ArrowDown'),
+  forward:team===0?(horizontal?'w':'a'):(horizontal?'ArrowUp':'ArrowLeft')};
+}
+test('local shot placement follows the visible goal mouth for both players halves and viewports',()=>{
+ for(const [w,hg] of [[1180,757],[333,596]])for(const team of [0,1])for(const period of [1,2]){
+  const h=localAimHarness(w,hg,team,period),m=h.app.match,k=localAimKeys(h,team),goal=m.goalX(team),p=m.owner;
+  for(const [names,sign] of [[[],0],[[k.minus],-1],[[k.plus],1],[[k.minus,k.forward],-1],[[k.plus,k.forward],1],[[k.minus,k.plus],0],[[k.forward],0]]){
+   for(const name of names)h.window.handlers.keydown(keyEvent(name));
+   const intent=h.app.localShotIntent(team);assert.equal(intent.power,1);assert.equal(intent.loft,true);
+   if(!sign)assert.deepEqual(intent.target,{x:goal+m.direction(team)*20,y:FIELD.cy},'neutral shot is exactly the existing target');
+   else{
+    const y=p.y+(intent.target.y-p.y)*(goal-p.x)/(intent.target.x-p.x),at=h.app.camera.project(goal,y),centre=h.app.camera.project(goal,FIELD.cy);
+    assert.ok(Math.abs(Math.abs(y-FIELD.cy)-30)<1e-8,'placement targets goal-plane point rather than a misleading extension');
+    assert.ok((k.horizontal?at.x-centre.x:at.y-centre.y)*sign>0,'placement matches the pressed screen side');
+    assert.ok(intent.controlLabel.includes(k.horizontal?(sign<0?'LEFT':'RIGHT'):(sign<0?'UPPER':'LOWER')));
+   }
+   h.app.render(0);assert.deepEqual(h.app.drawnAim.intent.target,intent.target);
+   assert.ok(h.app.drawnForecast,'actual shot forecast appears before pressing shoot');
+   for(const name of names)h.window.handlers.keyup(keyEvent(name));
+   assert.ok(h.app.localShotIntent(team).controlLabel.endsWith('CENTRE'),'release restores neutral without sticky aim');
+  }
+ }
+});
+test('local placement preview and kick agree in ordinary possession and retain existing power and contact timing',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const width of [333,1180]){
+  const h=localAimHarness(width,width===333?596:757,team,period),m=h.app.match;
+  placeShot(m,170,55,team,period);h.app.render(0);const keys=localAimKeys(h,team),shoot=team===0?'g':'l';
+  h.window.handlers.keydown(keyEvent(keys.plus));const intent=h.app.localShotIntent(team),forecast=h.app.shotForecast();
+  assert.equal(intent.loft,false);assert.ok(forecast.onTarget);
+  const before={x:m.owner.x,y:m.owner.y};m.step(1/60,h.app.input());assert.ok(distance(m.owner,before)>0,'aiming direction still moves normally');
+  const shown=h.app.localShotIntent(team),expected=m.previewKick(m.owner,shown.target,1,false);
+  h.window.handlers.keydown(keyEvent(shoot));const action=m.pendingKick,id=action.id;
+  assert.deepEqual(action.target, {...shown.target,receiverId:null,pass:false});
+  assert.equal(action.duration,.14);assert.equal(action.power,1);assert.equal(action.loft,false);
+  assert.deepEqual(h.app.shotForecast(),expected,'locked forecast uses the actual release parameters');
+  h.window.handlers.keyup(keyEvent(keys.plus));h.window.handlers.keydown(keyEvent(keys.minus));
+  h.window.handlers.keydown({...keyEvent(shoot),repeat:true});assert.equal(m.pendingKick.id,id);
+  assert.deepEqual(h.app.localShotPreview().target,action.target,'later direction cannot retarget a started shot');
+  advanceToContact(m);assert.equal(m.shots[team],1);assert.equal(h.app.localShotPreview(),null,'preview clears at contact');
+  assert.deepEqual(m.flight.target,{x:shown.target.x,y:shown.target.y});
+ }
+});
+test('local pending passes never show a competing shot preview and interruptions discard a locked shot',()=>{
+ const h=localAimHarness(),m=h.app.match,k=localAimKeys(h,0);
+ h.window.handlers.keydown(keyEvent(k.plus));h.window.handlers.keydown(keyEvent('f'));
+ assert.ok(!m.pendingKick.shot);assert.equal(h.app.localShotPreview(),null);assert.equal(h.app.shotForecast(),null);
+ m.kickoff(0);h.window.handlers.keydown(keyEvent('g'));const action=m.pendingKick;
+ m.giveBall(m.players[20]);assert.equal(m.pendingKick,null);assert.equal(m.shots[0],0);
+ assert.ok(h.app.localShotPreview().controlLabel.startsWith('P2 L'),'preview follows the new actionable owner');
+ h.window.handlers.keyup(keyEvent(k.plus));h.click('menuBtn');assert.equal(h.app.localShotPreview(),null);
+ h.click('resumePause');h.click('menuBtn');h.click('restartMatch');h.flush();
+ assert.equal(h.app.match.pendingKick,null);assert.ok(h.app.localShotPreview().controlLabel.endsWith('CENTRE'));
+ assert.deepEqual(h.app.match.shots,[0,0]);
+});
+test('local aim labels fit the existing narrow panel and exclude throw-in replay pause and results',()=>{
+ const h=localAimHarness(333,505),m=h.app.match;
+ const k=localAimKeys(h,0);h.window.handlers.keydown(keyEvent(k.minus));h.app.render(0);
+ assert.ok(h.draws.some(d=>d.method==='fillText'&&String(d.args[0]).includes('P1 G ·')));
+ for(const phase of ['replay','goal','paused','full']){m.phase=phase;assert.equal(h.app.localShotPreview(),null);}
+ m.phase='playing';m.setPiece='Throw-in';assert.equal(h.app.localShotPreview(),null);
+ const markup=html.match(/<p id="localPauseHelp"[^>]*>([\s\S]*?)<\/p>/)[1];
+ assert.ok(markup.includes('Movement still runs your player'));assert.ok(markup.includes('shot locks on key press'));
+ assert.ok(/width=\(intent.controlLabel\?116:72\)\*unit/.test(html),'placement label uses the existing larger safe panel width');
+});
+
+test('normal local input previews and locks placed shots for P1 kickoff and P2 after a real keeper catch',()=>{
+ for(const team of [0,1])for(const side of ['minus','plus'])for(const [width,height] of [[1180,757],[333,596]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('multi');h.click('startLocal');h.flush();const m=h.app.match;let f=0;h.tick(100);
+  const tick=()=>{h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+(++f)*1000/60);};
+  if(team===1){
+   h.window.handlers.keydown(keyEvent('g'));h.window.handlers.keyup(keyEvent('g'));
+   for(let i=0;i<80;i++)tick();assert.equal(m.handOwner,11,'ordinary kickoff shot is saved');
+  }
+  const key=localAimKeys(h,team)[side],otherKeys=localAimKeys(h,1-team),shoot=team===0?'g':'l';
+  h.window.handlers.keydown(keyEvent(key));h.window.handlers.keydown(keyEvent(otherKeys[side==='plus'?'minus':'plus']));
+  for(let i=0;i<6;i++)tick();
+  const intent=h.app.localShotIntent(team),preview=h.app.shotForecast();assert.equal(m.owner.team,team);
+  assert.ok(intent.target.shot);assert.deepEqual(h.app.drawnAim.intent.target,intent.target);
+  h.window.handlers.keydown(keyEvent(shoot));h.window.handlers.keyup(keyEvent(shoot));
+  h.window.handlers.keyup(keyEvent(key));h.window.handlers.keyup(keyEvent(otherKeys[side==='plus'?'minus':'plus']));
+  assert.deepEqual(h.app.shotForecast(),preview,'pressing shoot uses the displayed prediction');
+  for(let i=0;i<12;i++)tick();
+  assert.equal(m.shots[team],1);assert.equal(m.pendingKick,null);
+  assert.equal(h.app.localShotPreview(),null,'flight does not retain a misleading aiming bar');
+ }
+});
+
+test('panning toward either end never turns forward movement into local lateral aim',()=>{
+ for(const [width,height] of [[1180,757],[333,596]])for(const team of [0,1])for(const period of [1,2]){
+  const h=localAimHarness(width,height,team,period),m=h.app.match,portrait=h.app.camera.portrait;
+  const forward=team===0?(portrait?'w':'a'):(portrait?'ArrowUp':'ArrowLeft');
+  const across=team===0?(portrait?'a':'w'):(portrait?'ArrowLeft':'ArrowUp');
+  for(const x of [125,550,975]){
+   h.app.camera.x=x;h.app.camera.y=318;h.app.camera.yaw=.12;
+   h.window.handlers.keydown(keyEvent(forward));assert.ok(h.app.localShotIntent(team).controlLabel.endsWith('CENTRE'));
+   h.window.handlers.keyup(keyEvent(forward));h.window.handlers.keydown(keyEvent(across));
+   assert.ok(h.app.localShotIntent(team).controlLabel.endsWith(portrait?'LEFT':'UPPER'));
+   h.window.handlers.keyup(keyEvent(across));
+  }
  }
 });
