@@ -5974,3 +5974,71 @@ test('nearby goal-side support closes before long shooting range even when a tra
  assert.ok(early!==null&&early<150,'cover has already stepped out before ordinary AI shooting range');
  assert.ok(pressure!==null&&pressure<30,'shot is pressured rather than leaving the carrier over 100 units clear');
 });
+
+
+test('ordinary attacking-third short pass blends the moving passer into gait instead of sliding on planted feet',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);let frame=0;const m=h.app.match;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<hz;i++)tick();
+  h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<hz*2.5;i++)tick();h.window.handlers.keyup(keyEvent('w'));
+  const p=m.owner,r=m.players[9],a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(r.x,r.y);
+  assert.ok(distance(p,r)<40,'ordinary approach reaches a short attacking-third passing option');
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+  assert.equal(m.pendingKick.target.receiverId,r.id);
+  let prior=null,sliding=0,received=false,recovering=false;
+  for(let i=0;i<hz*.7;i++){
+   tick();if(m.owner?.id===r.id)received=true;
+   const q=h.app.drawnPlayers.get(p.id),pose=h.app.playerPose(q,h.app.drawnBall);
+   if(prior&&q.strikePhase==='follow'&&pose.footRun<.01)sliding+=distance(q,prior);
+   if(q.strikePhase==='follow'&&q.strike>.55&&q.strike<.85&&q.speed>30){
+    assert.ok(pose.footRun>0);recovering=true;
+   }
+   prior={...q};
+  }
+  assert.ok(received);assert.equal(m.passes[0],2);assert.ok(recovering);
+  assert.ok(sliding<3,'near-planted translation is bounded at '+hz+' Hz: '+sliding);
+ }
+});
+test('follow-through locomotion blending preserves stationary kicks and exact contact with continuous limbs',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const base=h.app.match.snapshot().players[9];
+ for(const speed of [0,30,73.32,110])for(const stride of [0,1,2]){
+  let prior=null;
+  for(let i=0;i<=1000;i++){
+   const strike=.3+i*.0007,q={...base,speed,stride,receive:0,strike,strikePhase:'follow',strikeId:1},
+     pose=h.app.playerPose(q,null),still=h.app.playerPose({...q,speed:0},null),skeleton=h.app.playerSkeleton(q,pose);
+   assert.ok(pose.running>=0&&pose.running<=h.app.gaitAmplitude(speed)+1e-12);
+   if(strike<=.48){assert.equal(pose.running,0);assert.equal(pose.kick,still.kick,'contact extension unchanged');}
+   if(speed===0)assert.equal(pose.running,0,'stationary follow-through does not invent running');
+   if(strike>.48&&speed>0)assert.ok(pose.kick<=still.kick+1e-12,'leg extension yields as running resumes');
+   const limbs=skeleton.legs.flatMap(l=>[l.knee,l.ankle]).concat(skeleton.arms.flatMap(a=>[a.elbow,a.hand]));
+   if(prior)assert.ok(Math.max(...limbs.map((v,j)=>Math.hypot(...v.map((n,k)=>n-prior[j][k]))))<.15,'continuous limb blend');
+   prior=limbs;
+  }
+  const ending={...base,speed,stride,receive:0,strike:.999999,strikePhase:'follow'},idle={...ending,strike:0,strikePhase:'idle'};
+  assert.ok(Math.abs(h.app.playerPose(ending,null).footRun-h.app.playerPose(idle,null).footRun)<1e-8);
+ }
+});
+test('moving follow-through uses the same smooth pose in local halves recorded replay pause and reset',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const h=localAimHarness(1180,757,team,period),m=h.app.match,f=placeShot(m,210,0,team,period),r=m.players[team*11+6];
+  r.x=f.p.x+f.d*35;r.y=f.p.y+8;
+  const cover=m.players[(1-team)*11+2];cover.x=f.goal-f.d*25;cover.y=FIELD.top+25;m.followBall();
+  m.kick(f.p,{...r,pass:true,receiverId:r.id},.4,false);h.tick(100);let recorded=null;
+  for(let i=1;i<=36;i++){
+   h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+i*1000/60);
+   const q=h.app.drawnPlayers.get(f.p.id);
+   if(q.strikePhase==='follow'&&q.strike>.6&&q.strike<.85&&q.speed>20){
+    assert.ok(h.app.playerPose(q,h.app.drawnBall).footRun>0);recorded=m.history.slice();
+   }
+  }
+  assert.ok(recorded,'local passer moves during follow-through');
+  const frame=recorded.find(s=>{const p=s.players[f.p.id];return p.strikePhase==='follow'&&p.strike>.55&&p.strike<.85&&p.speed>20;});
+  assert.ok(frame);const q=frame.players[f.p.id];
+  assert.ok(h.app.playerPose(q,frame.ball).footRun>0,'recorded pose receives the same rendering correction');
+  h.click('menuBtn');const snapshot=JSON.stringify(m.snapshot());h.tick(2000);assert.equal(JSON.stringify(m.snapshot()),snapshot);
+  h.click('resumePause');h.click('menuBtn');h.click('restartMatch');h.flush();
+  assert.ok(h.app.match.snapshot().players.every(p=>p.strikePhase==='idle'));
+ }
+});

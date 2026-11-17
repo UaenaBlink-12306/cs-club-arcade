@@ -2898,10 +2898,13 @@ function playerPose(p,ball){
   const len=Math.hypot(b.x-a.x,b.y-a.y)||1,fx=(b.x-a.x)/len,fy=(b.y-a.y)/len;
   const celebration=clamp(p.celebration||0,0,1),settle=1-celebration;
   const baseRunning=gaitAmplitude(p.speed)*settle,cycle=p.stride*GAIT_CYCLE_SCALE+p.id*.47,stride=Math.sin(cycle);
-  const kick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle,throwing=p.throwing?1:0;
-  const planting=p.strikePhase==='windup'||(p.strikePhase==='follow'&&p.strike<.85);
-  const recovery=p.strikePhase==='follow'?poseEase((p.strike-.85)/.15):1;
-  const running=planting?0:baseRunning*recovery;
+  const rawKick=(p.strike!==undefined?strikePose(p.strike):posePulse(p.kick||0))*settle,throwing=p.throwing?1:0;
+  // Short passes can be received while the passer is still following through.
+  // Blend back to locomotion after the contact extension rather than sliding
+  // the moving body on planted feet until the final fraction of the action.
+  const recovery=p.strikePhase==='follow'?poseEase((p.strike-.48)/.52):1;
+  const running=p.strikePhase==='windup'?0:baseRunning*recovery;
+  const kick=rawKick*(p.strikePhase==='follow'?1-running:1);
   const entry=p.strikePhase==='windup'?(1-poseEase(p.strike/.16))*gaitAmplitude(p.strikeRun||0)*settle:0;
   const save=posePulse(p.save||0),ready=p.keeper&&ball&&ball.owner!==p.id?clamp((220-distance(p,ball))/100,0,1):0;
   // Keeper reach is expressed in the player's local frame, not screen left/right.
