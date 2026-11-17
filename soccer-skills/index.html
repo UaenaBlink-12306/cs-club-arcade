@@ -3233,7 +3233,19 @@ function drawGoalAimGuide(guide){
   label(wide?'GOAL AIM · WIDE':aimLabel==='HIGH'?'GOAL AIM · HIGH':'GOAL AIM',x,y,10*unit,'#d7ffff');
   ctx.restore();
 }
+// A local idle/120 Hz frame often repeats the exact same prospective kick.
+// Keep one result only; never quantise movement or aim to improve cache hits.
+let localForecastCache=null;
+function localPreviewForecast(intent){
+  const p=match.owner,r=match.restartGuard;
+  const key=[match.possessionSerial,p.id,p.x,p.y,intent.target.x,intent.target.y,
+    intent.target.shot,intent.power,intent.loft,match.goalX(p.team),r?.type,r?.x,r?.y];
+  if(localForecastCache?.match===match&&key.every((v,i)=>v===localForecastCache.key[i]))return localForecastCache.value;
+  const value=match.previewKick(p,intent.target,intent.power,intent.loft);
+  localForecastCache={match,key,value};return value;
+}
 function shotForecast(){
+  if(mode!=='local'||match?.phase!=='playing'||!match.owner||match.pendingKick)localForecastCache=null;
   if(match?.phase!=='playing')return null;
   if(match.inShootout()&&match.penalties.turn===0&&match.penalties.stage==='aim'&&!drag&&!match.pendingKick){
     return match.previewKick(match.owner,{x:match.penalties.goal+match.direction(0)*20,y:match.penalties.aimY,shot:true},.85,false);
@@ -3247,7 +3259,7 @@ function shotForecast(){
     if(intent.shot)return match.previewKick(match.owner,intent.target,intent.power,false);
   }
   const local=localShotPreview();
-  if(local)return match.previewKick(match.owner,local.target,local.power,local.loft);
+  if(local)return localPreviewForecast(local);
   if(match.flight?.shot&&!match.owner)return traceShot(match.ball,match.goalX(match.flight.team),match.lastRestart);
   return null;
 }

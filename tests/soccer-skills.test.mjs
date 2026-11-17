@@ -5764,3 +5764,52 @@ test('keeper warning avoids shot labels and viewport edges at both ends and late
   assert.equal(warning.text,'KEEPER · RELEASE 2');assert.equal(k.held,6.1);
  }
 });
+
+test('unchanged local forecasts reuse one exact result and recompute for tiny motion aim and possession changes',()=>{
+ const h=localAimHarness(508,757),m=h.app.match,original=m.previewKick;let calls=0;
+ m.previewKick=function(...args){calls++;return original.apply(this,args);};
+ const check=()=>{const intent=h.app.localShotPreview(),actual=h.app.shotForecast();
+  assert.deepEqual(actual,original.call(m,m.owner,intent.target,intent.power,intent.loft));return actual;};
+ const first=check(),initial=calls;for(let i=0;i<120;i++)assert.equal(check(),first);
+ assert.equal(calls,initial,'no simulation for unchanged render inputs');
+ const p=m.owner;p.x+=.000001;check();assert.equal(calls,initial+1,'movement is never rounded away');
+ const k=localAimKeys(h,0);h.window.handlers.keydown(keyEvent(k.plus));check();assert.equal(calls,initial+2);
+ h.window.handlers.keyup(keyEvent(k.plus));check();assert.equal(calls,initial+3,'one entry only, not an accumulating target cache');
+ m.giveBall(p);check();assert.equal(calls,initial+4,'new possession and restart release invalidate');
+ h.click('menuBtn');assert.equal(h.app.shotForecast(),null);h.click('resumePause');check();assert.equal(calls,initial+5);
+ h.window.handlers.keydown(keyEvent('a'));const portrait=check();
+ h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});h.app.render(0);
+ assert.ok(h.app.localShotPreview().controlLabel.endsWith('CENTRE'));
+ assert.ok(check()!==portrait,'orientation change invalidates a changed placement immediately');
+ h.window.handlers.keyup(keyEvent('a'));
+ h.click('menuBtn');h.click('restartMatch');h.flush();
+ assert.ok(h.app.shotForecast()!==first,'a new match cannot retain the prior forecast object');
+});
+test('local forecast caching preserves all restart parameters and never caches wind-up or flight',()=>{
+ for(const type of ['Corner Kick','Direct Free Kick','Indirect Free Kick','Penalty Kick','Goal Kick']){
+  const h=localAimHarness(),m=h.app.match,goal=m.goalX(0);
+  m.stopForRestart({type,team:0,x:type==='Goal Kick'?m.ownGoalX(0)-24:goal+100,y:FIELD.cy+40});m.takeRestart();h.app.render(0);
+  const original=m.previewKick;let calls=0;m.previewKick=function(...args){calls++;return original.apply(this,args);};
+  const compare=()=>{const k=h.app.localShotPreview();assert.deepEqual(h.app.shotForecast(),original.call(m,m.owner,k.target,k.power,k.loft));};
+  compare();const n=calls;for(let i=0;i<10;i++)compare();assert.equal(calls,n);
+  m.restartGuard.y+=.000001;compare();assert.equal(calls,n+1);
+  const key=localAimKeys(h,0).plus;h.window.handlers.keydown(keyEvent(key));compare();assert.equal(calls,n+2);
+  h.window.handlers.keydown(keyEvent('g'));assert.ok(m.pendingKick);compare();compare();assert.equal(calls,n+4,'wind-up remains fresh');
+  advanceToContact(m);const {traceShot}=new Function(engine+';return {traceShot};')();
+  assert.deepEqual(h.app.shotForecast(),traceShot(m.ball,m.goalX(0),m.lastRestart));
+ }
+});
+test('local forecast cache cannot follow the wrong owner and leaves solo pointer previews uncached',()=>{
+ const h=localAimHarness(),m=h.app.match;const before=h.app.shotForecast();
+ m.giveBall(m.players[20]);h.app.render(0);const k=h.app.localShotPreview();
+ assert.deepEqual(h.app.shotForecast(),m.previewKick(m.owner,k.target,k.power,k.loft));assert.ok(h.app.shotForecast()!==before);
+ h.chooseMode('menu');h.chooseMode('practice');h.flush();const s=h.app.match;placeShot(s,180,0,0,1);h.app.camera.update(s.snapshot(),0,false,true);h.app.render(0);
+ const p=s.owner,c=h.elements.get('game');
+ assert.equal(h.app.shotForecast(),null,'solo keyboard idle preview remains absent');
+ const a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(s.goalX(0),FIELD.cy);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));
+ const intent=h.app.pointerAim(h.app.drag);
+ assert.ok(intent.shot,'fixture supplies a solo shot preview');
+ {const first=h.app.shotForecast();assert.deepEqual(first,s.previewKick(p,intent.target,intent.power,false));assert.ok(first!==h.app.shotForecast(),'solo pointer path remains unchanged');}
+ c.handlers.pointercancel(pointerEvent(h,b.x,b.y));assert.equal(s.pendingKick,null);
+});
