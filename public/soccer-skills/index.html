@@ -2529,7 +2529,8 @@ canvas.addEventListener('pointerdown',event=>{
   if(match.owner?.team!==0&&!match.inShootout()){
     const candidate=match.nearest(0,q);if(distance(candidate,q)<40)match.active=candidate.id;
   }
-  drag={id:event.pointerId,player:match.active,possession:match.possessionSerial,nearPlayer:distance(match.players[match.active],q)<=30,start:screen,last:screen,screenDx:0,screenDy:0,moveDx:0,moveDy:0,armed:true,dx:0,dy:0};
+  const rect=canvas.getBoundingClientRect();
+  drag={bounds:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},id:event.pointerId,player:match.active,possession:match.possessionSerial,nearPlayer:distance(match.players[match.active],q)<=30,start:screen,last:screen,screenDx:0,screenDy:0,moveDx:0,moveDy:0,armed:true,dx:0,dy:0};
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener('pointermove',event=>{
@@ -2605,6 +2606,10 @@ canvas.addEventListener('pointercancel',event=>releaseDrag(event,true));
 canvas.addEventListener('lostpointercapture',event=>{if(!event||event.pointerId===undefined||event.pointerId===drag?.id)drag=null;});
 function updateDrag(){
   if(!drag||!match)return;
+  // Old logical coordinates no longer describe a held gesture after a layout change.
+  // Cancel before input or release can turn the new scale into movement or a kick.
+  const rect=canvas.getBoundingClientRect(),bounds=drag.bounds;
+  if(bounds&&['left','top','width','height'].some(key=>rect[key]!==bounds[key])){cancelDrag();return;}
   if(match.phase!=='playing'){cancelDrag();return;}
   if(drag.player!==match.active||drag.possession!==match.possessionSerial){
     // Keep physical capture and the held running direction, but discard old kick intent.

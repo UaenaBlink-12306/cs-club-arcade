@@ -6884,3 +6884,59 @@ test('restart notices ignore repeated kick keys while fresh keyboard actions sti
   h.window.handlers.keyup(keyEvent(key));
  }
 });
+
+test('canvas layout changes cancel stationary held gestures before a phantom kick or movement',()=>{
+ const layouts=[
+  [{left:0,top:0,width:1180,height:757},{left:0,top:0,width:888,height:757}],
+  [{left:0,top:0,width:1180,height:757},{left:0,top:0,width:508,height:757}],
+  [{left:0,top:0,width:508,height:757},{left:0,top:0,width:1180,height:757}],
+  [{left:0,top:0,width:508,height:757},{left:0,top:0,width:508,height:596}],
+  [{left:0,top:0,width:1180,height:757},{left:40,top:25,width:1180,height:757}]
+ ];
+ for(const type of ['mouse','touch'])for(const [before,after] of layouts)for(const delivery of ['frame','move','release']){
+  const h=uiHarness(html),c=h.elements.get('game');let rect=before;c.getBoundingClientRect=()=>rect;
+  h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match,owner=m.owner.id;
+  const p=h.app.camera.project(m.owner.x,m.owner.y),press=pointerEvent(h,p.x,p.y,31,type);
+  c.handlers.pointerdown(press);assert.ok(h.app.drag);assert.equal(c.capture,31);
+  rect=after;
+  if(delivery==='frame')h.tick(100+1000/60);
+  else if(delivery==='move')c.handlers.pointermove(press);
+  c.handlers.pointerup(press);
+  assert.equal(h.app.drag,null);assert.equal(c.capture,null);
+  assert.equal(m.pendingKick,null,'layout movement is not a player kick');
+  assert.deepEqual(m.passes,[0,0]);assert.deepEqual(m.shots,[0,0]);assert.equal(m.owner.id,owner);assert.equal(m.setPiece,'Kick-off');
+  assert.deepEqual(h.app.input(),{dx:0,dy:0});
+  h.app.render(0);
+  const receiver=m.bestPass(m.owner,false),a=h.app.camera.project(m.owner.x,m.owner.y),b=h.app.camera.project(receiver.x,receiver.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y,32,type));c.handlers.pointermove(pointerEvent(h,b.x,b.y,32,type));c.handlers.pointerup(pointerEvent(h,b.x,b.y,32,type));
+  assert.ok(m.pendingKick,'a new gesture works at the new canvas geometry');assert.equal(m.pendingKick.target.receiverId,receiver.id);
+  advanceToContact(m);assert.equal(m.passes[0],1);
+ }
+});
+test('resizing during an ordinary running drag clears only that gesture and permits keyboard recovery',()=>{
+ for(const hz of [30,60,120]){
+  const h=uiHarness(html),c=h.elements.get('game');let width=1180;c.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+  h.chooseMode('practice');h.flush();h.tick(100);let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));for(let i=0;i<Math.round(.8*hz);i++)tick();
+  const m=h.app.match;assert.equal(m.owner?.team,0);assert.equal(m.setPiece,null);
+  const p=h.app.camera.project(m.owner.x,m.owner.y),press=pointerEvent(h,p.x,p.y),move=pointerEvent(h,p.x+80,p.y);
+  c.handlers.pointerdown(press);c.handlers.pointermove(move);for(let i=0;i<Math.round(.1*hz);i++)tick();
+  assert.ok(Math.hypot(h.app.input().dx,h.app.input().dy)>.9);
+  width=888;tick();assert.equal(h.app.drag,null);assert.equal(c.capture,null);assert.deepEqual(h.app.input(),{dx:0,dy:0});
+  c.handlers.pointerup(move);assert.equal(m.pendingKick,null);
+  h.window.handlers.keydown(keyEvent('w'));assert.ok(Math.hypot(h.app.input().dx,h.app.input().dy)>.9);
+  h.window.handlers.keyup(keyEvent('w'));assert.deepEqual(h.app.input(),{dx:0,dy:0});
+ }
+});
+test('pixel-density changes and stable geometry preserve pointer capture and deliberate release',()=>{
+ const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:508,height:757});
+ h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match,receiver=m.bestPass(m.owner,false);
+ const a=h.app.camera.project(m.owner.x,m.owner.y),b=h.app.camera.project(receiver.x,receiver.y);
+ c.handlers.pointerdown(pointerEvent(h,a.x,a.y));const gesture=h.app.drag;
+ h.window.devicePixelRatio=2;h.app.render(0);
+ assert.equal(h.app.drag,gesture);assert.equal(c.capture,31);
+ c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
+ assert.ok(m.pendingKick);assert.equal(m.pendingKick.target.receiverId,receiver.id);
+ advanceToContact(m);assert.equal(m.passes[0],1);
+});
