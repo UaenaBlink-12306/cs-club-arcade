@@ -3003,6 +3003,31 @@ function radar(shot){
   for(const p of shot.players){const q=map(p);ctx.fillStyle=p.id===shot.active?'#33f3ff':mode==='local'&&p.id===shot.activeAway?'#ffb84e':p.team===0?'#fff':'#163276';ctx.fillRect(q.x-2,q.y-2,4,4);}
   const b=map(shot.ball);ctx.fillStyle='#ffe04f';ctx.beginPath();ctx.arc(b.x,b.y,2.5,0,Math.PI*2);ctx.fill();
 }
+// A settled dribble offset turns around the carrier, not through their body.
+// This changes drawn coordinates only; catches, first touches and flight keep their own paths.
+function interpolateDribbleBall(a,b,mix,ball){
+  if(mix<=0||mix>=1)return ball;
+  if(a.ball.owner===null||a.ball.owner!==b.ball.owner||a.ball.z!==0||b.ball.z!==0)return ball;
+  const p=a.players.find(p=>p.id===a.ball.owner),q=b.players.find(p=>p.id===b.ball.owner);
+  if(!p||!q||p.keeper||q.keeper||p.holding||q.holding||p.throwing||q.throwing||(p.receive||0)>0||(q.receive||0)>0||distance(p,q)>16)return ball;
+  const ax=a.ball.x-p.x,ay=a.ball.y-p.y,bx=b.ball.x-q.x,by=b.ball.y-q.y;
+  const r0=Math.hypot(ax,ay),r1=Math.hypot(bx,by);
+  if(r0<=RULES.radius*2||r0>24||r1>24||Math.abs(r1-r0)>1e-5)return ball;
+  const angle=Math.atan2(ay,ax);let turn=Math.atan2(ax*by-ay*bx,ax*bx+ay*by);
+  if(Math.abs(Math.abs(turn)-Math.PI)<1e-5){
+    const facingTurn=Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle));
+    if(Math.abs(facingTurn)>1e-6)turn=Math.sign(facingTurn)*Math.PI;
+  }
+  if(Math.abs(turn)<1e-8)return ball;
+  const radius=r0+(r1-r0)*mix;
+  return {...ball,x:p.x+(q.x-p.x)*mix+Math.cos(angle+turn*mix)*radius,
+    y:p.y+(q.y-p.y)*mix+Math.sin(angle+turn*mix)*radius};
+}
+function replayDribbleBall(frames,t,ball){
+  if(frames.length<2)return ball;
+  const position=clamp(t,0,1)*(frames.length-1),index=Math.floor(position);
+  return interpolateDribbleBall(frames[index],frames[Math.min(index+1,frames.length-1)],position-index,ball);
+}
 function replaySample(frames,t){
   if(frames.length<=1)return frames[0];
   const position=clamp(t,0,1)*(frames.length-1),index=Math.floor(position),a=frames[index],b=frames[Math.min(index+1,frames.length-1)],mix=position-index;
@@ -3301,7 +3326,8 @@ function interpolateLiveFrame(a,b,alpha){
     out.angle=p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix;
     return out;
   });
-  return {...b,players,ball:{...b.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
+  const ball={...b.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)};
+  return {...b,players,ball:interpolateDribbleBall(a,b,mix,ball)};
 }
 function liveRenderSample(current){
   const pair=renderPair;
@@ -3340,6 +3366,7 @@ function render(dt=0){
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
   field();if(!shot)return;
   if(match?.phase==='playing')shot=liveRenderSample(shot);
+  else if(match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
   aimPanelRects=[];
   // Aim decoration follows the same displayed entities as markers. Intent and
   // shot forecasts still use current simulation positions for an honest release.

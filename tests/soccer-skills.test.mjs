@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -5219,4 +5219,84 @@ test('a 120 Hz frame-harness callback after reversal kick input retains the half
  assert.equal(after.strikePhase,'windup');assert.equal(after.strike,0,'input is accepted without advancing physics');
  assert.ok(Math.abs(after.angle-(before.angle+delta*.5))<1e-7,'do not snap all the way to the authoritative facing');
  assert.ok(distance(after,{x:(before.x+author.x)/2,y:(before.y+author.y)/2})<1e-7);
+});
+
+test('ordinary outfield dribble reversals keep the displayed ball outside the carrier at every render rate',()=>{
+ for(const hz of [30,60,120])for(const width of [333,888])for(const pointer of [false,true]){
+  const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:596});
+  h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;let frame=0;
+  const tick=()=>{h.tick(100+(++frame)*1000/hz);h.draws.length=0;h.app.drawnPaths.length=0;};
+  while(frame<hz&&m.owner?.id!==6)tick();assert.equal(m.owner.id,6);
+  const p=m.owner,start=h.app.camera.project(p.x,p.y);
+  if(pointer){c.handlers.pointerdown(pointerEvent(h,start.x,start.y));c.handlers.pointermove(pointerEvent(h,start.x+100,start.y));}
+  else h.window.handlers.keydown(keyEvent('d'));
+  for(let i=0;i<hz*.25;i++)tick();
+  if(pointer)c.handlers.pointermove(pointerEvent(h,start.x-100,start.y));
+  else{h.window.handlers.keyup(keyEvent('d'));h.window.handlers.keydown(keyEvent('a'));}
+  for(let i=0;i<Math.ceil(hz*.15);i++){
+   tick();assert.equal(m.owner.id,p.id);assert.ok(Math.abs(distance(m.ball,p)-10)<1e-7);
+   const drawn=h.app.drawnPlayers.get(p.id);assert.ok(Math.abs(distance(h.app.drawnBall,drawn)-10)<1e-7,'interpolation must not cut the dribble through the body');
+  }
+  if(pointer)c.handlers.pointercancel(pointerEvent(h,start.x-100,start.y));else h.window.handlers.keyup(keyEvent('a'));
+  const count=m.strikeSequence;h.window.handlers.keydown(keyEvent('e'));assert.ok(m.pendingKick);
+  while(m.pendingKick)tick();assert.equal(m.strikeSequence,count+1);assert.equal(m.ball.owner,null);
+  const frozen=JSON.stringify(m);h.app.render(0);assert.equal(JSON.stringify(m),frozen);
+  h.click('menuBtn');h.click('restartMatch');h.flush();h.app.render();assert.deepEqual(h.app.drawnBall,h.app.match.ball);
+ }
+});
+test('dribble arcs preserve endpoints and exclude free flight first touches catches restarts and discontinuities',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const raw=h.app.match.snapshot();
+ const a={...raw,players:raw.players.map(p=>({...p})),ball:{...raw.ball}};
+ const owner=a.players[a.ball.owner];Object.assign(owner,{x:500,y:318,keeper:false,holding:false,throwing:false,receive:0,angle:0});
+ Object.assign(a.ball,{x:510,y:318,z:0});
+ const b=JSON.parse(JSON.stringify(a));b.at=a.at+1/60;b.players[owner.id].x=502;b.players[owner.id].angle=.8;Object.assign(b.ball,{x:492,y:318});
+ const mid={...b.ball,x:501,y:318},before=JSON.stringify([a,b,mid]);
+ const arc=h.app.interpolateDribbleBall(a,b,.5,mid);
+ assert.ok(Math.abs(distance(arc,{x:501,y:318})-10)<1e-8);assert.ok(arc.y>327);
+ assert.equal(h.app.interpolateDribbleBall(a,b,0,a.ball),a.ball);assert.equal(h.app.interpolateDribbleBall(a,b,1,b.ball),b.ball);
+ assert.equal(JSON.stringify([a,b,mid]),before);
+ for(const kind of ['loose','turnover','keeper','catch','receiving','throw','air','restart','teleport','changing-radius']){
+  const x=JSON.parse(JSON.stringify(a)),y=JSON.parse(JSON.stringify(b)),p=x.players[owner.id],q=y.players[owner.id];
+  if(kind==='loose')x.ball.owner=y.ball.owner=null;
+  if(kind==='turnover')y.ball.owner=owner.id+1;
+  if(kind==='keeper')p.keeper=q.keeper=true;
+  if(kind==='catch')q.holding=true;
+  if(kind==='receiving')q.receive=.5;
+  if(kind==='throw')q.throwing=true;
+  if(kind==='air')y.ball.z=5;
+  if(kind==='restart'){x.ball.x=p.x;x.ball.y=p.y;}
+  if(kind==='teleport'){q.x+=100;y.ball.x+=100;}
+  if(kind==='changing-radius')y.ball.x-=3;
+  assert.equal(h.app.interpolateDribbleBall(x,y,.5,mid),mid,kind+' must retain its existing interpolation');
+ }
+ for(const theta of [Math.PI-.01,-Math.PI+.01,Math.PI/2,-Math.PI/2]){
+  const x=JSON.parse(JSON.stringify(a)),y=JSON.parse(JSON.stringify(b));
+  Object.assign(y.ball,{x:502+10*Math.cos(theta),y:318+10*Math.sin(theta)});
+  for(const mix of [.01,.25,.5,.75,.99]){
+   const linear={...y.ball,x:x.ball.x+(y.ball.x-x.ball.x)*mix,y:x.ball.y+(y.ball.y-x.ball.y)*mix};
+   const v=h.app.interpolateDribbleBall(x,y,mix,linear);
+   assert.ok(Math.abs(distance(v,{x:500+2*mix,y:318})-10)<1e-7);assert.ok(Number.isFinite(v.x)&&Number.isFinite(v.y));
+  }
+ }
+});
+test('recorded dribble turns paint an arc in replay without changing the camera sample or later kickoffs',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));const m=h.app.match;let frame=0;
+ const tick=()=>{h.tick(100+(++frame)*1000/120);h.draws.length=0;h.app.drawnPaths.length=0;};
+ while(frame<120&&m.owner?.id!==6)tick();const id=m.owner.id;
+ h.window.handlers.keydown(keyEvent('d'));for(let i=0;i<30;i++)tick();
+ h.window.handlers.keyup(keyEvent('d'));h.window.handlers.keydown(keyEvent('a'));for(let i=0;i<18;i++)tick();h.window.handlers.keyup(keyEvent('a'));
+ let pair=null;
+ for(let i=1;i<m.history.length;i++){
+  const a=m.history[i-1],b=m.history[i],p=a.players[id],q=b.players[id];
+  if(a.ball.owner===id&&b.ball.owner===id&&!p.receive&&!q.receive&&(a.ball.x-p.x)*(b.ball.x-q.x)+(a.ball.y-p.y)*(b.ball.y-q.y)<-90){pair=[a,b];break;}
+ }
+ assert.ok(pair,'ordinary movement recorded a reversal');
+ const sample=h.app.replaySample(pair,.5),raw=JSON.stringify(sample),p=sample.players[id];
+ assert.ok(distance(sample.ball,p)<1,'camera sample retains the original linear interpolation');
+ const drawn=h.app.replayDribbleBall(pair,.5,sample.ball);assert.ok(Math.abs(distance(drawn,p)-10)<1e-7);
+ assert.equal(JSON.stringify(sample),raw);
+ // Replay-entry fixture uses snapshots obtained from ordinary input above.
+ m.replayFrames=pair;m.phase='replay';m.replayTime=2;m.scorer=0;h.app.render();
+ assert.ok(Math.abs(distance(h.app.drawnBall,h.app.drawnPlayers.get(id))-10)<1e-7);
+ m.skipReplay();h.app.syncMatch();h.app.render();assert.deepEqual(h.app.drawnBall,m.ball);assert.equal(m.setPiece,'Kick-off');
 });
