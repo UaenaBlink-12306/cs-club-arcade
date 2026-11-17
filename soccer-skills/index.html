@@ -2751,7 +2751,7 @@ function goal(side){
   for(const y of [y0,y1])for(let zz=8;zz<40;zz+=8)
     groundPath([[side,y,zz],[back,y,zz*.72]],null,'#edf5e28c',.6);
 }
-function field(){
+function field(ball=null){
   const f=FIELD,w=f.right-f.left,h=f.bottom-f.top;
   ctx.fillStyle='#495054';ctx.fillRect(0,0,W,H);
   // Field and runoff cover the view; cyan lives on the low perimeter boards.
@@ -2774,6 +2774,13 @@ function field(){
     groundArc(side+d*RULES.penaltySpot,f.cy,RULES.distance,d===1?-Math.PI/3:Math.PI*2/3,d===1?Math.PI/3:Math.PI*4/3);
     for(const y of [f.top,f.bottom]){
       groundArc(side,y,RULES.cornerRadius,d===1?(y===f.top?0:-Math.PI/2):(y===f.top?Math.PI/2:Math.PI),d===1?(y===f.top?Math.PI/2:0):(y===f.top?Math.PI:Math.PI*1.5));
+    }
+  }
+  // Ground shadows precede every raised goal, flag and player.
+  if(ball)drawBallShadow(ball);
+  for(const side of [f.left,f.right]){
+    const d=side===f.left?1:-1;
+    for(const y of [f.top,f.bottom]){
       groundPath([[side,y],[side,y,19]],null,'#fff',1);
       groundPath([[side,y,19],[side+d*10,y,16],[side,y,13]],'#ffdb54');
     }
@@ -2977,15 +2984,19 @@ function keeperHeldBall(shot){
   return {...b,x:b.x+(target[0]-b.x)*mix,y:b.y+(target[1]-b.y)*mix,
     z:b.z+(Math.max(0,(target[2]-RULES.radius)/RULES.heightScale)-b.z)*mix};
 }
+function drawBallShadow(b){
+  const foot=camera.project(b.x,b.y);
+  ctx.fillStyle='rgba(18,48,37,'+clamp(.32-b.z*.003,.08,.32)+')';ctx.beginPath();ctx.ellipse(foot.x+2,foot.y+2,(2+b.z*.012)*foot.scale,(1+b.z*.006)*foot.scale,0,0,Math.PI*2);ctx.fill();
+}
 function drawBall(b){
-  const foot=camera.project(b.x,b.y),at=camera.project(b.x,b.y,b.z*RULES.heightScale+RULES.radius);
+  const at=camera.project(b.x,b.y,b.z*RULES.heightScale+RULES.radius);
   if(b.owner===null&&Math.hypot(b.vx||0,b.vy||0)>180){
     const tail=camera.project(b.x-b.vx*.025,b.y-b.vy*.025,b.z*RULES.heightScale+RULES.radius);
     ctx.strokeStyle='#f4f7de65';ctx.lineWidth=2*at.scale;ctx.beginPath();ctx.moveTo(tail.x,tail.y);ctx.lineTo(at.x,at.y);ctx.stroke();
   }
   // Keep the ball legible in CSS pixels on narrow displays; physics radius is unchanged.
   const radius=camera.portrait?Math.max(RULES.radius*at.scale,3*W/canvas.getBoundingClientRect().width):Math.max(RULES.radius*at.scale,2.5*W/canvas.getBoundingClientRect().width);
-  ctx.fillStyle='rgba(18,48,37,'+clamp(.32-b.z*.003,.08,.32)+')';ctx.beginPath();ctx.ellipse(foot.x+2,foot.y+2,(2+b.z*.012)*foot.scale,(1+b.z*.006)*foot.scale,0,0,Math.PI*2);ctx.fill();
+
   const sphereLight=ctx.createLinearGradient(at.x-radius,at.y-radius,at.x+radius,at.y+radius);
   sphereLight.addColorStop(0,'#ffffff');sphereLight.addColorStop(.45,'#f3f6dd');sphereLight.addColorStop(1,'#819e91');
   ctx.fillStyle=sphereLight;ctx.beginPath();ctx.arc(at.x,at.y,radius,0,Math.PI*2);ctx.fill();
@@ -3364,9 +3375,10 @@ function render(dt=0){
   if(shot)camera.update(mode==='local'&&shot.ball.owner!==null?{...shot,active:shot.ball.owner}:shot,dt,match?.phase==='replay',false,view==='loading'?'intro':['half','full'].includes(view)?'presentation':'gameplay');
   else if(['menu','trophy'].includes(view))camera.update({players:[],ball:{x:550,y:318},active:null},dt,false,false,'presentation');
   else if(!camera.ready)camera.update({players:[],ball:{x:550,y:318},active:null},0,false,true);
-  field();if(!shot)return;
-  if(match?.phase==='playing')shot=liveRenderSample(shot);
-  else if(match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
+  if(shot&&match?.phase==='playing')shot=liveRenderSample(shot);
+  else if(shot&&match?.phase==='replay')shot={...shot,ball:replayDribbleBall(match.replayFrames,clamp(match.replayTime/4,0,.999),shot.ball)};
+  const paintedBall=shot?keeperHeldBall(shot):null;
+  field(paintedBall);if(!shot)return;
   aimPanelRects=[];
   // Aim decoration follows the same displayed entities as markers. Intent and
   // shot forecasts still use current simulation positions for an honest release.
@@ -3398,7 +3410,6 @@ function render(dt=0){
     const at=camera.project(target.x,target.y);ctx.strokeStyle='#a4ffff';ctx.lineWidth=2;
     ctx.beginPath();ctx.ellipse(at.x,at.y,7*at.scale,4*at.scale,0,0,Math.PI*2);ctx.stroke();ctx.restore();
   }
-  const paintedBall=keeperHeldBall(shot);
   const entities=shot.players.map(p=>({y:camera.project(p.x,p.y).y,player:p}));
   entities.push({y:camera.project(paintedBall.x,paintedBall.y).y+paintedBall.z*.2,ball:paintedBall});
   entities.sort((a,b)=>a.y-b.y).forEach(e=>e.player?drawPlayer(e.player,playerMarkers(e.player,shot,mode==='local'),shot.ball):drawBall(e.ball));

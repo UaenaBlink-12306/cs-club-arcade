@@ -5357,3 +5357,64 @@ test('overlapping local movement keys remain independent after interrupted pause
  h.window.handlers.keydown(keyEvent('ArrowLeft'));input=h.app.input();assert.deepEqual(input.teams[0],{dx:0,dy:0});assert.ok(Math.hypot(input.teams[1].dx,input.teams[1].dy)>.99);
  h.window.handlers.keyup(keyEvent('ArrowLeft'));assert.deepEqual(h.app.input(),{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
 });
+
+function ballDepthHarness(src=html,width=1180){
+ const instrumented=src.replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){ctx.__depthPlayer(p.id);')
+  .replace('function drawBall(b){','function drawBall(b){ctx.__depthBall();')
+  .replace('function drawBallShadow(b){','function drawBallShadow(b){ctx.__depthShadow();')
+  .replace('function goal(side){','function goal(side){ctx.__depthGoal(side);');
+ const h=uiHarness(instrumented);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+ return h;
+}
+function ballShadowTrace(h){
+ const marker=h.draws.findIndex(d=>d.method==='__depthShadow'),ball=h.draws.findIndex(d=>d.method==='__depthBall');
+ const start=marker>=0?marker:ball,index=h.draws.findIndex((d,i)=>i>start&&d.method==='ellipse');
+ return {index,ellipse:h.draws[index],ball,players:h.draws.map((d,i)=>({d,i})).filter(x=>x.d.method==='__depthPlayer'),goals:h.draws.map((d,i)=>({d,i})).filter(x=>x.d.method==='__depthGoal')};
+}
+test('ordinary lofted kickoff renders its ground shadow beneath players goals and the ball',()=>{
+ for(const hz of [30,60,120])for(const width of [333,1180]){
+  const h=ballDepthHarness(html,width);h.chooseMode('multi');h.click('startLocal');h.flush();h.tick(100);
+  h.window.handlers.keydown(keyEvent('g'));let maxHeight=0,airFrames=0;
+  for(let frame=1;frame<=Math.ceil(hz*.7);frame++){
+   h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+frame*1000/hz);
+   const b=h.app.drawnBall;maxHeight=Math.max(maxHeight,b.z);
+   if(b.z<2)continue;airFrames++;
+   const trace=ballShadowTrace(h);assert.ok(trace.index>=0&&trace.ball>trace.index);
+   assert.ok(trace.players.every(x=>x.i>trace.index),'ground ellipse must not paint over raised players');
+   assert.ok(trace.goals.every(x=>x.i>trace.index),'ground ellipse must not paint over goal structures');
+   assert.equal(h.draws.filter(d=>d.method==='__depthShadow').length,1);
+  }
+  assert.ok(maxHeight>45&&airFrames>hz*.3,'normal kickoff G produces a genuine lofted flight');
+ }
+});
+test('ordinary lofted ball shadow overlaps a boot in projection but remains behind its mesh',()=>{
+ const h=ballDepthHarness();h.chooseMode('multi');h.click('startLocal');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('g'));
+ for(let frame=1;frame<=22;frame++){h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+frame*1000/60);}
+ const b=h.app.drawnBall,trace=ballShadowTrace(h),p=h.app.drawnPlayers.get(17);
+ assert.ok(b.z>40);assert.ok(trace.players.find(x=>x.d.args[0]===p.id).i>trace.index);
+ const [cx,cy,rx,ry]=trace.ellipse.args,points=Array.from({length:9},(_,i)=>i===0?{x:cx,y:cy}:{x:cx+rx*.8*Math.cos(i*Math.PI/4),y:cy+ry*.8*Math.sin(i*Math.PI/4)});
+ const inside=(point,poly)=>{let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+  const a=poly[i],b=poly[j];if((a.y>point.y)!==(b.y>point.y)&&point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)yes=!yes;
+ }return yes;};
+ const angle=(h.app.camera.portrait?Math.PI/2:0)+h.app.camera.yaw,eye=[Math.sin(angle),Math.cos(angle),h.app.camera.tilt];
+ const hit=h.app.playerMesh(p,h.app.playerPose(p,b)).find(f=>f.centre[2]>1&&f.normal.reduce((s,v,i)=>s+v*eye[i],0)>.015&&points.some(q=>inside(q,f.points.map(v=>h.app.camera.project(...v)))));
+ assert.ok(hit,'actual drawn shadow footprint overlaps the projected raised boot');
+});
+test('ball ground shadow stays below goal structures in live replay pause and reset views',()=>{
+ for(const width of [333,1180])for(const end of [FIELD.left,FIELD.right])for(const height of [0,20,55]){
+  const h=ballDepthHarness(html,width);h.chooseMode('practice');h.flush();const m=h.app.match;
+  // Explicit geometry fixture near each goal; no claim of naturally reaching these camera views.
+  Object.assign(m.ball,{owner:null,x:end+(end===FIELD.left?20:-20),y:FIELD.cy,z:height,vx:100,vy:0,vz:0});
+  const check=()=>{
+   h.draws.length=0;h.app.render(0);const trace=ballShadowTrace(h);
+   assert.ok(trace.index>=0&&trace.players.length===22&&trace.goals.length===2);
+   assert.ok([...trace.players,...trace.goals].every(x=>x.i>trace.index));
+   assert.equal(h.draws.filter(d=>d.method==='__depthShadow').length,1);
+  };
+  check();const before=JSON.stringify(m);check();assert.equal(JSON.stringify(m),before);
+  h.click('menuBtn');check();h.click('resumePause');check();
+  m.scorer=end===FIELD.left?0:1;m.replayFrames=[m.snapshot(),m.snapshot()];m.replayTime=1;m.phase='replay';check();
+  m.skipReplay();h.app.syncMatch();check();assert.equal(m.setPiece,'Kick-off');
+  h.click('menuBtn');h.click('restartMatch');h.flush();check();
+ }
+});
