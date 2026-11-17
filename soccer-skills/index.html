@@ -2384,7 +2384,7 @@ function pause(){
   if(match&&['playing','penalties','shootoutResult'].includes(match.phase)){match.pausedPhase=match.phase;match.phase='paused';cancelDrag();keys.clear();syncMatch();}
 }
 function resume(){
-  if(match?.phase==='paused'){match.phase=match.pausedPhase||'playing';match.pausedPhase=null;accumulator=0;syncMatch();}
+  if(match?.phase==='paused'){match.phase=match.pausedPhase||'playing';match.pausedPhase=null;accumulator=0;lastFrame=0;syncMatch();}
 }
 function point(event){
   const r=canvas.getBoundingClientRect();return {x:(event.clientX-r.left)*W/r.width,y:(event.clientY-r.top)*H/r.height};
@@ -2513,7 +2513,7 @@ function input(){
 }
 window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
-  if(key==='escape'){if(match?.phase==='paused')resume();else pause();return;}
+  if(key==='escape'){if(event.repeat)return;if(match?.phase==='paused')resume();else pause();return;}
   if(match?.phase==='restart'&&['f','g','k','l','e',' '].includes(key)){match.takeRestart();syncMatch();}
   if(match?.phase!=='playing'||event.target?.tagName==='BUTTON'||event.target?.tagName==='A')return;
   if(mode==='local'){

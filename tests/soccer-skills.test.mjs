@@ -214,7 +214,7 @@ test('rendering, pause, resume and replay do not advance the paused simulation',
  h.app.match.giveBall(h.app.match.owner);
  h.tick(16);h.tick(32);h.click('menuBtn');const minute=h.app.match.minute;
  h.tick(100);h.tick(200);assert.equal(h.app.match.minute,minute);
- h.click('resumePause');h.tick(300);assert.ok(h.app.match.minute>minute);
+ h.click('resumePause');h.tick(300);assert.equal(h.app.match.minute,minute,'first resumed frame establishes the clock baseline');h.tick(320);assert.ok(h.app.match.minute>minute);
  h.app.match.scorer=0;h.app.match.phase='replay';h.app.match.replayFrames=[h.app.match.snapshot()];h.tick(400);
  h.click('skipReplay');assert.equal(h.app.match.phase,'playing');
 });
@@ -4485,7 +4485,8 @@ test('frame tolerance ignores rounding noise without admitting early ticks or ch
   assert.ok(Math.abs(m.elapsed-1)<1e-8);
   const before=m.elapsed;h.tick(start+3000);assert.ok(Math.abs(m.elapsed-before-.1)<1e-8,'long gap remains capped at six ticks');
   h.click('menuBtn');const paused=m.elapsed;h.tick(start+3100);assert.equal(m.elapsed,paused);
-  h.click('resumePause');h.tick(start+3100+1000/60);assert.ok(Math.abs(m.elapsed-paused-1/60)<1e-8);
+  h.click('resumePause');h.tick(start+3100+1000/60);assert.equal(m.elapsed,paused,'resume establishes a fresh frame baseline');
+  h.tick(start+3100+2*1000/60);assert.ok(Math.abs(m.elapsed-paused-1/60)<1e-8);
  }
 });
 test('ordinary pointer kickoff retains one contact reception and handoff across render rates',()=>{
@@ -4592,7 +4593,7 @@ test('live render buffering snaps on pause resume match reset halftime goal and 
  const h=uiHarness(html);h.chooseMode('practice');h.flush();h.tick(100);h.window.handlers.keydown(keyEvent('e'));
  for(let i=1;i<=20;i++){h.tick(100+i*1000/120);h.draws.length=0;}
  const exact=()=>{h.app.render();const s=h.app.match.snapshot();assert.deepEqual(h.app.drawnBall,s.ball);for(const p of s.players)assert.deepEqual(h.app.drawnPlayers.get(p.id),p);};
- h.click('menuBtn');exact();h.tick(400);exact();h.click('resumePause');exact();
+ h.click('menuBtn');exact();h.tick(400);exact();h.click('resumePause');h.tick(400);exact();
  // Explicit transition fixtures exercise the normal phase handlers, not naturally earned goals.
  const m=h.app.match;m.phase='half';h.app.syncMatch();exact();h.click('resume');exact();assert.equal(m.period,2);
  m.phase='goal';m.scorer=0;m.replayFrames=[m.snapshot(),m.snapshot()];h.app.syncMatch();exact();
@@ -5299,4 +5300,60 @@ test('recorded dribble turns paint an arc in replay without changing the camera 
  m.replayFrames=pair;m.phase='replay';m.replayTime=2;m.scorer=0;h.app.render();
  assert.ok(Math.abs(distance(h.app.drawnBall,h.app.drawnPlayers.get(id))-10)<1e-7);
  m.skipReplay();h.app.syncMatch();h.app.render();assert.deepEqual(h.app.drawnBall,m.ball);assert.equal(m.setPiece,'Kick-off');
+});
+
+test('Escape auto-repeat cannot resume a paused match or re-pause a fresh resume',()=>{
+ for(const mode of ['practice','multi','shootout']){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();h.tick(100);const m=h.app.match;
+  h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowLeft'));
+  h.window.handlers.keydown(keyEvent('Escape'));assert.equal(m.phase,'paused');
+  const snapshot=JSON.stringify(m.snapshot()),at=m.elapsed;
+  for(let i=0;i<12;i++){h.window.handlers.keydown(keyEvent('Escape',true));h.tick(150+i*35);assert.equal(m.phase,'paused');assert.equal(m.elapsed,at);assert.equal(JSON.stringify(m.snapshot()),snapshot);}
+  h.window.handlers.keyup(keyEvent('Escape'));h.window.handlers.keydown(keyEvent('Escape'));assert.equal(m.phase,'playing');
+  for(let i=0;i<3;i++){h.window.handlers.keydown(keyEvent('Escape',true));assert.equal(m.phase,'playing');}
+  const input=h.app.input();if(mode==='multi')assert.deepEqual(input,{teams:[{dx:0,dy:0},{dx:0,dy:0}]});else{assert.equal(input.dx,0);assert.equal(input.dy,0);}
+  h.window.handlers.keyup(keyEvent('Escape'));h.window.handlers.keydown(keyEvent('Escape'));assert.equal(m.phase,'paused');
+ }
+});
+test('resume before a background frame gap preserves pending contact and starts time from the new baseline',()=>{
+ for(const mode of ['practice','multi','shootout'])for(const hz of [30,60,120])for(const reason of ['blur','hidden']){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();h.tick(100);const m=h.app.match;
+  h.window.handlers.keydown(keyEvent(mode==='multi'?'f':mode==='shootout'?' ':'e'));h.tick(150);
+  assert.ok(m.pendingKick);const remaining=m.pendingKick.remaining,id=m.pendingKick.player;
+  if(reason==='blur')h.window.handlers.blur();else{h.document.hidden=true;h.document.handlers.visibilitychange();}
+  assert.equal(m.phase,'paused');const snapshot=JSON.stringify(m.snapshot()),at=m.elapsed,minute=m.minute,count=m.strikeSequence;
+  // No callbacks during tab suspension; the resume event arrives before the first returning RAF.
+  h.document.hidden=false;h.click('resumePause');h.tick(10150);
+  assert.equal(m.elapsed,at);assert.equal(m.minute,minute);assert.equal(m.pendingKick.remaining,remaining);assert.equal(m.strikeSequence,count);
+  assert.equal(JSON.stringify(m.snapshot()),snapshot);assert.deepEqual(h.app.drawnBall,m.ball);
+  for(let i=1;i<=Math.ceil(hz*.2)&&m.pendingKick;i++)h.tick(10150+i*1000/hz);
+  assert.equal(m.pendingKick,null);assert.ok(Math.abs(m.players[id].kickAt-at-remaining)<1e-7,'the committed kick uses its remaining active-play time');
+  assert.equal(m.strikeSequence,count);
+ }
+});
+test('late pointer release after focus loss and Escape repeats cannot revive an abandoned charge',()=>{
+ for(const mode of ['practice','shootout']){
+  const h=uiHarness(html),c=h.elements.get('game');h.chooseMode(mode);h.flush();h.tick(100);const m=h.app.match;
+  const p=m.owner,a=h.app.camera.project(p.x,p.y),target=mode==='shootout'?{x:m.penalties.goal,y:FIELD.cy+25}:m.bestPass(p);
+  const b=h.app.camera.project(target.x,target.y),up=pointerEvent(h,b.x,b.y);
+  c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(up);h.window.handlers.keydown(keyEvent('w'));h.tick(120);
+  h.window.handlers.blur();assert.equal(h.app.drag,null);assert.equal(c.capture,null);
+  for(let i=0;i<4;i++)h.window.handlers.keydown(keyEvent('Escape',true));assert.equal(m.phase,'paused');
+  const at=m.elapsed;h.click('resumePause');h.tick(10120);c.handlers.pointerup(up);h.window.handlers.keyup(keyEvent('w'));
+  assert.equal(m.elapsed,at);assert.equal(m.pendingKick,null);assert.equal(h.app.drag,null);
+  const q=m.owner,start=h.app.camera.project(q.x,q.y),end=h.app.camera.project(target.x,target.y);
+  c.handlers.pointerdown(pointerEvent(h,start.x,start.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));c.handlers.pointerup(pointerEvent(h,end.x,end.y));
+  assert.ok(m.pendingKick);const id=m.pendingKick.id;advanceToContact(m);assert.equal(m.strikeSequence,id);assert.equal(m.ball.owner,null);
+ }
+});
+test('overlapping local movement keys remain independent after interrupted pause and delayed keyups',()=>{
+ const h=uiHarness(html);h.chooseMode('multi');h.click('startLocal');h.flush();h.tick(100);
+ h.window.handlers.keydown(keyEvent('w'));h.window.handlers.keydown(keyEvent('ArrowLeft'));
+ let input=h.app.input();assert.ok(Math.hypot(input.teams[0].dx,input.teams[0].dy)>.99);assert.ok(Math.hypot(input.teams[1].dx,input.teams[1].dy)>.99);
+ h.window.handlers.keydown(keyEvent('s'));input=h.app.input();assert.deepEqual(input.teams[0],{dx:0,dy:0});assert.ok(Math.hypot(input.teams[1].dx,input.teams[1].dy)>.99);
+ h.window.handlers.blur();for(let i=0;i<3;i++)h.window.handlers.keydown(keyEvent('Escape',true));assert.equal(h.app.match.phase,'paused');
+ h.click('resumePause');h.tick(10100);h.window.handlers.keyup(keyEvent('w'));h.window.handlers.keyup(keyEvent('ArrowLeft'));
+ assert.deepEqual(h.app.input(),{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
+ h.window.handlers.keydown(keyEvent('ArrowLeft'));input=h.app.input();assert.deepEqual(input.teams[0],{dx:0,dy:0});assert.ok(Math.hypot(input.teams[1].dx,input.teams[1].dy)>.99);
+ h.window.handlers.keyup(keyEvent('ArrowLeft'));assert.deepEqual(h.app.input(),{teams:[{dx:0,dy:0},{dx:0,dy:0}]});
 });
