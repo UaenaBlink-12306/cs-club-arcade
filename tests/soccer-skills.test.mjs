@@ -5719,3 +5719,48 @@ test('assisted local placement keeps its selected whole-ball point across near-g
   }
  }
 });
+
+function canvasLabelBox(h,prefix){
+ const i=h.draws.findIndex(d=>d.method==='fillText'&&String(d.args[0]).startsWith(prefix));if(i<0)return null;
+ const text=h.draws[i].args[0],r=h.draws.slice(0,i).reverse().find(d=>d.method==='fillRect'),unit=h.elements.get('game').getBoundingClientRect().width/1100;
+ assert.ok(r,'label has a backing rectangle');
+ return {text,left:r.args[0]*unit,top:r.args[1]*unit,right:(r.args[0]+r.args[2])*unit,bottom:(r.args[1]+r.args[3])*unit};
+}
+function panelOverlap(a,b){return Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));}
+test('ordinary local saved kickoff keeps keeper countdown and shot card apart in narrow and wide views',()=>{
+ for(const [width,height] of [[508,757],[400,606],[333,505],[1180,757]]){
+  const h=uiHarness(html);h.elements.get('game').getBoundingClientRect=()=>({left:0,top:0,width,height});
+  h.chooseMode('multi');h.click('startLocal');h.flush();h.tick(100);const m=h.app.match;
+  h.window.handlers.keydown(keyEvent('g'));h.window.handlers.keyup(keyEvent('g'));let samples=0;
+  for(let f=1;f<=432;f++){
+   h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+f*1000/60);
+   const clock=canvasLabelBox(h,'KEEPER ·');if(!clock)continue;
+   const aim=canvasLabelBox(h,'P2 L ·');assert.ok(aim);assert.equal(panelOverlap(clock,aim),0,'countdown does not obscure shot placement');
+   const caption=canvasLabelBox(h,'SHORT · IF CLEAR');if(caption)assert.equal(panelOverlap(clock,caption),0);
+   for(const r of [clock,aim]){assert.ok(r.left>=8-1e-6&&r.right<=width-8+1e-6);assert.ok(r.top>=78-1e-6&&r.bottom<=height-18+1e-6);}
+   samples++;
+  }
+  assert.ok(samples>150);assert.equal(canvasLabelBox(h,'KEEPER ·').text,'KEEPER · RELEASE 2');
+  const held=m.owner.held;h.click('menuBtn');h.draws.length=0;h.app.render(0);
+  assert.equal(canvasLabelBox(h,'KEEPER ·'),null);assert.equal(m.owner.held,held);
+  h.click('resumePause');h.tick(100+433*1000/60);
+  h.window.handlers.keydown(keyEvent('k'));h.window.handlers.keyup(keyEvent('k'));
+  for(let f=434;f<=540;f++){h.draws.length=0;h.app.drawnPaths.length=0;h.tick(100+f*1000/60);}
+  assert.equal(canvasLabelBox(h,'KEEPER ·'),null);assert.equal(m.passes[1],1);assert.equal(m.owner?.team,1);assert.ok(!m.owner.keeper);
+  h.click('menuBtn');h.click('restartMatch');h.flush();h.draws.length=0;h.app.render(0);
+  assert.equal(canvasLabelBox(h,'KEEPER ·'),null);assert.equal(h.app.match.handOwner,null);
+ }
+});
+test('keeper warning avoids shot labels and viewport edges at both ends and lateral keeper positions',()=>{
+ for(const [width,height] of [[333,505],[508,757],[1180,757],[757,400]])for(const team of [0,1])for(const period of [1,2])for(const offset of [-110,0,110]){
+  const h=localAimHarness(width,height,team,period),m=h.app.match,k=m.players[team*11];
+  k.x=m.ownGoalX(team)+m.direction(team)*18;k.y=FIELD.cy+offset;m.ball.lastTouch=1-team;m.receiveBall(k);k.held=6.1;
+  h.app.camera.update(m.snapshot(),0,false,true);h.app.syncMatch();h.draws.length=0;h.app.render(0);
+  const warning=canvasLabelBox(h,'KEEPER ·'),aim=canvasLabelBox(h,'P'+(team+1)+' '+(team===0?'G':'L')+' ·');
+  assert.ok(warning&&aim);assert.equal(panelOverlap(warning,aim),0);
+  const caption=canvasLabelBox(h,'SHORT · IF CLEAR');if(caption)assert.equal(panelOverlap(warning,caption),0);
+  assert.ok(warning.left>=8-1e-6&&warning.right<=width-8+1e-6);
+  assert.ok(warning.top>=78-1e-6&&warning.bottom<=height-18+1e-6);
+  assert.equal(warning.text,'KEEPER · RELEASE 2');assert.equal(k.held,6.1);
+ }
+});

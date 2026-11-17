@@ -3485,10 +3485,10 @@ function render(dt=0){
   const keeperClock=keeperCountdown();
   if(keeperClock){
     const unit=W/canvas.getBoundingClientRect().width,at=camera.project(keeperClock.player.x,keeperClock.player.y,43);
-    const x=clamp(at.x,80*unit,W-80*unit),y=clamp(at.y,80*unit,H-30*unit);
+    const panel=placeAimPanel({x:at.x,y:at.y},144*unit,15*unit,7*unit),{x,y}=panel;
     ctx.fillStyle='#163c2ef2';ctx.fillRect(x-72*unit,y-15*unit,144*unit,22*unit);
     label('KEEPER · RELEASE '+keeperClock.seconds,x,y,11*unit,keeperClock.seconds<=2?'#ffcf70':'#e0ffef');
-    aimPanelRects.push({left:x-72*unit,right:x+72*unit,top:y-15*unit,bottom:y+7*unit,hard:true});
+    aimPanelRects.push({...panel.rect,hard:true});
   }
   if(match?.phase==='playing'&&match.owner){
     const intent=drag?.armed&&match.ball.owner===drag.player?pointerAim(drag):localPreview;
