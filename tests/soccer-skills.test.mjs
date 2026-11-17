@@ -5578,8 +5578,8 @@ test('local shot placement follows the visible goal mouth for both players halve
    const intent=h.app.localShotIntent(team);assert.equal(intent.power,1);assert.equal(intent.loft,true);
    if(!sign)assert.deepEqual(intent.target,{x:goal+m.direction(team)*20,y:FIELD.cy},'neutral shot is exactly the existing target');
    else{
-    const y=p.y+(intent.target.y-p.y)*(goal-p.x)/(intent.target.x-p.x),at=h.app.camera.project(goal,y),centre=h.app.camera.project(goal,FIELD.cy);
-    assert.ok(Math.abs(Math.abs(y-FIELD.cy)-30)<1e-8,'placement targets goal-plane point rather than a misleading extension');
+    const crossingGoal=goal+m.direction(team)*1.5,y=p.y+(intent.target.y-p.y)*(crossingGoal-p.x)/(intent.target.x-p.x),at=h.app.camera.project(goal,y),centre=h.app.camera.project(goal,FIELD.cy);
+    assert.ok(Math.abs(Math.abs(y-FIELD.cy)-30)<1e-8,'placement targets the whole-ball crossing plane rather than a misleading extension');
     assert.ok((k.horizontal?at.x-centre.x:at.y-centre.y)*sign>0,'placement matches the pressed screen side');
     assert.ok(intent.controlLabel.includes(k.horizontal?(sign<0?'LEFT':'RIGHT'):(sign<0?'UPPER':'LOWER')));
    }
@@ -5666,6 +5666,56 @@ test('panning toward either end never turns forward movement into local lateral 
    h.window.handlers.keyup(keyEvent(forward));h.window.handlers.keydown(keyEvent(across));
    assert.ok(h.app.localShotIntent(team).controlLabel.endsWith(portrait?'LEFT':'UPPER'));
    h.window.handlers.keyup(keyEvent(across));
+  }
+ }
+});
+
+function cornerAimFixture(width=508,height=757,team=1,period=2,lower=false){
+ const h=localAimHarness(width,height,team,period),m=h.app.match,goal=m.goalX(team),d=m.direction(team);
+ m.stopForRestart({type:'Corner Kick',team,x:goal-d*6,y:lower?FIELD.bottom-6:FIELD.top+6});m.takeRestart();h.app.syncMatch();
+ return h;
+}
+test('portrait right-corner placement marker stays on the selected screen side at whole-ball crossing',()=>{
+ const h=cornerAimFixture(),m=h.app.match;
+ for(let i=0;i<180;i++)h.app.render(1/60);
+ h.window.handlers.keydown(keyEvent('ArrowRight'));h.draws.length=0;h.app.render(0);
+ const f=h.app.shotForecast(),rules=new Function(engine+';return RULES;')(),goal=m.goalX(1),unit=508/1100;
+ const marker=h.app.camera.project(f.crossing.x,f.crossing.y,f.crossing.z*rules.heightScale+rules.radius),middle=h.app.camera.project(goal,FIELD.cy);
+ assert.equal(h.app.localShotIntent(1).controlLabel,'P2 L · RIGHT');
+ assert.ok(marker.x>middle.x,'RIGHT must not predict a crossing on the left half');
+ assert.ok(Math.abs(f.crossing.y-(FIELD.cy-30))<1e-6);assert.equal(f.label,'LOFTED');
+ assert.ok(h.draws.some(d=>d.method==='arc'&&Math.abs(d.args[0]-marker.x)<1e-6&&Math.abs(d.args[1]-marker.y)<1e-6&&Math.abs(d.args[2]*unit-5)<1e-6),'actual canvas marker paints at the forecast crossing');
+ h.window.handlers.keyup(keyEvent('ArrowRight'));
+ assert.equal(h.app.shotForecast().label,'WIDE','legacy neutral corner trajectory stays honest and unchanged');
+});
+test('assisted corner preview matches actual unopposed ball crossing for both teams halves corners and screen sides',()=>{
+ const {firstBallBoundary}=new Function(engine+';return {firstBallBoundary};')();
+ for(const team of [0,1])for(const period of [1,2])for(const lower of [false,true])
+ for(const [width,height] of [[1180,757],[508,757]])for(const side of ['minus','plus']){
+  const h=cornerAimFixture(width,height,team,period,lower),m=h.app.match,taker=m.owner;
+  // Explicit unopposed fixture: verify trajectory, not keeper/interception outcomes.
+  for(const p of m.players)if(p.id!==taker.id){p.x=550;p.y=150+p.slot*8;}
+  h.app.render(0);const key=localAimKeys(h,team)[side];h.window.handlers.keydown(keyEvent(key));
+  const forecast=h.app.shotForecast();assert.ok(forecast.onTarget);
+  let crossing=null;const boundary=m.checkBoundary;
+  m.checkBoundary=function(old){const c=firstBallBoundary(old,this.ball);if(c)crossing=c;return boundary.call(this,old);};
+  h.window.handlers.keydown(keyEvent(team===0?'g':'l'));h.window.handlers.keyup(keyEvent(key));
+  advanceToContact(m);
+  for(let i=0;i<120&&m.phase==='playing';i++)m.step(1/60,h.app.input());
+  assert.equal(m.phase,'goal');assert.equal(m.score[team],1);assert.ok(crossing);
+  for(const axis of ['x','y','z'])assert.ok(Math.abs(crossing[axis]-forecast.crossing[axis])<1e-6,'forecast matches real '+axis+' crossing');
+  assert.ok(Math.abs(Math.abs(crossing.y-FIELD.cy)-30)<1e-6,'actual shot retains selected half at the whole-ball plane');
+ }
+});
+test('assisted local placement keeps its selected whole-ball point across near-goal and restart ranges',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const range of [6,12,45,170,480,940])for(const offset of [-224,224]){
+  const h=localAimHarness(508,757,team,period),m=h.app.match,p=m.owner,goal=m.goalX(team),d=m.direction(team);
+  p.x=goal-d*range;p.y=FIELD.cy+offset;m.followBall();h.app.render(0);
+  for(const key of team===0?['a','d']:['ArrowLeft','ArrowRight']){
+   h.window.handlers.keydown(keyEvent(key));const intent=h.app.localShotIntent(team);
+   const crossX=goal+d*1.5,y=p.y+(intent.target.y-p.y)*(crossX-p.x)/(intent.target.x-p.x);
+   assert.ok(Math.abs(Math.abs(y-FIELD.cy)-30)<1e-7);
+   h.window.handlers.keyup(keyEvent(key));
   }
  }
 });

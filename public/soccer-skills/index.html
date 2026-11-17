@@ -2523,9 +2523,10 @@ function localShotIntent(team){
   const label=key?(horizontal?(key<0?'LEFT':'RIGHT'):(key<0?'UPPER':'LOWER')):'CENTRE';
   const target={x:goal+d*20,y:FIELD.cy};
   if(side){
-    const placedY=FIELD.cy+side*30,range=Math.max(1,(goal-p.x)*d);
-    // Aim through the selected goal-plane point, even from a tight angle.
-    target.y=placedY+(placedY-p.y)*20/range;target.shot=true;
+    const placedY=FIELD.cy+side*30,range=Math.max(1,(goal-p.x)*d+RULES.radius);
+    // Placement is where the whole ball crosses, not its centre on the goal line.
+    // The distinction is visible from corners and other very tight angles.
+    target.y=placedY+(placedY-p.y)*(20-RULES.radius)/range;target.shot=true;
   }
   return {target,power:1,loft:!!match.setPiece,shot:true,controlLabel:'P'+(team+1)+' '+(team===0?'G':'L')+' · '+label};
 }
