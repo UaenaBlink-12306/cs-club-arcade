@@ -1030,7 +1030,7 @@ class SoccerMatch {
       const f=formation[p.slot], d=this.direction(p.team);
       p.x=this.ownGoalX(p.team)+d*f[0]*(FIELD.right-FIELD.left);
       p.y=FIELD.top+f[1]*(FIELD.bottom-FIELD.top);
-      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.shotLane=null;p.passLane=null;p.held=0;p.think=.35+p.slot*.025;
+      p.angle=d<0?Math.PI:0;p.visualAngle=p.angle;if(p.keeper)p.gaitAngle=p.angle;p.gaitSpeed=0;p.bodyLean=0;p.turnLean=0;p.tackleAt=-100;p.saveSide=0;p.speed=0;p.cooldown=0;p.kickAt=-100;p.saveAt=-100;p.receiveAt=-100;p.throwAt=-100;p.foulAt=-100;p.diveAt=-100;p.diveFlight=0;p.challengeUntil=0;p.shotLane=null;p.passLane=null;p.held=0;p.think=.35+p.slot*.025;
     }
   }
   kickoff(team){
@@ -1229,7 +1229,8 @@ class SoccerMatch {
   }
   keeperCatchPose(p){
     if(this.elapsed-(p.saveAt??-100)<=.65)return;
-    p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(this.ball.y-p.y)*Math.cos(p.angle))/45,-1,1);
+    const facing=this.inShootout()?p.angle:(p.visualAngle??p.angle);
+    p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(facing)-(this.ball.y-p.y)*Math.cos(facing))/45,-1,1);
     p.saveAt=this.elapsed;
   }
   receiveBall(p){
@@ -1608,7 +1609,8 @@ class SoccerMatch {
         const ty=clamp(prediction,FIELD.cy-46,FIELD.cy+46),tx=this.inShootout()?this.penalties.goal:own+d*18;
         if(reacting&&Math.abs(this.ball.x-own)<115&&Math.abs(ty-p.y)>10&&p.diveFlight!==flight.id){
           p.diveFlight=flight.id;p.diveAt=this.elapsed;p.saveAt=this.elapsed;
-          p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(p.angle)-(ty-p.y)*Math.cos(p.angle))/45,-1,1);
+          const facing=this.inShootout()?p.angle:(p.visualAngle??p.angle);
+          p.saveSide=clamp(((this.ball.x-p.x)*Math.sin(facing)-(ty-p.y)*Math.cos(facing))/45,-1,1);
         }
         if(committed)this.moveShootoutKeeper(p,ty,reacting?committed.speed:100,dt);
         else this.move(p,tx,ty,reacting?92:100,dt);continue;
@@ -1744,7 +1746,18 @@ class SoccerMatch {
       p.gaitSpeed=priorGait+(poseSpeed-priorGait)*(1-Math.exp(-dt*14));
       const acceleration=clamp((poseSpeed-priorGait)/90,-1,1);
       p.bodyLean=(p.bodyLean||0)+(acceleration-(p.bodyLean||0))*(1-Math.exp(-dt*10));
-      const delta=Math.atan2(Math.sin(p.angle-(p.visualAngle??p.angle)),Math.cos(p.angle-(p.visualAngle??p.angle)));
+      if(p.keeper){
+        const prior=p.gaitAngle??p.angle;
+        p.gaitAngle=prior+Math.atan2(Math.sin(p.angle-prior),Math.cos(p.angle-prior))*(1-Math.exp(-dt*18));
+      }
+      // Keepers track the ball while shuffling or backpedalling in their area.
+      // Physical facing still governs ball contact and movement; only the pose turns.
+      let facing=p.angle;
+      if(p.keeper&&!this.inShootout()&&this.inPenalty(p,p.team)){
+        if(this.handOwner===p.id)facing=p.visualAngle??p.angle;
+        else if(this.ball.owner!==p.id)facing=Math.atan2(this.ball.y-p.y,this.ball.x-p.x);
+      }
+      const delta=Math.atan2(Math.sin(facing-(p.visualAngle??p.angle)),Math.cos(facing-(p.visualAngle??p.angle)));
       p.visualAngle=(p.visualAngle??p.angle)+delta*(1-Math.exp(-dt*18));
       const turning=clamp(delta*1.8,-1,1)*clamp(p.gaitSpeed/90,0,1);
       p.turnLean=(p.turnLean||0)+(turning-(p.turnLean||0))*(1-Math.exp(-dt*12));
@@ -1894,7 +1907,7 @@ class SoccerMatch {
       const action=this.pendingKick;
       const winding=action?.player===p.id&&action.possession===this.possessionSerial&&this.ball.owner===p.id&&['playing','paused'].includes(this.phase);
       const age=this.elapsed-(p.kickAt??-100),following=age>=0&&age<.34;
-      return {id:p.id,team:p.team,keeper:p.keeper,holding:this.handOwner===p.id&&this.ball.owner===p.id,x:p.x,y:p.y,angle:p.visualAngle??p.angle,stride:p.stride,speed:p.gaitSpeed??p.speed,
+      return {id:p.id,team:p.team,keeper:p.keeper,holding:this.handOwner===p.id&&this.ball.owner===p.id,x:p.x,y:p.y,angle:p.visualAngle??p.angle,...(p.keeper?{moveAngle:this.inShootout()?(p.visualAngle??p.angle):(p.gaitAngle??p.angle)}:{}),stride:p.stride,speed:p.gaitSpeed??p.speed,
         bodyLean:p.bodyLean||0,turnLean:p.turnLean||0,saveSide:p.saveSide||0,strikeRun:winding?action.fromGait||0:0,
         tackle:clamp(1-(this.elapsed-(p.tackleAt??-100))/.36,0,1),
         throwing:this.restartGuard?.taker===p.id&&this.setPiece==='Throw-in'||this.elapsed-(p.throwAt??-100)<.34,
@@ -3003,8 +3016,10 @@ function playerPose(p,ball){
   // Keeper reach is expressed in the player's local frame, not screen left/right.
   const reach=p.keeper&&save>0&&Number.isFinite(p.saveSide)?p.saveSide:p.keeper&&ball?clamp(((ball.x-p.x)*Math.sin(p.angle)-(ball.y-p.y)*Math.cos(p.angle))/45,-1,1):fx;
   const receive=posePulse(p.receive||0)*(1-clamp(Math.abs(kick)*2,0,1));
+  const travel=p.keeper&&Number.isFinite(p.moveAngle)?p.moveAngle-p.angle:0;
+  const runForward=Math.cos(travel),runSide=-Math.sin(travel);
   const hold=p.keeper&&p.holding&&ball?.owner===p.id?poseEase(1-(p.receive||0))*(p.strikePhase==='windup'?1-poseEase(p.strike/.3):1):0;
-  return {fx,fy,celebration,running,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,throwProgress,save,receive,hold,
+  return {fx,fy,celebration,running,runForward,runSide,footRun:running+entry,cycle,stride,kick:throwing?0:kick,throwing,throwProgress,save,receive,hold,
     tackle:posePulse(p.tackle||0),fouled:posePulse(p.fouled||0),ready,reach,
     lean:clamp(p.bodyLean||0,-1,1),turn:clamp(p.turnLean||0,-1,1),
     twist:Math.sin(cycle)*running*.055-kick*.08,
@@ -3021,11 +3036,11 @@ function playerSkeleton(p,pose){
     const kicking=side===1?pose.kick:0,receiving=side===1?pose.receive||0:0,tackling=side===1?pose.tackle||0:0;
     const plant=side===-1?Math.abs(pose.kick):0;
     const hip=[side*2.2,0,16];
-    const ankle=[side*(2.5+plant*.9),fore*run+kicking*17+receiving*7+tackling*8,
+    const ankle=[side*(2.5+plant*.9)+fore*run*(pose.runSide||0),fore*run*(pose.runForward??1)+kicking*17+receiving*7+tackling*8,
       1.8+swing*5*run+Math.max(0,kicking)*.8+tackling*.7];
-    const knee=[side*(2.4+plant*.35),fore*run*.46+kicking*8+receiving*3+tackling*4,
+    const knee=[side*(2.4+plant*.35)+fore*run*(pose.runSide||0)*.46,fore*run*(pose.runForward??1)*.46+kicking*8+receiving*3+tackling*4,
       9+swing*3*run+Math.max(0,kicking)*2-plant*.6];
-    const armSwing=-fore*run*.31,brace=Math.abs(pose.kick)+receiving*.5+(pose.tackle||0)*.6;
+    const armSwing=-fore*run*(pose.runForward??1)*.31,brace=Math.abs(pose.kick)+receiving*.5+(pose.tackle||0)*.6;
     const shoulder=[side*4.4,0,26.5];
     const elbow=[side*(5.4+pose.ready+brace),armSwing*.55,21+pose.ready*1.5+run*.8];
     const hand=[side*(5.8+pose.ready+brace*.8)+pose.reach*pose.save*5,
@@ -3064,7 +3079,8 @@ function playerWorldTransform(p,pose){
     const upper=poseEase((q[2]-12)/16),twist=(pose.twist||0)*upper;
     const xx=x*Math.cos(twist)-y*Math.sin(twist);y=x*Math.sin(twist)+y*Math.cos(twist);x=xx;
     x+=(pose.turn||0)*upper*1.25;
-    y+=(pose.lean||0)*upper*1.6;
+    x+=(pose.lean||0)*(pose.runSide||0)*upper*1.6;
+    y+=(pose.lean||0)*(pose.runForward??1)*upper*1.6;
     z-=pose.ready*upper*.65+(pose.tackle||0)*upper*.7;
     const tiltedX=x*Math.cos(roll)+z*Math.sin(roll),tiltedZ=z*Math.cos(roll)-x*Math.sin(roll);
     x=tiltedX;z=tiltedZ+pose.bob*.3;
@@ -3266,7 +3282,8 @@ function replaySample(frames,t){
     const sameStrike=p.strikeId&&p.strikeId===q.strikeId;
     const strike=sameStrike?blend(p.strike||0,q.strike||0):p.strikePhase==='follow'?blend(p.strike||0,1):p.strikePhase==='windup'?0:p.strikePhase===undefined?blend(p.strike||0,q.strike||0):0;
     return {...p,holding:mix>=receivingMix?q.holding:p.holding,strikePhase:strike>0?(strike<.3?'windup':'follow'):'idle',strikeId:strike>0?p.strikeId:0,x:blend(p.x,q.x),y:blend(p.y,q.y),stride:blend(p.stride,q.stride),speed:blend(p.speed,q.speed),
-      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,strike,saveSide:blend(p.saveSide||0,q.saveSide||0),bodyLean:blend(p.bodyLean||0,q.bodyLean||0),turnLean:blend(p.turnLean||0,q.turnLean||0),strikeRun:blend(p.strikeRun||0,q.strikeRun||0),tackle:envelope(p,q,'tackle',.36),fouled:envelope(p,q,'fouled',.6),receive:envelope(p,q,'receive',.18),kick:blend(p.kick||0,q.kick||0),save:envelope(p,q,'save',.65)};
+      angle:p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix,
+      ...(Number.isFinite(p.moveAngle)&&Number.isFinite(q.moveAngle)?{moveAngle:p.moveAngle+Math.atan2(Math.sin(q.moveAngle-p.moveAngle),Math.cos(q.moveAngle-p.moveAngle))*mix}:{}),strike,saveSide:blend(p.saveSide||0,q.saveSide||0),bodyLean:blend(p.bodyLean||0,q.bodyLean||0),turnLean:blend(p.turnLean||0,q.turnLean||0),strikeRun:blend(p.strikeRun||0,q.strikeRun||0),tackle:envelope(p,q,'tackle',.36),fouled:envelope(p,q,'fouled',.6),receive:envelope(p,q,'receive',.18),kick:blend(p.kick||0,q.kick||0),save:envelope(p,q,'save',.65)};
   }),ball:{...a.ball,owner:mix>=receivingMix?b.ball.owner:a.ball.owner,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)}};
 }
 
@@ -3550,6 +3567,7 @@ function interpolateLiveFrame(a,b,alpha){
       out[key]=blend(p[key],q[key]);
     }
     out.angle=p.angle+Math.atan2(Math.sin(q.angle-p.angle),Math.cos(q.angle-p.angle))*mix;
+    if(Number.isFinite(p.moveAngle)&&Number.isFinite(q.moveAngle))out.moveAngle=p.moveAngle+Math.atan2(Math.sin(q.moveAngle-p.moveAngle),Math.cos(q.moveAngle-p.moveAngle))*mix;
     return out;
   });
   const ball={...b.ball,x:blend(a.ball.x,b.ball.x),y:blend(a.ball.y,b.ball.y),z:blend(a.ball.z,b.ball.z)};

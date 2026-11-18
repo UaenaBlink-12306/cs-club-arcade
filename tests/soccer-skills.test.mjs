@@ -6940,3 +6940,87 @@ test('pixel-density changes and stable geometry preserve pointer capture and del
  assert.ok(m.pendingKick);assert.equal(m.pendingKick.target.receiverId,receiver.id);
  advanceToContact(m);assert.equal(m.passes[0],1);
 });
+
+function keeperTrackingRun(source=html,hz=60,width=1180,key='w',local=true){
+ const h=uiHarness(source),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+ h.chooseMode(local?'multi':'practice');if(local)h.click('startLocal');h.flush();h.tick(100);
+ const m=h.app.match,frames=[];let firstSave=null,distributed=false,prior=null,maxStep=0,maxFacingError=0;
+ if(key)h.window.handlers.keydown(keyEvent(key));h.window.handlers.keydown(keyEvent(local?'g':' '));h.window.handlers.keyup(keyEvent(local?'g':' '));if(key)h.window.handlers.keyup(keyEvent(key));
+ const strip=value=>Array.isArray(value)?value.map(strip):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([k])=>!['gaitAngle','visualAngle','turnLean','saveSide','fromAngle','history','replayFrames'].includes(k)).map(([k,v])=>[k,strip(v)])):value;
+ for(let f=1;f<=hz*3;f++){
+  h.tick(100+f*1000/hz);
+  const p=h.app.drawnPlayers.get(11),pose=h.app.playerPose(p,h.app.drawnBall),sk=h.app.playerSkeleton(p,pose),world=h.app.playerWorldTransform(p,pose);
+  const feet=sk.legs.map(l=>world(l.ankle));
+  if(prior&&m.handOwner!==11&&m.flight?.shot)maxStep=Math.max(maxStep,...feet.map((v,j)=>Math.hypot(...v.map((n,k)=>n-prior[j][k]))));
+  if(m.flight?.shot&&p.speed>10){const target=Math.atan2(m.ball.y-p.y,m.ball.x-p.x);maxFacingError=Math.max(maxFacingError,Math.abs(Math.atan2(Math.sin(target-p.angle),Math.cos(target-p.angle))));}
+  if(m.handOwner===11&&firstSave===null)firstSave=m.elapsed;
+  frames.push({physical:strip(m),paint:{x:p.x,y:p.y,angle:p.angle,moveAngle:p.moveAngle,save:p.save,runForward:pose.runForward,runSide:pose.runSide,feet}});
+  prior=feet;h.draws.length=0;h.app.drawnPaths.length=0;
+  if(local&&firstSave!==null&&!distributed&&m.elapsed-firstSave>.8){h.window.handlers.keydown(keyEvent('k'));h.window.handlers.keyup(keyEvent('k'));distributed=true;}
+  if(m.phase!=='playing')break;
+ }
+ return {frames,firstSave,distributed,maxStep,maxFacingError,score:[...m.score],passes:[...m.passes],saves:[...m.saves],phase:m.phase};
+}
+
+test('ordinary placed shots let keepers track the ball while backpedalling without changing the match',()=>{
+ const baseline=html.replace('if(p.keeper&&!this.inShootout()&&this.inPenalty(p,p.team)){','if(false){');
+ assert.ok(baseline!==html);let beforeFootRate=0,afterFootRate=0;
+ for(const hz of [30,60,120])for(const width of [1180,508]){
+  const key=width===508?'a':'w',before=keeperTrackingRun(baseline,hz,width,key),after=keeperTrackingRun(html,hz,width,key);
+  assert.deepEqual(after.frames.map(f=>f.physical),before.frames.map(f=>f.physical),'only cosmetic facing, gait direction and save pose may differ');
+  assert.ok(before.maxFacingError>2,'the ordinary retreat originally turned away from the incoming shot');
+  assert.ok(after.maxFacingError<.12,'drawn keeper keeps looking toward the incoming ball');
+  beforeFootRate=Math.max(beforeFootRate,before.maxStep*hz);afterFootRate=Math.max(afterFootRate,after.maxStep*hz);
+  assert.ok(after.firstSave!==null);assert.equal(after.distributed,true);assert.equal(after.passes[1],1);
+  const held=after.frames.filter(f=>f.physical.handOwner===11&&!f.physical.pendingKick);
+  assert.ok(held.length>hz*.6);
+  assert.ok(held.every(f=>Math.abs(Math.atan2(Math.sin(f.paint.angle-held[0].paint.angle),Math.cos(f.paint.angle-held[0].paint.angle)))<1e-8),'catch recovery does not turn back to the old movement heading');
+ }
+ assert.ok(afterFootRate<beforeFootRate,'worst foot-frame motion across both shot directions and render rates is reduced');
+});
+test('keeper tracking leaves ordinary solo shot decisions and ball trajectories unchanged',()=>{
+ const baseline=html.replace('if(p.keeper&&!this.inShootout()&&this.inPenalty(p,p.team)){','if(false){');
+ for(const width of [1180,508]){
+  const before=keeperTrackingRun(baseline,60,width,'',false),after=keeperTrackingRun(html,60,width,'',false);
+  assert.deepEqual(after.frames.map(f=>f.physical),before.frames.map(f=>f.physical));
+  assert.deepEqual(after.score,before.score);assert.deepEqual(after.saves,before.saves);
+ }
+});
+test('keeper travel direction interpolates by the short turn in live frames and recorded replay',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match;
+ const a=m.snapshot(),b=m.snapshot();a.at=2;b.at=2+1/60;
+ for(const frame of [a,b])for(const id of [0,11]){frame.players[id].angle=.1;frame.players[id].speed=80;}
+ for(const id of [0,11]){a.players[id].moveAngle=Math.PI-.02;b.players[id].moveAngle=-Math.PI+.02;}
+ for(const frame of [h.app.interpolateLiveFrame(a,b,.5),h.app.replaySample([a,b],.5)]){
+  for(const id of [0,11]){
+   const p=frame.players[id],pose=h.app.playerPose(p,frame.ball),skeleton=h.app.playerSkeleton(p,pose);
+   assert.ok(Math.abs(Math.abs(p.moveAngle)-Math.PI)<1e-8);
+   assert.ok(pose.runForward<-.99,'backward movement stays backward across the angle boundary');
+   assert.ok(skeleton.legs.every(leg=>leg.ankle.every(Number.isFinite)&&leg.knee.every(Number.isFinite)));
+  }
+ }
+ const snapshot=m.snapshot();h.app.render(0);assert.deepEqual(m.snapshot(),snapshot,'drawing is read-only');
+ h.click('menuBtn');h.click('restartMatch');h.flush();
+ for(const p of h.app.match.players.filter(p=>p.keeper))assert.equal(p.gaitAngle,p.angle);
+});
+
+test('normal-match keeper tracking faces incoming shots for both teams and halves',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const offset of [-70,70]){
+  // Controlled shooting positions isolate both goal directions; this is not a native-play claim.
+  const h=uiHarness(html);h.chooseMode('practice');h.flush();const f=placeShot(h.app.match,180,offset,team,period);
+  f.m.kick(f.p,{x:f.goal+f.d*20,y:FIELD.cy},.85);
+  let samples=0;
+  for(let i=0;i<120&&f.m.phase==='playing';i++){
+   f.m.step(1/60,{dx:0,dy:0});h.app.syncMatch();h.app.render(1/60);
+   const p=h.app.drawnPlayers.get(f.keeper.id);
+   if(f.m.flight?.shot&&i>12){
+    const target=Math.atan2(f.m.ball.y-p.y,f.m.ball.x-p.x);
+    assert.ok(Math.abs(Math.atan2(Math.sin(target-p.angle),Math.cos(target-p.angle)))<.25);
+    samples++;
+   }
+   h.draws.length=0;h.app.drawnPaths.length=0;
+   if(f.m.owner?.id===f.keeper.id)break;
+  }
+  assert.ok(samples>0);assert.equal(f.m.owner?.id,f.keeper.id);assert.equal(f.m.saves[1-team],1);
+ }
+});
