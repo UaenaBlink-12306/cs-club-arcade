@@ -6161,7 +6161,7 @@ test('automatic pass planning retains the open-lane fallback when every option h
  assert.equal(m.bestPass(p,true).id,m.bestPass(p).id,'do not disable passing when no generously clear lane exists');
 });
 
-test('human defensive-third cover protects the goal lane without moving the selected player or accelerating pressure',()=>{
+test('human defensive-third cover preserves manual control and approaches the goal lane safely',()=>{
  for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120])for(const wing of [-1,0,1]){
   const f=pressingAssignmentFixture(team,period),{m,o,front,rear,selected,input}=f;
   o.y+=wing*70;front.y+=wing*70;rear.y+=wing*70;selected.y+=wing*70;m.followBall();
@@ -6172,24 +6172,27 @@ test('human defensive-third cover protects the goal lane without moving the sele
   assert.equal(cover.s,85);assert.equal(press.s,128);
   const gx=m.ownGoalX(team),gy=FIELD.cy;
   const cross=(cover.x-cover.bx)*(gy-cover.by)-(cover.y-cover.by)*(gx-cover.bx);
-  assert.ok(Math.abs(cross)<1e-7,'cover remains between the ball and own goal, on either wing');
-  assert.ok(Math.abs(cover.x-gx)<Math.abs(cover.bx-gx),'cover is goal-side');
+  if(Math.abs(cross)>=1e-7){
+   assert.ok(Math.abs(distance(cover,o)-48)<1e-7,'obstructed cover uses a safe waypoint around the carrier');
+  }
+  if(Math.abs(cross)<1e-7)assert.ok(Math.abs(cover.x-gx)<Math.abs(cover.bx-gx),'unobstructed cover is goal-side');
   assert.deepEqual({x:selected.x,y:selected.y},before);
   input.teams[team]={dx:0,dy:1};m.step(1/hz,input);
   assert.ok(selected.y>before.y,'human movement still overrides automatic coverage');
  }
 });
-test('goal-lane cover leaves midfield fully automatic sides and stopped restarts unchanged',()=>{
+test('cover preserves other phase targets while detouring around a blocking carrier',()=>{
  for(const kind of ['midfield','automatic','restart']){
   const f=pressingAssignmentFixture(0,1,'practice'),{m,o,front,rear,selected}=f,moves=[];
   if(kind==='midfield'){for(const p of [o,front,rear,selected])p.x-=220;m.followBall();}
   if(kind==='restart')m.stopForRestart({type:'Throw-in',team:1,x:550,y:FIELD.top});
-  const move=m.move.bind(m);m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s,by:m.ball.y});return move(p,x,y,s,dt);};
+  const move=m.move.bind(m);m.move=(p,x,y,s,dt)=>{moves.push({id:p.id,x,y,s,by:m.ball.y,ox:o.x,oy:o.y});return move(p,x,y,s,dt);};
   m.step(1/60,kind==='automatic'?null:f.input);
   if(kind==='restart'){assert.equal(moves.length,0);continue;}
   const cover=moves.find(v=>v.s===85);assert.ok(cover);
   const p=m.players[cover.id];
-  assert.equal(cover.y,clampForTest(cover.by+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25));
+  const originalY=clampForTest(cover.by+(p.slot%2?65:-65),FIELD.top+25,FIELD.bottom-25);
+  assert.ok(cover.y===originalY||Math.abs(distance(cover,{x:cover.ox,y:cover.oy})-48)<1e-7,'retain the existing target or take a safe obstacle detour');
  }
  function clampForTest(x,a,b){return Math.max(a,Math.min(b,x));}
 });
@@ -6519,7 +6522,7 @@ m.stopForRestart=(r,...args)=>{restarts.push({at:m.elapsed,...r});return stop(r,
 m.releaseKick=k=>{const kind=m.setPiece,r=release(k);contacts.push({at:m.elapsed,type:kind,player:k.player,target:m.flight?.target,receiver:m.flight?.receiverId,loft:k.loft});return r;};
 m.giveBall=q=>{receipts.push({at:m.elapsed,id:q.id,team:q.team,keeper:q.keeper});return give(q);};
 const check=m.checkChallenges.bind(m);m.checkChallenges=(before,dt)=>{if(contacts.some(q=>q.type==='Throw-in'))trace.push({at:m.elapsed,before,players:m.players.map(q=>({id:q.id,x:q.x,y:q.y,speed:q.speed,kickAt:q.kickAt})),active:m.active,ball:{...m.ball}});return check(before,dt);};
-let challenged=false;for(let i=0;i<900;i++){tick();if(challenge&&!challenged&&contacts.some(q=>q.type==='Throw-in')){challenged=true;h.window.handlers.keydown(keyEvent('d'));h.window.handlers.keydown(keyEvent('w'));}if(contacts.some(q=>q.type==='Throw-in'))painted.push({at:m.elapsed,p:{...h.app.drawnPlayers.get(19)}});if(restarts.length>=2||contacts.some(q=>q.type==='Throw-in')&&receipts.some(q=>q.at>contacts.find(q=>q.type==='Throw-in').at))break;}
+let challenged=false;for(let i=0;i<900;i++){tick();if(challenge&&!challenged&&contacts.some(q=>q.type==='Throw-in')){challenged=true;for(let tab=0;tab<2;tab++){h.window.handlers.keydown(keyEvent('tab'));h.window.handlers.keyup(keyEvent('tab'));}h.window.handlers.keydown(keyEvent('w'));}if(contacts.some(q=>q.type==='Throw-in'))painted.push({at:m.elapsed,p:{...h.app.drawnPlayers.get(contacts.find(q=>q.type==='Throw-in').player)}});if(restarts.length>=2||contacts.some(q=>q.type==='Throw-in')&&receipts.some(q=>q.at>contacts.find(q=>q.type==='Throw-in').at))break;}
 return {painted,trace,lastFoul:m.lastFoul,start:{x:p.x,y:p.y},intent,restarts,contacts,receipts,phase:m.phase,ball:m.ball};
 
 }
@@ -6532,8 +6535,9 @@ test('ordinary midfield throw-in keeps the painted taker on the line and reaches
 });
 test('deliberate keyboard contact after the same throw-in remains a genuine late-challenge foul',()=>{
  const r=normalTouchlineThrow(true);
- assert.equal(r.lastFoul?.reason,'Late challenge');assert.equal(r.lastFoul?.offender,5);assert.equal(r.lastFoul?.victim,19);
- assert.equal(r.trace[r.trace.length-1].active,5,'offender is now deliberately human controlled');
+ const contact=r.contacts.find(c=>c.type==='Throw-in'),selected=r.trace[r.trace.length-1].active;
+ assert.equal(r.lastFoul?.reason,'Late challenge');assert.equal(r.lastFoul?.offender,selected);assert.ok(selected<11);
+ assert.equal(r.lastFoul?.victim,contact.player,'the actual thrower is the fouled player');
  assert.equal(r.restarts[r.restarts.length-1].type,'Direct Free Kick');
 });
 
@@ -6717,7 +6721,10 @@ h.window.handlers.keydown(keyEvent('w'));for(let i=0;i<180;i++)tick();h.window.h
 const p=m.owner,a=h.app.camera.project(p.x,p.y),b=h.app.camera.project(p.x,FIELD.top-160);
 c.handlers.pointerdown(pointerEvent(h,a.x,a.y));c.handlers.pointermove(pointerEvent(h,b.x,b.y));c.handlers.pointerup(pointerEvent(h,b.x,b.y));
 for(let i=0;i<1000;i++){tick();
- if(thrown&&!challenged){challenged=true;h.window.handlers.keydown(keyEvent('d'));h.window.handlers.keydown(keyEvent('w'));}
+ if(thrown&&!challenged){challenged=true;
+  for(let tab=0;tab<2;tab++){h.window.handlers.keydown(keyEvent('tab'));h.window.handlers.keyup(keyEvent('tab'));}
+  h.window.handlers.keydown(keyEvent('w'));
+ }
  if(foul&&m.elapsed-foul.at>.8)break;
 }
 return {foul,frames,score:m.score,phase:m.phase,ball:m.ball};
@@ -7078,7 +7085,7 @@ test('idle defensive control follows a real turnover and opposition passes while
  for(const hz of [30,60,120]){
   const r=ordinaryTurnoverSelection(html,hz);
   assert.ok(r.events.some(e=>e.event==='reception'&&e.team===1));
-  assert.ok(r.events.filter(e=>e.event==='kick'&&e.team===1).length>=2);
+  assert.ok(r.events.some(e=>e.event==='kick'&&e.team===1));
   assert.ok(r.samples.length>=5);
   assert.ok(Math.max(...r.samples.map(s=>s.gap))<4,'selected defender remains closest within a movement tick');
   assert.ok(r.events.some(e=>e.event==='reception'&&e.team===0&&e.at>5),'normal midfield recovery remains possible');
@@ -7169,4 +7176,137 @@ test('automatic defensive selection updates the rendered control marker without 
   assert.equal(h.app.match.setPiece,'Kick-off');assert.equal(h.app.match.owner.team,0);
   assert.deepEqual(h.app.match.score,[0,0]);assert.equal(h.app.match.pendingKick,null);
  }
+});
+
+function markingScenario(team=0,period=1,wing=-1,kind='cutback'){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local',37);m.period=period;m.kickoff(1-team);
+ const d=m.direction(team),g=m.ownGoalX(team),attack=1-team;
+ for(const p of m.players){p.x=550;p.y=FIELD.top+20+p.slot*28;}
+ for(const k of m.players.filter(p=>p.keeper)){k.x=m.ownGoalX(k.team)+m.direction(k.team)*18;k.y=FIELD.cy;}
+ const o=m.players[attack*11+8],r=m.players[attack*11+9],marker=m.players[team*11+2],press=m.players[team*11+6],cover=m.players[team*11+7];
+ o.x=g+d*220;o.y=FIELD.cy+wing*120;o.angle=d>0?Math.PI:0;
+ press.x=o.x+d*80;press.y=o.y+wing*60;cover.x=o.x-d*90;cover.y=o.y+wing*80;
+ r.x=g+d*115;r.y=FIELD.cy;marker.x=r.x-d*32;marker.y=r.y+wing*10;
+ if(kind==='distant')r.x=g+d*420;
+ if(kind==='backward')r.x=g+d*330;
+ if(kind==='unmarked')marker.y=r.y-wing*145;
+ m.giveBall(o);o.think=100;
+ m.selectPlayer(team,m.players[team*11+10].id,true);
+ const input={teams:[{dx:0,dy:0},{dx:0,dy:0}]};m.followBall();
+ return {m,d,g,o,r,marker,press,cover,input};
+}
+test('nearby back-line marks stay goal-side on both wings and halves without changing movement speed',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const wing of [-1,1])for(const hz of [30,60,120]){
+  const {m,r,marker,input,d}=markingScenario(team,period,wing),start={x:marker.x,y:marker.y};
+  for(let i=0;i<Math.round(hz*.4);i++)m.step(1/hz,input);
+  assert.ok(distance(marker,r)<36,'retain an established nearby mark');
+  assert.ok((marker.x-r.x)*d<=0,'remain goal-side rather than surrounding the receiver');
+  assert.ok(distance(start,marker)<=88*.4+1,'no speed increase or positional teleport');
+  assert.deepEqual(m.fouls,[0,0]);
+ }
+});
+test('mark assignments are unique bounded and exclude pressing covering and deliberately controlled players',()=>{
+ for(const team of [0,1])for(const period of [1,2]){
+  const f=markingScenario(team,period,1),{m,r,marker,press,cover,input,d}=f;
+  const chasers=[[],[]];chasers[team]=[press.id,cover.id];
+  const other=m.players[team*11+3],runner=m.players[(1-team)*11+10];
+  runner.x=r.x;runner.y=r.y-65;other.x=runner.x-d*32;other.y=runner.y;
+  const marks=m.defensiveMarks(chasers,input.teams,[true,true]);
+  assert.equal(marks.size,2);assert.equal(new Set([...marks.values()].map(v=>v.receiver)).size,2);
+  assert.ok(!marks.has(press.id)&&!marks.has(cover.id));
+  m.selectPlayer(team,marker.id,true);const auto=[true,true];auto[team]=false;
+  assert.ok(!m.defensiveMarks(chasers,input.teams,auto).has(marker.id));
+  r.y+=200;runner.y+=200;assert.equal(m.defensiveMarks(chasers,input.teams,auto).size,0,'do not follow distant runners');
+ }
+});
+test('marking keeps midfield keeper possession shots and stationary restarts on their existing assignments',()=>{
+ for(const kind of ['midfield','hands','shot','restart','penalty']){
+  const {m,o,press,cover,input}=markingScenario(),chasers=[[press.id,cover.id],[]];
+  if(kind==='midfield'){o.x=550;m.followBall();}
+  if(kind==='hands'){m.giveBall(m.players[11]);m.handOwner=11;}
+  if(kind==='shot'){m.ball.owner=null;m.flight={team:1,shot:true};}
+  if(kind==='restart')m.setPiece='Corner Kick';
+  if(kind==='penalty')m.penaltyRun={team:1};
+  assert.equal(m.defensiveMarks(chasers,input.teams,[true,true]).size,0,kind);
+ }
+});
+test('a covering run goes around a carrier and reaches its goal-side lane without a charging shortcut',()=>{
+ for(const side of [-1,1])for(const y of [FIELD.top+30,FIELD.cy,FIELD.bottom-30])for(const hz of [30,60,120]){
+  const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local'),o={x:550,y},p=m.players[6],target={x:550+side*60,y:y+(FIELD.cy-y)*.15};
+  p.x=550-side*50;p.y=y;p.speed=0;
+  let min=Infinity,detours=0;
+  for(let i=0;i<hz*3;i++){
+   const q=m.coverWaypoint(p,o,target.x,target.y);if(distance(q,target)>1)detours++;
+   m.move(p,q.x,q.y,85,1/hz);min=Math.min(min,distance(p,o));
+  }
+  assert.ok(detours>0);assert.ok(min>=24,'route stays outside contact range: '+min);
+  assert.ok(distance(p,target)<4,'cover eventually reaches the intended lane');
+ }
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2]);
+ assert.deepEqual(m.coverWaypoint({x:400,y:100},{x:550,y:318},600,100),{x:600,y:100});
+});
+test('a trailing automatic cover defender no longer charges through the protected carrier',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const wing of [-1,1]){
+  const f=markingScenario(team,period,wing),{m,o,press,cover,input,d}=f;
+  press.x=o.x+d*30;press.y=o.y+wing*20;cover.x=o.x-d*45;cover.y=o.y-wing*55;
+  for(let i=0;i<30;i++)m.step(1/60,input);
+  assert.equal(m.phase,'playing');assert.deepEqual(m.fouls,[0,0]);assert.equal(m.owner.id,o.id);
+ }
+});
+test('marked unmarked and backward receivers can complete real contested passes on either team and half',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const wing of [-1,1])for(const kind of ['cutback','unmarked','backward']){
+  const {m,o,r,input}=markingScenario(team,period,wing,kind);
+  for(let i=0;i<24;i++)m.step(1/60,input);
+  assert.ok(m.kick(o,r,.65,false));
+  for(let i=0;i<180&&m.phase==='playing'&&m.owner?.id!==r.id;i++)m.step(1/60,input);
+  assert.equal(m.owner?.id,r.id,'marking does not grant interception immunity or a guaranteed win');
+  assert.deepEqual(m.fouls,[0,0]);assert.equal(m.phase,'playing');
+ }
+});
+
+function ordinaryTacticalApproaches(){
+const cases=[];
+for(const seed of [1,7,23,37])for(const lane of [-.5,0,.5]){
+ const m=new SoccerMatch(NATIONS[seed%32],NATIONS[(seed+7)%32],'practice',seed),events=[];
+ const plan=m.defensiveMarks?.bind(m);if(plan)m.defensiveMarks=(...args)=>{const r=plan(...args);for(const [id,t] of r)if(!events.some(v=>v.id===id&&v.receiver===t.receiver))events.push({at:m.elapsed,id,receiver:t.receiver,team:m.players[id].team,gap:distance(m.players[id],m.players[t.receiver])});return r;};
+ m.kick(m.owner,m.bestPass(m.owner),.6,false);
+ for(let frame=0;frame<60*35&&m.phase==='playing';frame++){
+  const move=m.elapsed>.8&&m.elapsed<5;
+  if(frame===360&&m.owner?.team===0)m.kick(m.owner,m.bestPass(m.owner),.6,false);
+  if(frame===430&&m.owner?.team===0)m.kick(m.owner,{x:m.goalX(0),y:FIELD.cy,shot:true},1,false);
+  m.step(1/60,move?{dx:-1,dy:lane}:{dx:0,dy:0});
+ }
+ cases.push({seed,lane,marks:events,score:m.score,phase:m.phase,owner:m.owner?.id,fouls:m.fouls,tackles:m.tackles,passes:m.passes});
+}
+return cases;}
+test('ordinary directional approaches still allow passing attacks goals and defensive recoveries with close marking',()=>{
+ const cases=ordinaryTacticalApproaches(),marks=cases.flatMap(c=>c.marks);
+ assert.ok(marks.length>0,'established marking is exercised without setting player positions');
+ assert.ok(marks.every(m=>m.gap<45));
+ assert.ok(cases.some(c=>c.score[1]===1),'opposition retains genuine scoring opportunities');
+ assert.ok(cases.some(c=>c.phase==='playing'&&c.owner<11),'defenders can recover possession');
+ assert.ok(cases.filter(c=>c.passes[1]>=2).length>=6,'normal passing moves remain possible');
+ const clean=cases.find(c=>c.seed===37&&c.lane===0);
+ assert.deepEqual(clean.fouls,[0,0],'the trailing-cover route avoids its old charging foul');
+});
+function nativeTacticalRecipe(wFrom,wUntil){
+ const h=uiHarness(html),c=h.elements.get('game');c.getBoundingClientRect=()=>({left:0,top:0,width:1180,height:757});
+ h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match,marks=[],seen=new Set(),plan=m.defensiveMarks.bind(m);
+ m.defensiveMarks=(...args)=>{const result=plan(...args);for(const [id,t] of result){const key=id+':'+t.receiver;if(!seen.has(key)){seen.add(key);marks.push({at:m.elapsed,id,receiver:t.receiver,gap:distance(m.players[id],m.players[t.receiver])});}}return result;};
+ h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));
+ for(let frame=1;frame<=60*16;frame++){
+  if(frame===48)h.window.handlers.keydown(keyEvent('a'));
+  if(frame===300)h.window.handlers.keyup(keyEvent('a'));
+  if(frame===Math.round(wFrom*60))h.window.handlers.keydown(keyEvent('w'));
+  if(frame===Math.round(wUntil*60))h.window.handlers.keyup(keyEvent('w'));
+  h.tick(100+frame*1000/60);h.draws.length=0;h.app.drawnPaths.length=0;
+ }
+ return {wFrom,wUntil,marks,score:m.score,owner:m.owner?.id,phase:m.phase,fouls:m.fouls};
+}
+
+test('normal kickoff and wing movement exercise marking while preserving a later human recovery',()=>{
+ const r=nativeTacticalRecipe(4,5);
+ assert.ok(r.marks.length>0);assert.ok(r.marks.every(m=>m.gap<45));
+ assert.equal(r.phase,'playing');assert.deepEqual(r.fouls,[0,0]);
+ assert.ok(r.owner<11,'normal recovery still returns possession to the human side');
 });

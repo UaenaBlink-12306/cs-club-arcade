@@ -1048,6 +1048,46 @@ class SoccerMatch {
     // under human control, so this cannot revive automatic human passing.
     return !deliberate&&!moving;
   }
+  coverWaypoint(p,owner,x,y){
+    const vx=x-p.x,vy=y-p.y,travel=vx*vx+vy*vy;
+    const along=travel?clamp(((owner.x-p.x)*vx+(owner.y-p.y)*vy)/travel,0,1):0;
+    if(along<=0||along>=1||distance(p,owner)>=100||Math.hypot(p.x+vx*along-owner.x,p.y+vy*along-owner.y)>=32)return {x,y};
+    const gx=x-owner.x,gy=y-owner.y,len=Math.hypot(gx,gy)||1,nx=-gy/len,ny=gx/len;
+    let side=(p.x-owner.x)*nx+(p.y-owner.y)*ny>=0?1:-1;
+    if(owner.y+ny*side*48<FIELD.top+12||owner.y+ny*side*48>FIELD.bottom-12)side=-side;
+    return distance(p,owner)<24?{x:p.x+nx*side*48,y:p.y+ny*side*48}:{x:owner.x+nx*side*48,y:owner.y+ny*side*48};
+  }
+  defensiveMarks(chasers,controls,autoDefending){
+    const marks=new Map(),owner=this.owner,flight=this.flight;
+    if(this.setPiece||this.inShootout()||this.penaltyRun||(!owner&&(!flight||flight.shot)))return marks;
+    const attacking=owner?.team??flight.team;
+    if(owner?.keeper&&this.handOwner===owner.id)return marks;
+    for(const team of [0,1]){
+      if(team===attacking)continue;
+      const d=this.direction(team),own=this.ownGoalX(team),ballDepth=(this.ball.x-own)*d;
+      if(ballDepth<0||ballDepth>420)continue;
+      const active=controls[team]&&!autoDefending[team]?this.activeFor(team):null;
+      const defenders=this.players.filter(p=>p.team===team&&!p.keeper&&p.slot<=4&&p.id!==active&&!chasers[team].includes(p.id));
+      const receivers=this.players.filter(p=>p.team===attacking&&!p.keeper&&p!==owner&&
+        (p.x-own)*d>25&&(p.x-own)*d<250&&(p.x-own)*d<ballDepth+35&&Math.abs(p.y-FIELD.cy)<180);
+      // Retain an established nearby goal-side mark; do not send the back line
+      // chasing distant runners or remove the assigned presser and cover player.
+      const pairs=[];
+      for(const p of defenders)for(const r of receivers){
+        const gap=distance(p,r);
+        if(gap<45&&(p.x-r.x)*d<=0)pairs.push({p,r,gap,priority:gap+(r.x-own)*d*.15});
+      }
+      pairs.sort((a,b)=>a.priority-b.priority||a.p.id-b.p.id||a.r.id-b.r.id);
+      const used=new Set();let count=0;
+      for(const {p,r} of pairs){
+        if(marks.has(p.id)||used.has(r.id))continue;
+        marks.set(p.id,{x:clamp(r.x-d*28,FIELD.left+14,FIELD.right-14),
+          y:clamp(r.y+clamp((this.ball.y-r.y)*.12,-16,16),FIELD.top+25,FIELD.bottom-25),receiver:r.id});
+        used.add(r.id);if(++count===2)break;
+      }
+    }
+    return marks;
+  }
   get owner(){return this.ball.owner===null?null:this.players[this.ball.owner];}
   resetFormation(){
     for(const p of this.players){
@@ -1581,6 +1621,7 @@ class SoccerMatch {
       }
       return available.slice(0,2).map(p=>p.id);
     });
+    const defensiveMarks=this.defensiveMarks(chasers,localInputs||[input,null],autoDefending);
     for(const p of this.players){
       p.cooldown=Math.max(0,p.cooldown-dt);
       if(this.inShootout()&&p.id!==this.penalties.taker&&p.id!==this.penalties.keeper){p.speed=0;continue;}
@@ -1653,7 +1694,9 @@ class SoccerMatch {
           const goalDistance=Math.max(60,Math.abs(this.ball.x-own));
           const coordinated=(localInputs||p.team===0&&input)&&goalDistance<320;
           const coverY=coordinated?this.ball.y+(FIELD.cy-this.ball.y)*Math.min(1,60/goalDistance):this.ball.y+(p.slot%2?65:-65);
-          this.move(p,coverX,clamp(coverY,FIELD.top+25,FIELD.bottom-25),85,dt);continue;
+          // Approach the cover lane around the carrier rather than through them.
+          const waypoint=this.coverWaypoint(p,owner,coverX,clamp(coverY,FIELD.top+25,FIELD.bottom-25));
+          this.move(p,waypoint.x,waypoint.y,85,dt);continue;
         }
         if(owner&&this.kickoffGrace>0&&owner.id===this.kickoffOwner){
           const dx=p.x-owner.x,dy=p.y-owner.y,len=Math.hypot(dx,dy)||1;
@@ -1687,9 +1730,9 @@ class SoccerMatch {
         // again on reception; a real turnover still switches shape immediately.
         const f=formation[p.slot],attacking=owner?owner.team===p.team:
           this.flight?.shot===false&&this.flight.team===p.team;
-        const fraction=f[0]+(attacking?.09:-.06);
-        const tx=own+d*fraction*(FIELD.right-FIELD.left)+(this.ball.x-550)*.24+Math.sin(this.elapsed*.7+p.slot)*10;
-        const ty=FIELD.top+f[1]*(FIELD.bottom-FIELD.top)+(this.ball.y-FIELD.cy)*.24+Math.sin(this.elapsed*.8+p.id)*14;
+        const fraction=f[0]+(attacking?.09:-.06),mark=defensiveMarks.get(p.id);
+        const tx=mark?.x??(own+d*fraction*(FIELD.right-FIELD.left)+(this.ball.x-550)*.24+Math.sin(this.elapsed*.7+p.slot)*10);
+        const ty=mark?.y??(FIELD.top+f[1]*(FIELD.bottom-FIELD.top)+(this.ball.y-FIELD.cy)*.24+Math.sin(this.elapsed*.8+p.id)*14);
         this.move(p,tx,ty,attacking?94:88,dt);
       }
     }
