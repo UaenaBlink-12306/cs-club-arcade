@@ -1023,7 +1023,31 @@ class SoccerMatch {
     if(this.mode==='local')this.feedbackSerial++;
   }
   activeFor(team){return team===0?this.active:this.activeAway;}
-  selectPlayer(team,id){if(this.players[id]?.team!==team)return;if(team===0)this.active=id;else this.activeAway=id;}
+  selectPlayer(team,id,manual=false){
+    if(this.players[id]?.team!==team)return;
+    if(team===0)this.active=id;else this.activeAway=id;
+    if(manual){this.manualSelectionSerial??=[-1,-1];this.manualSelectionSerial[team]=this.possessionSerial;}
+  }
+  defensiveControl(team,control){
+    this.selectionSerial??=[-1,-1];this.manualSelectionSerial??=[-1,-1];
+    const changed=this.selectionSerial[team]!==this.possessionSerial;
+    this.selectionSerial[team]=this.possessionSerial;
+    const defending=this.owner?this.owner.team!==team:
+      this.flight?this.flight.team!==team:this.ball.lastTouch!==team;
+    if(!defending||this.inShootout()||this.setPiece||this.penaltyRun)return false;
+    const deliberate=this.manualSelectionSerial[team]===this.possessionSerial;
+    const moving=!!(control?.target||control?.dx||control?.dy);
+    const nearest=this.nearest(team,this.ball),current=this.players[this.activeFor(team)];
+    // A new opponent possession/delivery transfers control promptly. Between
+    // contacts, preserve deliberate movement; follow a clearly nearer defender
+    // during a travelling opposition pass, not every tiny distance crossover.
+    const travelling=!this.owner&&this.flight?.team!==team&&
+      distance(current,this.ball)>distance(nearest,this.ball)+24;
+    if(!deliberate&&(changed||!moving||travelling))this.selectPlayer(team,nearest.id);
+    // Idle defending still presses and covers. An owned ball always remains
+    // under human control, so this cannot revive automatic human passing.
+    return !deliberate&&!moving;
+  }
   get owner(){return this.ball.owner===null?null:this.players[this.ball.owner];}
   resetFormation(){
     for(const p of this.players){
@@ -1034,6 +1058,7 @@ class SoccerMatch {
     }
   }
   kickoff(team){
+    this.selectionSerial=[-1,-1];this.manualSelectionSerial=[-1,-1];
     this.pendingKick=null;this.restartGuard=null;this.lastRestart=null;this.offside=null;this.handOwner=null;this.penaltyRun=null;this.lastFoul=null;this.advantage=null;this.flight=null;
     this.resetFormation();
     for(const p of this.players){
@@ -1538,8 +1563,10 @@ class SoccerMatch {
     else if(!this.inShootout()&&this.mode!=='local'&&!input && (this.players[this.active].keeper||distance(this.players[this.active],this.ball)>distance(this.nearest(0,this.ball),this.ball)+70))this.active=this.nearest(0,this.ball).id;
     if(this.mode==='local'&&owner?.team===1)this.activeAway=owner.id;
     const localInputs=this.mode==='local'?[0,1].map(team=>input?.teams?.[team]||{dx:0,dy:0}):null;
+    const autoDefending=[0,1].map(team=>localInputs?this.defensiveControl(team,localInputs[team]):
+      team===0&&input?this.defensiveControl(team,input):false);
     const chasers=[0,1].map(team=>{
-      const manual=localInputs||team===0&&input,active=manual?this.activeFor(team):null;
+      const manual=localInputs||team===0&&input,active=manual&&!autoDefending[team]?this.activeFor(team):null;
       const available=this.players.filter(p=>p.team===team&&!p.keeper&&p.id!==active)
         .sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
       // Human control is not an AI pressing assignment. In our defensive third,
@@ -1559,7 +1586,7 @@ class SoccerMatch {
       if(this.inShootout()&&p.id!==this.penalties.taker&&p.id!==this.penalties.keeper){p.speed=0;continue;}
       if(this.inShootout()&&p.id===this.penalties.taker&&this.penalties.stage==='flight'){p.speed=0;continue;}
       if(this.pendingKick?.player===p.id){p.speed=0;continue;}
-      const control=localInputs?(p.id===this.activeFor(p.team)?localInputs[p.team]:null):(p.team===0&&p.id===this.active?input:null);
+      const control=autoDefending[p.team]?null:localInputs?(p.id===this.activeFor(p.team)?localInputs[p.team]:null):(p.team===0&&p.id===this.active?input:null);
       if(control){
         if(this.inShootout()&&p.id===this.penalties.keeper){
           const target=control.target?.y??p.y+(control.dy||0)*100;
@@ -1636,7 +1663,11 @@ class SoccerMatch {
         // This ends after 650 ms; flight interceptions and human defenders remain live.
         if(owner&&owner.team!==p.team&&this.elapsed-(owner.receiveAt??-100)<.65){
           const dx=p.x-owner.x,dy=p.y-owner.y,len=Math.hypot(dx,dy)||1;
-          this.move(p,owner.x+dx/len*42,owner.y+dy/len*42,85,dt);continue;
+          // Keep an established marking position. First-touch protection should
+          // stop a rush into the receiver, not make nearby defenders back away.
+          if(len<42)this.move(p,p.x,p.y,0,dt);
+          else this.move(p,owner.x+dx/len*42,owner.y+dy/len*42,85,dt);
+          continue;
         }
         // AI approaches a shielded ball around the player rather than repeatedly charging through their back.
         const recent=owner?.team!==p.team?owner:!owner?this.players.find(q=>q.team!==p.team&&this.elapsed-(q.kickAt??-100)<.32&&distance(q,p)<52):null;
@@ -1900,7 +1931,7 @@ class SoccerMatch {
     if(this.inShootout())return;
     if(this.owner?.team===team){this.selectPlayer(team,this.owner.id);return;}
     const candidates=this.players.filter(p=>p.team===team&&!p.keeper).sort((a,b)=>distance(a,this.ball)-distance(b,this.ball));
-    this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id);
+    this.selectPlayer(team,(candidates.find(p=>p.id!==this.activeFor(team))||candidates[0]).id,true);
   }
   snapshot(){
     return {at:this.elapsed,players:this.players.map(p=>{
@@ -2540,7 +2571,7 @@ canvas.addEventListener('pointerdown',event=>{
   canvas.focus({preventScroll:true});
   const screen=point(event),q=camera.unproject(screen.x,screen.y);
   if(match.owner?.team!==0&&!match.inShootout()){
-    const candidate=match.nearest(0,q);if(distance(candidate,q)<40)match.active=candidate.id;
+    const candidate=match.nearest(0,q);if(distance(candidate,q)<40)match.selectPlayer(0,candidate.id,true);
   }
   const rect=canvas.getBoundingClientRect();
   drag={bounds:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},id:event.pointerId,player:match.active,possession:match.possessionSerial,nearPlayer:distance(match.players[match.active],q)<=30,start:screen,last:screen,screenDx:0,screenDy:0,moveDx:0,moveDy:0,armed:true,dx:0,dy:0};
@@ -2686,7 +2717,7 @@ function input(){
     const a=camera.project(match.penalties.goal,FIELD.cy-40),b=camera.project(match.penalties.goal,FIELD.cy+40),n=Math.hypot(b.x-a.x,b.y-a.y)||1;
     return {dx:0,dy:0,aimDelta:clamp((dx*(b.x-a.x)+dy*(b.y-a.y))/n,-1,1)};
   }
-  // Idle is still human control; null hands the selected player to the engine AI.
+  // An idle owned ball remains human-controlled; idle defending may assist and follow the ball.
   if(!dx&&!dy)return {dx:0,dy:0};
   const v=camera.vector(match.players[match.active],dx*10,dy*10),len=Math.hypot(v.x,v.y);
   return {dx:v.x/len,dy:v.y/len};
