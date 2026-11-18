@@ -35,7 +35,7 @@ function uiHarness(html){
   const window={handlers:{},addEventListener(type,cb){this.handlers[type]=cb;}};
   const script='let drawnBall=null;const drawnPlayers=new Map(),drawnMarkers=new Map();const drawnPaths=[];let drawnAim=null,drawnForecast=null,drawnIndicatorShot=null;\n'+html.match(/<script>([\s\S]*?)<\/script>/)[1].replace('function drawBall(b){','function drawBall(b){drawnBall={...b};').replace('function drawPlayer(p,marker,ball){','function drawPlayer(p,marker,ball){drawnPlayers.set(p.id,{...p});drawnMarkers.set(p.id,{...marker});').replace('function groundPath(points,fill,stroke,width=2){',"function groundPath(points,fill,stroke,width=2){if(stroke==='#30efff')drawnPaths.push(points.map(p=>p.slice()));").replace('function drawPlayerAimHUD(p,intent,forecast){','function drawPlayerAimHUD(p,intent,forecast){drawnAim={p:{...p},intent};').replace('function drawShotForecast(prediction){','function drawShotForecast(prediction){drawnForecast=prediction;').replace('function drawControlledIndicators(shot){','function drawControlledIndicators(shot){drawnIndicatorShot=shot;');
   const app=new Function('document','window','setTimeout','clearTimeout','requestAnimationFrame',
-    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},localShotIntent,localShotPreview,localScreenDirection,localMovement,goalCelebrationFrame,interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
+    script+'\nreturn {get drawnBall(){return drawnBall},drawnPlayers,drawnMarkers,drawnPaths,get drawnAim(){return drawnAim},get drawnForecast(){return drawnForecast},get drawnIndicatorShot(){return drawnIndicatorShot},localShotIntent,localShotPreview,localScreenDirection,localMovement,goalCelebrationFrame,interpolateLiveFrame,liveRenderSample,interpolateDribbleBall,replayDribbleBall,get match(){return match},get view(){return view},get round(){return round},get champion(){return champion},get drag(){return drag},setTeam,startMatch,syncMatch,continueCup,frame,camera,render,point,playerPose,playerSkeleton,playerMesh,playerWorldTransform,keeperHeldBall,outfieldControlledBall,gaitAmplitude,GAIT_CYCLE_SCALE,playerMarkers,input,bracketMarkup,cupFinalists,opponentFor,replaySample,goalAimGuide,pointerAim,shotForecast,aimPanelObstacles,matchKits,currentKits,kitContrast,edgePointer,controlEdgeObstacles,controlledIndicators,drawControlledIndicators};'
   )(document,window,(fn,delay)=>{timerDelays.push(delay);timers.set(++tid,fn);return tid;},id=>timers.delete(id),fn=>{animation=fn;});
   return {app,elements,go,penalties,document,window,draws,timerDelays,flush(){let n=0;while(timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}},
     flushUntilMatch(){let n=0;while(!app.match&&timers.size&&n++<50){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}assert.equal(app.view,'match');},
@@ -6590,7 +6590,7 @@ test('AI goal-kick planning respects pressure and retains long clearances when n
   assert.equal(m.goalKickPass(p).id,near.id);
  }
 });
-test('AI goal-kick choice does not modify collisions or guarantee a reception',()=>{
+test('AI goal-kick outlet choice retains opposing interceptions and headed clearances',()=>{
  for(const team of [0,1])for(const period of [1,2]){
   const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local');m.period=period;m.kickoff(team);
   const p=m.players[team*11],d=m.direction(team),receiver=m.players[team*11+6],blocker=m.players[(1-team)*11+6];
@@ -6604,9 +6604,10 @@ test('AI goal-kick choice does not modify collisions or guarantee a reception',(
   const predicted={...m.ball};for(let i=0;i<84;i++)advance(predicted,1/120);
   blocker.x=predicted.x;blocker.y=predicted.y;blocker.cooldown=0;
   m.selectPlayer(1-team,blocker.id);
-  let intercepted=false;
+  let intercepted=false;const receive=m.receiveBall.bind(m);
+  m.receiveBall=q=>{const result=receive(q);if(q.id===blocker.id&&m.owner?.id===blocker.id)intercepted=true;return result;};
   for(let i=0;i<180&&!m.owner&&m.phase==='playing';i++){m.step(1/120,{dx:0,dy:0});if(m.owner?.id===blocker.id)intercepted=true;}
-  assert.ok(intercepted,'normal opposing-player capture remains possible');
+  assert.ok(intercepted,'normal opposing-player contact remains possible, including a headed clearance');
  }
 });
 
@@ -7309,4 +7310,190 @@ test('normal kickoff and wing movement exercise marking while preserving a later
  assert.ok(r.marks.length>0);assert.ok(r.marks.every(m=>m.gap<45));
  assert.equal(r.phase,'playing');assert.deepEqual(r.fouls,[0,0]);
  assert.ok(r.owner<11,'normal recovery still returns possession to the human side');
+});
+
+function aerialContactFixture(team=0,period=1,kind='attack',height=30){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],'local',37);m.period=period;m.kickoff(team);m.setPiece=null;m.restartGuard=null;m.lastRestart=null;m.kickoffGrace=0;
+ for(const p of m.players){p.x=550;p.y=FIELD.top+20+p.slot*22;p.cooldown=0;}
+ const p=m.players[team*11+9],d=m.direction(team);
+ p.x=kind==='attack'?m.goalX(team)-d*150:kind==='defence'?m.ownGoalX(team)+d*150:550;p.y=FIELD.cy;p.angle=d<0?Math.PI:0;
+ Object.assign(m.ball,{owner:null,x:p.x-d*3,y:p.y,z:height,vx:d*200,vy:0,vz:-100,lastTouch:kind==='defence'?1-team:team,lock:0});
+ m.flight={id:44,team:m.ball.lastTouch,shot:false,directed:true,receiverId:kind==='defence'?(1-team)*11+9:p.id,started:m.elapsed-.5,target:{x:p.x,y:p.y}};
+ m.active=p.team===0?p.id:9;m.activeAway=p.team===1?p.id:20;m.protection=0;m.offside=null;
+ return {m,p,d,input:{teams:[{dx:0,dy:0},{dx:0,dy:0}]}};
+}
+test('reachable descending crosses create physical headers at the contact height on both teams and halves',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const hz of [30,60,120])for(const kind of ['attack','defence','cushion']){
+  const {m,p,d,input}=aerialContactFixture(team,period,kind),before={...m.ball};
+  m.step(1/hz,input);
+  assert.equal(p.aerialKind,'header',kind);assert.ok(m.flight?.header);assert.equal(m.ball.owner,null);
+  assert.ok(m.ball.z>=24&&m.ball.z<=before.z,'a header starts in the air instead of at the boots');
+  assert.ok(m.ball.vx*d>0);assert.equal(m.pendingKick,null);assert.equal(m.snapshot().players[p.id].strikePhase,'idle');
+  assert.equal(m.flight.shot,kind==='attack');
+  if(kind==='cushion'){assert.equal(m.flight.receiverId,p.id);assert.equal(m.activeFor(team),p.id);}
+  assert.deepEqual(m.score,[0,0]);assert.deepEqual(m.fouls,[0,0]);
+ }
+});
+test('headers require descending reachable non-shot deliveries and do not steal a teammate directed pass',()=>{
+ for(const kind of ['high','rising','shot','otherReceiver','distant','headed']){
+  const {m,p,input}=aerialContactFixture();
+  if(kind==='high')m.ball.z=48;
+  if(kind==='rising')m.ball.vz=100;
+  if(kind==='shot')m.flight.shot=true;
+  if(kind==='otherReceiver')m.flight.receiverId=8;
+  if(kind==='distant')m.ball.y+=35;
+  if(kind==='headed')m.flight.header=true;
+  m.step(1/120,input);
+  assert.notEqual(p.aerialKind,'header',kind);assert.equal(m.shots[0],0);
+ }
+});
+test('headed contact still enforces offside and restart second touches before releasing another ball',()=>{
+ for(const reason of ['offside','second']){
+  const {m,p,input}=aerialContactFixture();
+  if(reason==='offside')m.offside={team:0,ids:[p.id]};else m.lastRestart={type:'Corner Kick',team:0,taker:p.id};
+  m.step(1/60,input);assert.equal(m.phase,'restart');assert.equal(m.restart.team,1);
+  assert.notEqual(p.aerialKind,'header');assert.equal(m.shots[0],0);
+ }
+});
+test('descending chest and thigh contacts keep responsive possession with a bounded visual cushion',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ for(const [height,kind] of [[20,'chest'],[10,'thigh']]){
+  const {m,p,input}=aerialContactFixture(0,1,'cushion',height);m.step(1/60,input);
+  assert.equal(m.owner?.id,p.id);assert.equal(p.aerialKind,kind);assert.equal(m.ball.z,0);
+  const shot=m.snapshot(),painted=h.app.outfieldControlledBall(shot);
+  assert.ok(painted.z>6);assert.deepEqual(m.snapshot(),shot,'render attachment does not change physics');
+  const receiver=m.players[6];receiver.x=p.x-100;receiver.y=p.y+60;
+  assert.ok(m.kick(p,receiver,.6,false),'a new pass is responsive during the trap');
+  assert.ok(h.app.outfieldControlledBall(m.snapshot()).z>0,'wind-up starts from the cushioned ball without a snap');
+  while(m.pendingKick.remaining>.00002)m.step(Math.min(1/120,m.pendingKick.remaining-.00001),input);
+  assert.ok(h.app.outfieldControlledBall(m.snapshot()).z<.001,'ball reaches the boot by kick contact');
+  advanceToContact(m);assert.equal(m.flight.receiverId,receiver.id);
+ }
+});
+test('aerial poses recover in recorded replay and reset without touching keeper holds',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const {m,p,input}=aerialContactFixture();m.step(1/60,input);const first=m.snapshot();
+ for(let i=0;i<6;i++)m.step(1/60,input);const next=m.snapshot();
+ const rendered=h.app.replaySample([first,next],.7),pose=h.app.playerPose(rendered.players[p.id],rendered.ball);
+ assert.ok(pose.heading>0);assert.ok(h.app.playerMesh(rendered.players[p.id],pose).every(f=>f.points.flat().every(Number.isFinite)));
+ const before=m.snapshot();m.phase='paused';m.step(1,input);assert.deepEqual(m.snapshot(),before);
+ m.kickoff(0);assert.equal(m.snapshot().players[p.id].aerial,0);assert.equal(m.snapshot().players[p.id].aerialKind,null);
+ const k=m.players[0];m.giveBall(k);m.handOwner=k.id;
+ assert.deepEqual(h.app.outfieldControlledBall(m.snapshot()),m.ball);
+});
+test('Shift selects a lofted open-play pass while neutral and kickoff keys keep their existing low deliveries',()=>{
+ for(const mode of ['practice','multi'])for(const team of mode==='multi'?[0,1]:[0])for(const loft of [false,true]){
+  const h=uiHarness(html);h.chooseMode(mode);if(mode==='multi')h.click('startLocal');h.flush();
+  const m=h.app.match;m.kickoff(team);const key=mode==='multi'?(team===0?'f':'k'):'e';
+  if(loft)h.window.handlers.keydown(keyEvent('Shift'));
+  h.window.handlers.keydown(keyEvent(key));h.window.handlers.keyup(keyEvent(key));assert.equal(m.pendingKick.loft,false);
+  advanceToContact(m);let n=0;
+  while(!m.owner&&n++<180)m.step(1/60,h.app.input());
+  assert.ok(m.owner?.team===team);h.window.handlers.keydown(keyEvent(key));h.window.handlers.keyup(keyEvent(key));
+  assert.equal(m.pendingKick?.loft,loft);advanceToContact(m);
+  assert.equal(m.ball.vz>0,loft);h.window.handlers.keyup(keyEvent('Shift'));
+  h.click('menuBtn');h.click('resumePause');assert.equal(m.phase,'playing');
+ }
+});
+
+function keeperParryShot(team=0,period=1,mode='practice',offset=40,hz=60){
+ const m=new SoccerMatch(NATIONS[0],NATIONS[2],mode,23);m.period=period;m.kickoff(team);
+ const p=m.players[team*11+9],k=m.players[(1-team)*11],d=m.direction(team);
+ for(const q of m.players){q.x=550;q.y=100;q.cooldown=0;}
+ k.x=m.ownGoalX(k.team)+m.direction(k.team)*18;k.y=FIELD.cy;
+ p.x=m.goalX(team)-d*240;p.y=FIELD.cy;m.giveBall(p);m.followBall();m.protection=0;
+ m.kick(p,{x:m.goalX(team)+d*20,y:FIELD.cy+offset,shot:true},1,false);
+ const events=[],parry=m.parryBall.bind(m);
+ m.parryBall=q=>{const r=parry(q);if(r)events.push({at:m.elapsed,ball:{...m.ball},keeper:q.id,holding:m.handOwner});return r;};
+ const input=mode==='local'?{teams:[{dx:0,dy:0},{dx:0,dy:0}]}:{dx:0,dy:0};
+ for(let i=0;i<hz*3&&m.phase==='playing'&&m.ball.owner!==k.id;i++)m.step(1/hz,input);
+ return {m,p,k,events,input};
+}
+test('full-stretch hard saves create a physical rebound and a correctly owned corner in both halves and teams',()=>{
+ for(const team of [0,1])for(const period of [1,2])for(const mode of ['practice','cup','local'])for(const offset of [-40,40]){
+  const {m,k,events}=keeperParryShot(team,period,mode,offset);
+  assert.equal(events.length,1);assert.equal(events[0].ball.owner,null);assert.equal(events[0].holding,null);
+  assert.equal(events[0].ball.lastTouch,k.team);assert.ok(Math.abs(events[0].ball.vy)>150);
+  assert.equal(m.phase,'restart');assert.equal(m.restart.type,'Corner Kick');assert.equal(m.restart.team,team);assert.deepEqual(m.score,[0,0]);
+  assert.equal(m.saves[k.team],1);m.takeRestart();assert.equal(m.owner.team,team);assert.equal(m.setPiece,'Corner Kick');
+ }
+});
+test('central and reachable shots remain clean catches rather than arbitrary parries',()=>{
+ for(const team of [0,1])for(const offset of [-25,0,25])for(const hz of [30,60,120]){
+  const {m,k,events}=keeperParryShot(team,1,'local',offset,hz);
+  assert.equal(events.length,0);assert.equal(m.owner?.id,k.id);assert.equal(m.handOwner,k.id);assert.equal(m.saves[k.team],1);
+ }
+});
+test('parry retains offside involvement and can be recovered rather than granting goalkeeper possession',()=>{
+ const {m,p}=aerialContactFixture(0,1,'attack'),k=m.players[11];k.x=m.ownGoalX(1)+18;k.y=FIELD.cy;
+ m.ball={owner:null,x:k.x,y:k.y+16,z:8,vx:-440,vy:12,vz:-20,lastTouch:0,lock:0};
+ m.flight={id:4,team:0,shot:true,started:m.elapsed-.2};k.diveAt=m.elapsed-.12;
+ m.offside={team:0,ids:[p.id]};assert.ok(m.parryBall(k));assert.equal(m.offside.ids[0],p.id);
+ assert.equal(m.ball.owner,null);assert.equal(m.handOwner,null);assert.equal(m.ball.lastTouch,1);
+ const other=m.players[3];m.receiveBall(other);assert.equal(m.owner?.id,other.id,'a legal rebound remains playable');
+});
+
+function ordinaryLoftReception(hz=60,width=1180){
+ const h=uiHarness(html),canvas=h.elements.get('game');canvas.getBoundingClientRect=()=>({left:0,top:0,width,height:757});
+ h.chooseMode('practice');h.flush();h.tick(100);const m=h.app.match,headers=[],poses=[];
+ const head=m.headerBall.bind(m);m.headerBall=p=>{const r=head(p);if(p.aerialKind==='header')headers.push({at:m.elapsed,id:p.id,ball:{...m.ball}});return r;};
+ for(let frame=1;frame<=hz*3;frame++){
+  if(frame===1||frame===Math.round(1.35*hz)){
+   if(frame!==1)h.window.handlers.keydown(keyEvent('Shift'));
+   h.window.handlers.keydown(keyEvent('e'));h.window.handlers.keyup(keyEvent('e'));h.window.handlers.keyup(keyEvent('Shift'));
+  }
+  h.tick(100+frame*1000/hz);
+  if(headers.length){const p=h.app.drawnPlayers.get(headers[0].id);poses.push({at:m.elapsed,heading:h.app.playerPose(p,h.app.drawnBall).heading,kind:p.aerialKind,ballZ:h.app.drawnBall.z});}
+  h.draws.length=0;h.app.drawnPaths.length=0;
+ }
+ return {headers,poses,owner:m.owner?.id,score:m.score,phase:m.phase,passes:m.passes};
+}
+test('ordinary E then Shift E creates a visible header and controllable reception without field-state injection',()=>{
+ for(const hz of [30,60,120])for(const width of [508,1180]){
+  const r=ordinaryLoftReception(hz,width);
+  assert.equal(r.headers.length,1);assert.equal(r.headers[0].id,9);
+  assert.ok(r.headers[0].ball.z>=27);assert.equal(r.headers[0].ball.owner,null);
+  assert.equal(r.owner,9);assert.equal(r.phase,'playing');assert.deepEqual(r.score,[0,0]);
+  assert.ok(r.poses.some(p=>p.heading>.6),'the rendered head action is present at contact');
+  assert.ok(r.poses.some(p=>p.heading===0),'the pose returns to ordinary play');
+ }
+});
+test('a header can score or be saved and is not a guaranteed finishing outcome',()=>{
+ for(const saved of [false,true]){
+  const {m,p,input}=aerialContactFixture(),k=m.players[11];
+  if(saved){k.x=m.ownGoalX(1)+18;k.y=FIELD.cy;}
+  else{k.x=550;k.y=100;}
+  m.step(1/60,input);assert.ok(m.flight?.header&&m.flight.shot);
+  for(let i=0;i<180&&m.phase==='playing'&&m.owner?.id!==k.id;i++)m.step(1/60,input);
+  if(saved){assert.equal(m.owner?.id,k.id);assert.deepEqual(m.score,[0,0]);}
+  else assert.deepEqual(m.score,[1,0]);
+ }
+});
+
+test('pointer loft preserves intended teammate targeting and clears on pause without lofting shots',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();const m=h.app.match,c=h.elements.get('game'),p=m.owner;
+ m.giveBall(p);h.app.render(0);const target=m.players[6],start=h.app.camera.project(p.x,p.y),end=h.app.camera.project(target.x,target.y);
+ h.window.handlers.keydown(keyEvent('Shift'));c.handlers.pointerdown(pointerEvent(h,start.x,start.y));c.handlers.pointermove(pointerEvent(h,end.x,end.y));
+ assert.equal(h.app.pointerAim(h.app.drag).loft,true);c.handlers.pointerup(pointerEvent(h,end.x,end.y));
+ assert.equal(m.pendingKick?.loft,true);assert.equal(m.pendingKick.target.receiverId,target.id);
+ h.click('menuBtn');h.click('resumePause');advanceToContact(m);
+ let n=0;while(!m.owner&&m.phase==='playing'&&n++<180)m.step(1/60,h.app.input());
+ if(m.owner?.team===0){h.window.handlers.keydown(keyEvent(' '));h.window.handlers.keyup(keyEvent(' '));assert.equal(m.pendingKick?.loft,false);}
+});
+test('live interpolation snaps a headed or parried flight at actual contact instead of blending through it',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const {m,input}=aerialContactFixture();const a=m.snapshot();m.step(1/60,input);const b=m.snapshot();
+ assert.notEqual(a.flightId,b.flightId);assert.equal(a.ball.owner,null);assert.equal(b.ball.owner,null);
+ for(const alpha of [0,.25,.5,.75,1])assert.deepEqual(h.app.interpolateLiveFrame(a,b,alpha),b);
+});
+test('heading pose reaches toward an incoming ball on either side without changing player or ball simulation',()=>{
+ const h=uiHarness(html);h.chooseMode('practice');h.flush();
+ const p={...h.app.match.snapshot().players[9],aerial:1,aerialKind:'header',angle:0,headerReady:0};
+ for(const side of [-1,1]){
+  const b={owner:null,x:p.x+side*3,y:p.y,z:31},q={...p,aerialFrom:{x:b.x,y:b.y,z:b.z}},before=JSON.stringify({q,b});
+  const pose=h.app.playerPose(q,b),head=h.app.playerWorldTransform(q,pose)([0,.2,33.1]);
+  assert.ok((head[0]-p.x)*side>1,'lean toward contact rather than away');
+  assert.ok(Math.hypot(head[0]-b.x,head[1]-b.y,head[2]-(b.z*.65+1.5))<3.5);
+  assert.equal(JSON.stringify({q,b}),before);
+ }
 });
